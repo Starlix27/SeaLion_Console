@@ -286,6 +286,3 @@ sealion/
 ├── ...                 # 26 tool totali
 ```
 
-## Licenza
-
-MIT
