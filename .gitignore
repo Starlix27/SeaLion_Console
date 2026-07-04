@@ -1,0 +1,6 @@
+runs/
+tools/ReconSpider/
+tools/FinalRecon/
+tools/ReconSpider.zip
+__pycache__/
+*.pyc

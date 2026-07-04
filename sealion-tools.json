@@ -1,0 +1,17 @@
+{
+  "tools": [
+    {
+      "name": "nmap",
+      "install": "sudo apt install nmap",
+      "help_text": "Usalo per scansioni iniziali",
+      "aliases": [
+        "portscan"
+      ],
+      "category": "recon",
+      "notes": [
+        "Parti con scan SYN"
+      ],
+      "source": ""
+    }
+  ]
+}
