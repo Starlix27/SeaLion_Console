@@ -50,6 +50,8 @@ source ~/.bashrc
 
 **Requisiti:** Python 3.10+, Linux (WSL supportato). `rich` opzionale per rendering Markdown migliorato (`pip install rich`).
 
+**Auto-update:** ogni volta che avvii `slconsole`, il programma esegue automaticamente `git pull` per aggiornarsi all'ultima versione. Nessuna azione manuale richiesta.
+
 ---
 
 ## Utilizzo
@@ -240,12 +242,18 @@ Il comando `vuln <protocollo>` mostra per ogni protocollo: descrizione dettaglia
 
 ## Aggiungere un tool
 
-Crea una sottocartella con due file:
+Crea una sottocartella in `tool/` con due file:
 
 ```
-mio-tool/
+tool/mio-tool/
 ├── help.md        # Documentazione in Markdown
 └── install.py     # Script di installazione
+```
+
+Per aggiungere un protocollo vulnerabile, crea un file `.md` in `vuln/`:
+
+```
+vuln/mio-protocollo.md
 ```
 
 `install.py` deve esporre:
@@ -272,17 +280,24 @@ Il tool apparirà automaticamente in `slconsole list`.
 
 ```
 sealion/
-├── sealion.py          # Codice principale (console + vuln DB)
+├── sealion.py          # Codice principale della console
 ├── setup.sh            # Installer automatico (crea comando slconsole)
 ├── pyproject.toml      # Metadata pacchetto
 ├── ascii-art.txt       # Logo ASCII
 ├── README.md
 │
-├── nmap/               # Ogni tool ha la sua cartella:
-│   ├── help.md         #   documentazione
-│   └── install.py      #   script di installazione
-├── seclists/
-├── enum4linux-ng/
-├── ...                 # 26 tool totali
+├── tool/               # 26 tool — ogni sottocartella contiene:
+│   ├── nmap/
+│   │   ├── help.md     #   documentazione in Markdown
+│   │   └── install.py  #   script di installazione
+│   ├── seclists/
+│   ├── enum4linux-ng/
+│   └── ...
+│
+├── vuln/               # 15 protocolli — un file .md per ognuno:
+│   ├── ftp.md
+│   ├── smb.md
+│   ├── ssh.md
+│   └── ...
 ```
 
