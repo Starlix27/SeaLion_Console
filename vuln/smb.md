@@ -86,5 +86,6 @@ smbstatus                                             # Chi è connesso, version
 - **nmap**
 - **enum4linux-ng**
 - **smbmap**
-- **crackmapexec**
+- **netexec**
+- **hydra**
 - **impacket**

@@ -49,4 +49,5 @@ evil-winrm -i <IP> -u 'user' -H 'HASH_NTLM'         # Pass-the-Hash (senza passw
 
 - **nmap**
 - **evil-winrm**
-- **crackmapexec**
+- **netexec**
+- **hydra**

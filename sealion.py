@@ -346,6 +346,8 @@ def run_console() -> int:
             state.current_tool = None
             state.current_vuln = None
             state.last_vuln_tools = []
+            state._find_results = []
+            state._find_query = ""
             print("Tornato alla console principale.")
             continue
 
@@ -358,6 +360,24 @@ def run_console() -> int:
             if rc != 0:
                 print(f"Installazione terminata con errore (codice {rc}).")
             continue
+
+        if argv[0] == "use" and len(argv) == 2 and argv[1].isdigit() and state._find_results:
+            idx = int(argv[1]) - 1
+            if 0 <= idx < len(state._find_results):
+                src, label, file_path, _ = state._find_results[idx]
+                text = file_path.read_text(encoding="utf-8", errors="replace")
+                _render_highlighted(text, state._find_query)
+                if src == "tool":
+                    tool = find_tool(label)
+                    if tool:
+                        state.current_tool = tool
+                        state.current_vuln = None
+                        state.last_vuln_tools = []
+                elif src == "vuln":
+                    state.current_vuln = file_path.stem
+                    state.current_tool = None
+                    state.last_vuln_tools = _extract_vuln_tools(text)
+                continue
 
         known_commands = {"list", "install", "use", "search", "vuln", "notes", "find", "back", "help", "?", "--version", "-h", "--help"}
         if argv[0] not in known_commands:
@@ -545,7 +565,7 @@ VULN_NAMES: dict[str, str] = {
 
 NOTES_CATEGORIES: dict[str, list[str]] = {
     "Metodologia": ["footprinting", "info-gathering"],
-    "Offensive": ["shells", "password-cracking"],
+    "Offensive": ["shells", "password-cracking", "network-services"],
     "Protocolli": ["ssh-notes", "impacket-notes"],
 }
 
@@ -554,6 +574,7 @@ NOTES_NAMES: dict[str, str] = {
     "info-gathering": "Information Gathering — Ricognizione",
     "shells": "Shell & Post-Exploitation — Reverse, Bind, Web Shell, PrivEsc",
     "password-cracking": "Password Cracking — JtR & Hashcat",
+    "network-services": "Network Services — WinRM, SSH, RDP, SMB",
     "ssh-notes": "SSH — Note Operative",
     "impacket-notes": "Impacket — Toolkit Python per reti Windows",
 }
@@ -760,44 +781,10 @@ def cmd_find(args: argparse.Namespace, state: ConsoleState | None = None) -> int
         for snippet in ctx[:2]:
             print(f"       \033[2m{snippet}\033[0m")
     print(f"\nUsa 'use <num>' per aprire la pagina con il termine evidenziato in blu.")
-    print("Digita il numero della pagina da aprire, oppure 'back' per uscire.\n")
 
     if state is not None:
         state._find_results = matches
         state._find_query = query.strip()
-
-    if not sys.stdin.isatty():
-        return 0
-
-    while True:
-        try:
-            choice = input("\033[94mfind>\033[0m ").strip()
-        except (EOFError, KeyboardInterrupt):
-            print()
-            break
-
-        if choice.lower() in {"back", "q", "quit", "exit", ""}:
-            break
-
-        if not choice.isdigit():
-            print("Inserisci un numero o 'back'.")
-            continue
-
-        idx = int(choice) - 1
-        if idx < 0 or idx >= len(matches):
-            print(f"Scegli un numero tra 1 e {len(matches)}.")
-            continue
-
-        _, _, file_path, _ = matches[idx]
-        text = file_path.read_text(encoding="utf-8", errors="replace")
-        print(f"\033[2J\033[H", end="")
-        _render_highlighted(text, query)
-        print(f"\n\033[90m--- Premi Invio per tornare alla lista ---\033[0m")
-        try:
-            input()
-        except (EOFError, KeyboardInterrupt):
-            print()
-            break
 
     return 0
 

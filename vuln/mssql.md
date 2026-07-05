@@ -49,4 +49,4 @@ nxc mssql <IP> -u 'sa' -p 'password' --query 'SELECT @@version;'
 
 - **nmap**
 - **impacket**
-- **crackmapexec**
+- **netexec**

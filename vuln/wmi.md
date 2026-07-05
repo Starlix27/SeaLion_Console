@@ -34,4 +34,4 @@ nxc smb <IP> -u 'user' -p 'password' -x 'whoami'     # Esecuzione via SMB/WMI
 *Installa con `use <tool>` + `install`*
 
 - **impacket**
-- **crackmapexec**
+- **netexec**

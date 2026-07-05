@@ -49,4 +49,6 @@ xfreerdp /u:user /p:'password' /v:<IP> /cert:ignore /dynamic-resolution +clipboa
 
 - **nmap**
 - **rdp-sec-check**
-- **crackmapexec**
+- **netexec**
+- **hydra**
+- **xfreerdp**

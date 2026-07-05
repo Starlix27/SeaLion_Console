@@ -78,6 +78,7 @@ john ssh.hash --show                                  # Mostra risultato
 
 - **nmap**
 - **ssh-audit**
+- **hydra**
 - **john**
 - **hashcat**
 - **seclists**
