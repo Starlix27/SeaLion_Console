@@ -18,6 +18,30 @@
 
 ---
 
+## Credenziali di Default
+
+Prima di fare brute force, controlla sempre se il prodotto ha credenziali di default note.
+
+```bash
+# Installazione
+pip3 install defaultcreds-cheat-sheet
+
+# Cerca credenziali di default per un prodotto
+creds search <product>
+```
+
+```bash
+# Esempi
+creds search tomcat
+creds search jenkins
+creds search mysql
+creds search phpmyadmin
+```
+
+> Fonte: https://github.com/ihebski/DefaultCreds-cheat-sheet
+
+---
+
 ## John The Ripper (JtR)
 
 Usato per crack password con bruteforce e dizionario. La versione **Jumbo** aggiunge funzioni extra e performance migliorate.

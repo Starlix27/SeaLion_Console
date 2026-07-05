@@ -45,6 +45,12 @@ evil-winrm -i 10.129.42.197 -u user -p password
 2. **Asimmetrica:** Usa una chiave pubblica (che hanno tutti) e una privata (segreta). Se un hacker ruba la chiave privata, può entrare nel server senza bisogno di password
 3. **Hashing:** Una funzione matematica a senso unico usata per verificare che i messaggi non siano stati alterati durante il viaggio
 
+### Combinazione username:password 
+
+```bash
+hydra -C user_pass.list ssh://10.100.38.23
+```
+
 ### Brute force con Hydra
 
 ```bash

@@ -35,7 +35,8 @@ Le share possono mostrare una gerarchia diversa dal disco fisico del server.
 
 ```bash
 smbclient -N -L //<IP>                               # Elenca share (null session, senza password)
-smbclient //<IP>/<share>                              # Accedi a una share specifica
+smbclient //<IP>/<share>                             # Accedi a una share specifica
+smbclient -U username //<IP>/<share>                 # Accedi con uno username
   > !cat flag.txt                                    # '!' esegue comandi sul TUO PC senza uscire
 smbmap -H <IP>                                       # Mappa permessi READ/WRITE su ogni share
 smbmap -H <IP> -u 'user' -p 'pass'                   # Con credenziali specifiche
