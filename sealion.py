@@ -21,6 +21,7 @@ except ImportError:
 APP_NAME = "SeaLion Console"
 VERSION = "0.1.0"
 ASCII_FILE = Path(__file__).with_name("ascii-art.txt")
+SEALSAY_FILE = Path(__file__).with_name("sealion_say.txt")
 PROJECT_ROOT = Path(__file__).resolve().parent
 TOOL_ROOT = PROJECT_ROOT / "tool"
 VULN_ROOT = PROJECT_ROOT / "vuln"
@@ -73,6 +74,14 @@ def load_logo() -> str:
     return APP_NAME
 
 
+def load_sealsay_art() -> str:
+    if SEALSAY_FILE.exists():
+        content = SEALSAY_FILE.read_text(encoding="utf-8", errors="replace").rstrip()
+        if content:
+            return content
+    return load_logo()
+
+
 def normalize(value: str) -> str:
     return value.strip().lower()
 
@@ -118,6 +127,48 @@ def print_banner() -> None:
     print(f"\n{APP_NAME} — personal tool vault\n")
 
 
+def _read_sealsay_message(argv: list[str]) -> str:
+    if argv:
+        return " ".join(argv).strip()
+
+    if not sys.stdin.isatty():
+        piped = sys.stdin.read().strip()
+        if piped:
+            return piped
+
+    return "SeaLion"
+
+
+def _render_sealsay_bubble(message: str) -> None:
+    lines = message.splitlines() or [""]
+    width = max(len(line) for line in lines)
+
+    print(f" {'_' * (width + 2)}")
+    if len(lines) == 1:
+        print(f"< {lines[0].ljust(width)} >")
+    else:
+        for index, line in enumerate(lines):
+            if index == 0:
+                left, right = "/", "\\"
+            elif index == len(lines) - 1:
+                left, right = "\\", "/"
+            else:
+                left, right = "|", "|"
+            print(f"{left} {line.ljust(width)} {right}")
+    print(f" {'-' * (width + 2)}")
+
+
+def print_sealsay(message: str) -> None:
+    _render_sealsay_bubble(message)
+    print(load_sealsay_art())
+
+
+def cmd_sealsay(args: argparse.Namespace, state: ConsoleState | None = None) -> int:
+    message = _read_sealsay_message(getattr(args, "message", []))
+    print_sealsay(message)
+    return 0
+
+
 def print_tool_help(tool: ToolEntry) -> None:
     text = tool.help_file.read_text(encoding="utf-8", errors="replace").rstrip()
     render_markdown(text)
@@ -133,6 +184,7 @@ def print_tool_entry(tool: ToolEntry, index: int | None = None) -> None:
 def print_help_text() -> None:
     print()
     print("Comandi disponibili:")
+    print("  sealsay [testo]   Stampa un messaggio in stile cowsay con il sealion")
     print("  list               Elenca i tool disponibili")
     print("  search <query>     Cerca tool per nome o testo")
     print("  use <nome|num>     Seleziona un tool")
@@ -251,6 +303,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("-h", "--help", action="store_true")
     parser.add_argument("--version", action="store_true")
     subparsers = parser.add_subparsers(dest="command")
+    sealsay_p = subparsers.add_parser("sealsay")
+    sealsay_p.add_argument("message", nargs="*")
     subparsers.add_parser("list")
     install_p = subparsers.add_parser("install")
     install_p.add_argument("target", nargs="?")
@@ -301,6 +355,7 @@ def run_command(argv: list[str], state: ConsoleState | None = None) -> int:
         return 0
 
     handlers = {
+        "sealsay": cmd_sealsay,
         "list": cmd_list,
         "install": cmd_install,
         "use": cmd_use,
@@ -379,7 +434,7 @@ def run_console() -> int:
                     state.last_vuln_tools = _extract_vuln_tools(text)
                 continue
 
-        known_commands = {"list", "install", "use", "search", "vuln", "notes", "find", "back", "help", "?", "--version", "-h", "--help"}
+        known_commands = {"sealsay", "list", "install", "use", "search", "vuln", "notes", "find", "back", "help", "?", "--version", "-h", "--help"}
         if argv[0] not in known_commands:
             print("Comando non riconosciuto. Digita 'help' per i comandi.")
             continue
@@ -808,6 +863,20 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     return run_command(argv, ConsoleState())
+
+
+def sealsay_main(argv: list[str] | None = None) -> int:
+    if argv is None:
+        argv = sys.argv[1:]
+
+    parser = argparse.ArgumentParser(prog="sealsay", add_help=False)
+    parser.add_argument("message", nargs="*")
+    try:
+        args = parser.parse_args(argv)
+    except SystemExit:
+        return 1
+
+    return cmd_sealsay(args)
 
 
 if __name__ == "__main__":

@@ -14,6 +14,7 @@ rich = ["rich"]
 
 [project.scripts]
 slconsole = "sealion:main"
+sealsay = "sealion:sealsay_main"
 
 [tool.setuptools]
 py-modules = ["sealion"]

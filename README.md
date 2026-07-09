@@ -58,6 +58,7 @@ source ~/.bashrc
 
 ```bash
 slconsole              # Avvia la console interattiva
+sealsay "ciao"        # Stampa un messaggio con il sealion ASCII art
 slconsole list         # Elenca i tool disponibili
 slconsole search <q>   # Cerca tool per nome o descrizione
 slconsole vuln smb     # Cheatsheet vulnerabilità SMB

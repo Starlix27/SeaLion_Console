@@ -4,7 +4,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ENTRY="$SCRIPT_DIR/sealion.py"
 BIN_DIR="$HOME/.local/bin"
-CMD_NAME="slconsole"
+CMD_NAMES=("slconsole" "sealsay")
 
 echo "=== SeaLion Console — Setup ==="
 echo ""
@@ -15,14 +15,15 @@ chmod +x "$ENTRY"
 # Crea la cartella bin se non esiste
 mkdir -p "$BIN_DIR"
 
-# Crea il launcher (wrapper sottile, non symlink — funziona anche su NTFS/WSL)
-cat > "$BIN_DIR/$CMD_NAME" <<EOF
+# Crea i launcher (wrapper sottile, non symlink — funziona anche su NTFS/WSL)
+for CMD_NAME in "${CMD_NAMES[@]}"; do
+    cat > "$BIN_DIR/$CMD_NAME" <<EOF
 #!/usr/bin/env bash
 exec python3 "$ENTRY" "\$@"
 EOF
-chmod +x "$BIN_DIR/$CMD_NAME"
-
-echo "Launcher creato: $BIN_DIR/$CMD_NAME"
+    chmod +x "$BIN_DIR/$CMD_NAME"
+    echo "Launcher creato: $BIN_DIR/$CMD_NAME"
+done
 echo ""
 
 # Verifica PATH
@@ -44,4 +45,4 @@ else
 fi
 
 echo ""
-echo "Installazione completata. Scrivi 'slconsole' per avviare."
+echo "Installazione completata. Scrivi 'slconsole' o 'sealsay' per avviare."
