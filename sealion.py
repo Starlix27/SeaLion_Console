@@ -143,19 +143,14 @@ def _build_sealsay_bubble(message: str) -> list[str]:
     lines = message.splitlines() or [""]
     width = max(len(line) for line in lines)
     bubble: list[str] = []
-    bubble.append(f" {'_' * (width + 2)}")
+    bubble.append(f" .{'─' * (width + 2)}.")
     if len(lines) == 1:
-        bubble.append(f"< {lines[0].ljust(width)} >")
+        bubble.append(f"│  {lines[0].ljust(width)} │")
     else:
-        for index, line in enumerate(lines):
-            if index == 0:
-                left, right = "/", "\\"
-            elif index == len(lines) - 1:
-                left, right = "\\", "/"
-            else:
-                left, right = "|", "|"
-            bubble.append(f"{left} {line.ljust(width)} {right}")
-    bubble.append(f" {'-' * (width + 2)}")
+        for line in lines:
+            bubble.append(f"│  {line.ljust(width)} │")
+    bubble.append(f" '{'─' * (width + 2)}'")
+    bubble.append(f"/")
     return bubble
 
 
@@ -166,7 +161,7 @@ def print_sealsay(message: str) -> None:
     art_width = max(len(l) for l in art_lines) if art_lines else 0
     bubble_height = len(bubble_lines)
 
-    mouth_row = 1
+    mouth_row = 6
     bubble_start = max(0, mouth_row - bubble_height)
 
     total = max(len(art_lines), bubble_start + bubble_height)

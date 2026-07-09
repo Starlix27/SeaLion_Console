@@ -10,6 +10,10 @@
   - `./linpeas.sh` — genera un report completo
 
 ---
+## Reverse Shell Generator
+
+https://www.revshells.com/
+
 
 ## Reverse Shell
 
