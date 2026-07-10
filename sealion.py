@@ -149,7 +149,7 @@ def _build_sealsay_bubble(message: str) -> list[str]:
     else:
         for line in lines:
             bubble.append(f"│  {line.ljust(width)} │")
-    bubble.append(f" '{'─' * (width + 2)}'")
+    bubble.append(f" '{'─' * (width + 1)}'")
     bubble.append(f"/")
     return bubble
 
