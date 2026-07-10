@@ -5,12 +5,13 @@ import argparse
 import importlib.util
 import re
 import platform
+import textwrap
 import subprocess
 import sys
 import shlex
 from dataclasses import dataclass, field
 from pathlib import Path
-from shutil import which
+from shutil import get_terminal_size, which
 
 try:
     import readline  # type: ignore
@@ -139,16 +140,18 @@ def _read_sealsay_message(argv: list[str]) -> str:
     return "SeaLion"
 
 
-def _build_sealsay_bubble(message: str) -> list[str]:
-    lines = message.splitlines() or [""]
-    width = max(len(line) for line in lines)
+def _build_sealsay_bubble(message: str, max_width: int = 40) -> list[str]:
+    wrapped: list[str] = []
+    for raw_line in message.splitlines() or [""]:
+        if len(raw_line) <= max_width:
+            wrapped.append(raw_line)
+        else:
+            wrapped.extend(textwrap.wrap(raw_line, width=max_width) or [""])
+    width = max(len(line) for line in wrapped)
     bubble: list[str] = []
     bubble.append(f" .{'─' * (width + 2)}.")
-    if len(lines) == 1:
-        bubble.append(f"│  {lines[0].ljust(width)} │")
-    else:
-        for line in lines:
-            bubble.append(f"│  {line.ljust(width)} │")
+    for line in wrapped:
+        bubble.append(f"│  {line.ljust(width)} │")
     bubble.append(f" '{'─' * (width + 2)}'")
     bubble.append(f"/")
     return bubble
@@ -156,9 +159,13 @@ def _build_sealsay_bubble(message: str) -> list[str]:
 
 def print_sealsay(message: str) -> None:
     art_lines = load_sealsay_art().splitlines()
-    bubble_lines = _build_sealsay_bubble(message)
-
     art_width = max(len(l) for l in art_lines) if art_lines else 0
+
+    term_width = get_terminal_size((80, 24)).columns
+    bubble_decoration = 6  # "│  " + " │"
+    max_text = max(20, term_width - art_width - 2 - bubble_decoration)
+
+    bubble_lines = _build_sealsay_bubble(message, max_width=max_text)
     bubble_height = len(bubble_lines)
 
     mouth_row = 6
