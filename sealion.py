@@ -478,7 +478,7 @@ def _smart_input(prompt: str) -> str | None:
             ch = sys.stdin.read(1)
 
             if ch == "\x1b":
-                if select.select([sys.stdin], [], [], 0.05)[0]:
+                if select.select([sys.stdin], [], [], 0.15)[0]:
                     ch2 = sys.stdin.read(1)
                     if ch2 == "[":
                         ch3 = sys.stdin.read(1)
@@ -511,11 +511,15 @@ def _smart_input(prompt: str) -> str | None:
                             pos = len(buf)
                             refresh()
                         elif ch3 == "3":
-                            if select.select([sys.stdin], [], [], 0.05)[0]:
+                            if select.select([sys.stdin], [], [], 0.15)[0]:
                                 sys.stdin.read(1)
                             if pos < len(buf):
                                 buf.pop(pos)
                                 refresh()
+                    elif ch2 == "\x1b":
+                        sys.stdout.write("\r\n")
+                        sys.stdout.flush()
+                        return None
                 else:
                     sys.stdout.write("\r\n")
                     sys.stdout.flush()

