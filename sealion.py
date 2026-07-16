@@ -643,7 +643,7 @@ def run_console() -> int:
             continue
 
         if line is None:
-            print("Arrivederci!")
+            print("**Auh! Auh! Ouh!**")
             return 0
 
         line = line.strip()
