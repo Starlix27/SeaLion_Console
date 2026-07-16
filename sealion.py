@@ -60,10 +60,12 @@ def auto_update() -> None:
     if not (PROJECT_ROOT / ".git").is_dir():
         return
     try:
-        subprocess.run(
-            ["git", "-C", str(PROJECT_ROOT), "fetch", REPO_URL, "main"],
+        r = subprocess.run(
+            ["git", "-C", str(PROJECT_ROOT), "fetch", "--force", REPO_URL, "main"],
             capture_output=True, text=True, timeout=15,
         )
+        if r.returncode != 0:
+            return
         local = subprocess.run(
             ["git", "-C", str(PROJECT_ROOT), "rev-parse", "HEAD"],
             capture_output=True, text=True,
@@ -72,12 +74,36 @@ def auto_update() -> None:
             ["git", "-C", str(PROJECT_ROOT), "rev-parse", "FETCH_HEAD"],
             capture_output=True, text=True,
         ).stdout.strip()
-        if local != remote:
-            subprocess.run(
-                ["git", "-C", str(PROJECT_ROOT), "reset", "--hard", "FETCH_HEAD"],
-                capture_output=True, text=True, timeout=15,
-            )
-            print(f"\033[92m[update]\033[0m Aggiornato a {remote[:7]}")
+        if not remote or local == remote:
+            return
+        subprocess.run(
+            ["git", "-C", str(PROJECT_ROOT), "checkout", "."],
+            capture_output=True, text=True, timeout=10,
+        )
+        subprocess.run(
+            ["git", "-C", str(PROJECT_ROOT), "reset", "--hard", "FETCH_HEAD"],
+            capture_output=True, text=True, timeout=15,
+        )
+        subprocess.run(
+            ["git", "-C", str(PROJECT_ROOT), "clean", "-fd"],
+            capture_output=True, text=True, timeout=10,
+        )
+        print(f"\033[92m[update]\033[0m Aggiornato a {remote[:7]}")
+    except Exception:
+        pass
+
+
+def _auto_install_deps() -> None:
+    if not is_linux():
+        return
+    missing = [pkg for pkg in ["chafa"] if not which(pkg)]
+    if not missing:
+        return
+    try:
+        subprocess.run(
+            ["sudo", "-n", "apt", "install", "-y"] + missing,
+            capture_output=True, timeout=30,
+        )
     except Exception:
         pass
 
@@ -1303,6 +1329,7 @@ def main(argv: list[str] | None = None) -> int:
         argv = sys.argv[1:]
 
     auto_update()
+    _auto_install_deps()
 
     if not argv:
         return run_console()
