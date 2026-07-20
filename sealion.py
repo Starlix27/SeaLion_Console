@@ -1114,16 +1114,16 @@ def _extract_context(text: str, query_lower: str, context_lines: int = 1) -> lis
 
 
 def _render_highlighted(text: str, query: str) -> None:
-    """Print markdown text with query highlighted in blue."""
     lower_q = query.lower()
+    output: list[str] = []
     for line in text.splitlines():
         idx = line.lower().find(lower_q)
         if idx >= 0:
             ql = len(query)
-            highlighted = line[:idx] + f"\033[94;1m{line[idx:idx+ql]}\033[0m" + line[idx+ql:]
-            print(highlighted)
+            output.append(line[:idx] + f"\033[94;1m{line[idx:idx+ql]}\033[0m" + line[idx+ql:])
         else:
-            print(line)
+            output.append(line)
+    _paged_print(output)
 
 
 def _serve_help_main() -> None:
