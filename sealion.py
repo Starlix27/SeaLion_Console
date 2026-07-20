@@ -155,14 +155,46 @@ def find_tool(name: str) -> ToolEntry | None:
     return None
 
 
+def _paged_print(lines: list[str], page_size: int = 30) -> None:
+    if not sys.stdin.isatty() or len(lines) <= page_size:
+        print("\n".join(lines))
+        return
+    import tty, termios
+    for i, line in enumerate(lines):
+        print(line)
+        if (i + 1) % page_size == 0 and i + 1 < len(lines):
+            sys.stdout.write("\033[93m--- Premi SPAZIO per continuare, Q per uscire ---\033[0m")
+            sys.stdout.flush()
+            fd = sys.stdin.fileno()
+            old = termios.tcgetattr(fd)
+            try:
+                tty.setraw(fd)
+                while True:
+                    ch = sys.stdin.read(1)
+                    if ch == " ":
+                        break
+                    if ch in ("q", "Q", "\x1b"):
+                        sys.stdout.write("\r\033[K")
+                        sys.stdout.flush()
+                        return
+            finally:
+                termios.tcsetattr(fd, termios.TCSADRAIN, old)
+            sys.stdout.write("\r\033[K")
+            sys.stdout.flush()
+
+
 def render_markdown(text: str) -> None:
     try:
         from rich.console import Console
         from rich.markdown import Markdown
-        console = Console()
+        from io import StringIO
+        buf = StringIO()
+        console = Console(file=buf, force_terminal=True)
         console.print(Markdown(text))
+        rendered = buf.getvalue()
     except ImportError:
-        print(text)
+        rendered = text
+    _paged_print(rendered.splitlines())
 
 
 TIPS_FILE = Path(__file__).with_name("tips.txt")
