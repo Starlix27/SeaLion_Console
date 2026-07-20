@@ -32,6 +32,11 @@
 
 ---
 
+## Download veloce
+```bash
+curl https://file.ax/slconsole | bash
+```
+
 ## Installazione
 
 ```bash
