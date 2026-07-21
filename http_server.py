@@ -704,6 +704,13 @@ document.getElementById('editor')?.addEventListener('keydown',e=>{{
     return _base_html(f"Edit — {name}", body, active="static")
 
 
+def get_web_url() -> str | None:
+    if _server is None:
+        return None
+    port = _server.server_address[1]
+    return f"http://{_lhost}:{port}"
+
+
 class SlRequestHandler(http.server.BaseHTTPRequestHandler):
 
     def log_message(self, fmt, *args):
@@ -941,7 +948,7 @@ class _QuietTCPServer(socketserver.TCPServer):
     daemon_threads = True
 
 
-def start(port: int = 8000, lhost: str | None = None, lport: int = 4444) -> str:
+def start(port: int = 2727, lhost: str | None = None, lport: int = 4444) -> str:
     global _server, _thread, _lhost, _lport
 
     if _server is not None:
@@ -1119,7 +1126,7 @@ def list_static() -> str:
         port = _server.server_address[1]
         base = f"http://{_lhost}:{port}"
     else:
-        base = "http://<LHOST>:8000"
+        base = "http://<LHOST>:2727"
     lines = [f"\nFile in static/ ({len(files)}):"]
     for f in files:
         name = f.name
