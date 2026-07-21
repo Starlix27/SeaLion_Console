@@ -160,27 +160,46 @@ def _paged_print(lines: list[str], page_size: int = 30) -> None:
         print("\n".join(lines))
         return
     import tty, termios
-    for i, line in enumerate(lines):
-        print(line)
-        if (i + 1) % page_size == 0 and i + 1 < len(lines):
-            sys.stdout.write("\033[93m--- Premi SPAZIO per continuare, Q per uscire ---\033[0m")
+    pos = 0
+    total = len(lines)
+    fd = sys.stdin.fileno()
+    old = termios.tcgetattr(fd)
+
+    def show_page():
+        end = min(pos + page_size, total)
+        for line in lines[pos:end]:
+            print(line)
+        remaining = total - end
+        if remaining > 0:
+            sys.stdout.write(f"\033[93m--- ↓ continua ({remaining} righe) · Q esci ---\033[0m")
             sys.stdout.flush()
-            fd = sys.stdin.fileno()
-            old = termios.tcgetattr(fd)
-            try:
-                tty.setraw(fd)
-                while True:
-                    ch = sys.stdin.read(1)
-                    if ch == " ":
-                        break
-                    if ch in ("q", "Q", "\x1b"):
+
+    show_page()
+    try:
+        tty.setraw(fd)
+        while pos + page_size < total:
+            ch = sys.stdin.read(1)
+            if ch == "\x1b":
+                ch2 = sys.stdin.read(1)
+                if ch2 == "[":
+                    ch3 = sys.stdin.read(1)
+                    if ch3 in ("B", "C"):
                         sys.stdout.write("\r\033[K")
                         sys.stdout.flush()
-                        return
-            finally:
-                termios.tcsetattr(fd, termios.TCSADRAIN, old)
-            sys.stdout.write("\r\033[K")
-            sys.stdout.flush()
+                        pos += page_size
+                        show_page()
+                    elif ch3 in ("A", "D"):
+                        pass
+                else:
+                    sys.stdout.write("\r\033[K")
+                    sys.stdout.flush()
+                    return
+            elif ch in ("q", "Q"):
+                sys.stdout.write("\r\033[K")
+                sys.stdout.flush()
+                return
+    finally:
+        termios.tcsetattr(fd, termios.TCSADRAIN, old)
 
 
 def render_markdown(text: str) -> None:

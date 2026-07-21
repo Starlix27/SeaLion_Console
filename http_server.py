@@ -370,7 +370,7 @@ def _base_html(title: str, body: str, active: str = "") -> str:
     return f"""<!DOCTYPE html>
 <html lang="it"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>{html.escape(title)} — SLWeb</title>
+<title>{html.escape(title)} — SeaLion_Web</title>
 <link rel="stylesheet" href="{_CSS_HLJS}">
 <style>{_CSS}</style>
 <script src="{_JS_MARKED}"></script>
@@ -378,7 +378,7 @@ def _base_html(title: str, body: str, active: str = "") -> str:
 </head><body>
 <div class="topbar">
 <div class="topbar-left">
-<a href="/" class="logo"><span class="prompt">&gt;_</span> SLWeb</a>
+<a href="/" class="logo"><span class="prompt">&gt;_</span> SeaLion_Web</a>
 <nav>{nav_html}</nav>
 </div>
 </div>
