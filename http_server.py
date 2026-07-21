@@ -162,7 +162,6 @@ transition:all .15s;font-weight:500}
 /* Home layout */
 .home-layout{display:grid;grid-template-columns:220px 1fr;gap:0;
 min-height:calc(100vh - 45px)}
-@media(max-width:768px){.home-layout{grid-template-columns:1fr;min-height:auto}}
 
 .sidebar{display:flex;flex-direction:column;gap:0;
 background:var(--surface);border-right:1px solid var(--border);padding:16px}
@@ -232,7 +231,7 @@ color:var(--text);font-size:14px;transition:background .1s;border-radius:4px}
 .item-list li a .item-desc{color:var(--text2);font-size:12px}
 
 .breadcrumb{font-size:12px;color:var(--text2);margin-bottom:18px;
-display:flex;align-items:center;gap:6px}
+display:flex;align-items:center;gap:6px;flex-wrap:wrap}
 .breadcrumb a{color:var(--text2)}
 .breadcrumb a:hover{color:var(--accent)}
 .breadcrumb span{color:var(--text2)}
@@ -266,6 +265,10 @@ font-size:12px;text-transform:uppercase;letter-spacing:.3px}
 .md-content strong{color:#fff;font-weight:600}
 .md-content a{color:var(--accent)}
 
+/* Table scroll wrapper (injected by JS) */
+.table-scroll{overflow-x:auto;-webkit-overflow-scrolling:touch;margin:14px 0}
+.table-scroll table{margin:0}
+
 /* Static / files */
 .file-card{background:var(--surface);border:1px solid var(--border);
 border-radius:6px;padding:12px 16px;margin:6px 0;display:flex;
@@ -273,7 +276,7 @@ align-items:center;justify-content:space-between;transition:border-color .15s}
 .file-card:hover{border-color:var(--accent)}
 .file-card .fname{font-weight:600;font-size:13px;color:var(--accent)}
 .file-card .fsize{color:var(--text2);font-size:12px}
-.file-card .fcmd{font-size:11px;color:var(--text2)}
+.file-card .fcmd{font-size:11px;color:var(--text2);word-break:break-all}
 .file-card .actions{display:flex;gap:6px;margin-left:12px;flex-shrink:0}
 
 .btn{display:inline-flex;align-items:center;gap:5px;padding:5px 12px;border-radius:4px;
@@ -309,6 +312,56 @@ font-family:inherit;font-size:13px;line-height:1.6;resize:vertical}
 margin-bottom:10px}
 .editor-topbar .fname{font-size:16px;font-weight:700;color:var(--accent)}
 .save-status{font-size:12px;color:var(--text2);margin-left:12px}
+
+/* ===== MOBILE RESPONSIVE ===== */
+@media(max-width:768px){
+  body{font-size:13px}
+  .topbar{padding:8px 12px;flex-wrap:wrap;gap:8px}
+  .topbar-left{gap:10px;flex-wrap:wrap;width:100%}
+  .topbar .logo{font-size:14px}
+  .topbar nav{gap:0;flex-wrap:wrap}
+  .topbar nav a{font-size:12px;padding:6px 10px}
+  .home-layout{grid-template-columns:1fr;min-height:auto}
+  .sidebar{border-right:none;border-bottom:1px solid var(--border);padding:12px 16px}
+  .main-area{padding:16px}
+  .seal-scene{flex-direction:column;align-items:center}
+  .seal-art{font-size:7px;line-height:1.1;align-self:center}
+  .seal-bubble-wrap{padding-top:8px;width:100%}
+  .seal-bubble{margin-left:0;max-width:100%;font-size:12px}
+  .seal-bubble::before{display:none}
+  .terminal-input{padding-top:12px}
+  .terminal-input .prompt-line{font-size:12px}
+  .terminal-input input{font-size:14px;min-height:36px}
+  .suggestions .sug{padding:12px 14px;min-height:44px}
+  .container{padding:16px 12px 60px}
+  .page-title{font-size:18px}
+  .item-list li a{padding:14px 12px;flex-direction:column;gap:4px}
+  .item-list li a .item-desc{font-size:11px}
+  .md-content{font-size:13px}
+  .md-content h1{font-size:20px}
+  .md-content h2{font-size:17px}
+  .md-content h3{font-size:14px}
+  .md-content pre{padding:10px;font-size:11px}
+  .md-content code{font-size:11px}
+  .md-content th,.md-content td{padding:6px 8px;font-size:11px}
+  .file-card{flex-direction:column;align-items:flex-start;gap:8px;padding:12px}
+  .file-card .actions{margin-left:0;width:100%}
+  .file-card .actions .btn{flex:1;justify-content:center;padding:8px 12px}
+  .file-card .fsize{margin:0}
+  .btn{padding:8px 14px;font-size:13px;min-height:40px}
+  .btn-group{gap:6px}
+  .modal{padding:16px;width:95%}
+  .modal textarea{min-height:140px}
+  .editor-wrap textarea{min-height:250px;font-size:12px}
+  .editor-topbar{flex-direction:column;align-items:flex-start;gap:8px}
+  .editor-topbar .fname{font-size:14px}
+  .breadcrumb{font-size:11px}
+}
+@media(max-width:400px){
+  .topbar nav a{font-size:11px;padding:5px 7px}
+  .seal-art{font-size:5.5px}
+  .container{padding:12px 8px 40px}
+}
 """
 
 _JS_MARKED = "https://cdn.jsdelivr.net/npm/marked@15/marked.min.js"
@@ -515,6 +568,7 @@ def _page_md(section: str, section_label: str, name: str, md_text: str) -> str:
 <script>
 document.getElementById('md-target').innerHTML=marked.parse(`{safe_md}`);
 document.querySelectorAll('#md-target pre code').forEach(el=>{{if(typeof hljs!=='undefined')hljs.highlightElement(el);}});
+document.querySelectorAll('#md-target table').forEach(t=>{{const w=document.createElement('div');w.className='table-scroll';t.parentNode.insertBefore(w,t);w.appendChild(t);}});
 </script>
 </div>"""
     return _base_html(name, body, active=section)
