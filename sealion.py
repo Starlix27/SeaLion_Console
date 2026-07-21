@@ -175,31 +175,33 @@ def _paged_print(lines: list[str], page_size: int = 30) -> None:
             sys.stdout.flush()
 
     show_page()
-    try:
-        tty.setraw(fd)
-        while pos + page_size < total:
+    while pos + page_size < total:
+        try:
+            tty.setraw(fd)
             ch = sys.stdin.read(1)
             if ch == "\x1b":
                 ch2 = sys.stdin.read(1)
                 if ch2 == "[":
                     ch3 = sys.stdin.read(1)
                     if ch3 in ("B", "C"):
+                        termios.tcsetattr(fd, termios.TCSADRAIN, old)
                         sys.stdout.write("\r\033[K")
                         sys.stdout.flush()
                         pos += page_size
                         show_page()
-                    elif ch3 in ("A", "D"):
-                        pass
+                        continue
                 else:
+                    termios.tcsetattr(fd, termios.TCSADRAIN, old)
                     sys.stdout.write("\r\033[K")
                     sys.stdout.flush()
                     return
             elif ch in ("q", "Q"):
+                termios.tcsetattr(fd, termios.TCSADRAIN, old)
                 sys.stdout.write("\r\033[K")
                 sys.stdout.flush()
                 return
-    finally:
-        termios.tcsetattr(fd, termios.TCSADRAIN, old)
+        finally:
+            termios.tcsetattr(fd, termios.TCSADRAIN, old)
 
 
 def render_markdown(text: str) -> None:
