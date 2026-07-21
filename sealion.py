@@ -370,17 +370,24 @@ def print_tool_context(tool: ToolEntry) -> None:
     print("\nDigita 'install' per installare, 'back' per tornare indietro.")
 
 
-def tool_match_score(tool: ToolEntry, query: str) -> int:
+def tool_match_score(tool: ToolEntry, query: str) -> tuple[int, str]:
+    """Return (score, reason) — lower score = better match. -1 = no match."""
     nq = normalize(query)
     name = normalize(tool.name)
     if name.startswith(nq):
-        return 0
+        return (0, "nome")
     if nq in name:
-        return 1
-    help_text = tool.help_file.read_text(encoding="utf-8", errors="replace").lower()
-    if nq in help_text:
-        return 2
-    return -1
+        return (1, "nome")
+    help_text = tool.help_file.read_text(encoding="utf-8", errors="replace")
+    if nq in help_text.lower():
+        for line in help_text.splitlines():
+            if nq in line.lower():
+                snippet = line.strip()
+                if len(snippet) > 80:
+                    snippet = snippet[:77] + "..."
+                return (2, snippet)
+        return (2, "menzionato nel help")
+    return (-1, "")
 
 
 def resolve_target(target: str | None, state: ConsoleState | None) -> ToolEntry | None:
@@ -713,7 +720,7 @@ def run_console() -> int:
     print_banner()
     url = _serve_get_url()
     if url:
-        print(f"  \033[96mWeb:\033[0m {url}")
+        print(f"  \033[96mSLWeb:\033[0m {url}")
     print("Digita 'help' per i comandi, \033[1mESC\033[0m per uscire.")
     while True:
         prompt = f"\033[94mConsole({state.current_tool.name})> \033[0m" if state.current_tool else f"\033[94mslconsole({state.current_vuln})> \033[0m" if state.current_vuln else "\033[94mslconsole> \033[0m"
@@ -833,33 +840,58 @@ def _read_key() -> str:
 PAGE_SIZE = 5
 
 
-def _print_search_page(results: list, query: str, page: int) -> int:
+def _highlight_name(name: str, query: str) -> str:
+    """Highlight the query substring in the tool name with blue+bold."""
+    lower = name.lower()
+    ql = query.lower()
+    idx = lower.find(ql)
+    if idx >= 0:
+        return name[:idx] + f"\033[94;1m{name[idx:idx+len(ql)]}\033[0m" + name[idx+len(ql):]
+    return name
+
+
+def _print_search_page(results: list[tuple], query: str, page: int) -> int:
     total = len(results)
     total_pages = (total + PAGE_SIZE - 1) // PAGE_SIZE
     start = page * PAGE_SIZE
     end = min(start + PAGE_SIZE, total)
     print(f"\033[2J\033[H", end="")
-    print(f"\nRisultati per '{query}' ({total} trovati):\n")
+    print(f"\n  \033[1mRicerca:\033[0m '\033[94m{query}\033[0m'  —  {total} risultat{'o' if total == 1 else 'i'}\n")
+
     for i in range(start, end):
-        print_tool_entry(results[i], i + 1)
-    print(f"\n  Pagina {page + 1}/{total_pages}", end="")
+        tool, score, reason = results[i]
+        highlighted = _highlight_name(tool.name, query)
+        if score <= 1:
+            print(f"  \033[92m[{i+1}]\033[0m {highlighted}")
+        else:
+            print(f"  \033[93m[{i+1}]\033[0m {highlighted}")
+            print(f"       \033[2m↳ {reason}\033[0m")
+
+    print()
     if total_pages > 1:
-        print("  [← →] naviga  [q] esci", end="")
-    print("\n")
+        bar = ""
+        for p in range(total_pages):
+            if p == page:
+                bar += f" \033[94;1m[{p+1}]\033[0m"
+            else:
+                bar += f" \033[2m {p+1} \033[0m"
+        print(f"  {bar}   \033[2m← → naviga · q esci\033[0m\n")
+    else:
+        print(f"  \033[2mDigita 'use <num>' per aprire un tool.\033[0m\n")
     return total_pages
 
 
 def cmd_search(args: argparse.Namespace, state: ConsoleState | None = None) -> int:
     query = " ".join(args.query) if isinstance(args.query, list) else args.query
     query = normalize(query)
-    scored = [(t, tool_match_score(t, query)) for t in discover_tools()]
-    matches = sorted([(t, s) for t, s in scored if s >= 0], key=lambda x: x[1])
+    scored = [(t, *tool_match_score(t, query)) for t in discover_tools()]
+    matches = sorted([(t, s, r) for t, s, r in scored if s >= 0], key=lambda x: x[1])
     if not matches:
         print("Nessun risultato.")
         return 0
-    results = [t for t, _ in matches]
+    results = matches
     if state is not None:
-        state.last_search_results = results
+        state.last_search_results = [t for t, _, _ in results]
 
     total_pages = _print_search_page(results, query, 0)
     if total_pages <= 1:
@@ -1172,7 +1204,7 @@ def _render_highlighted(text: str, query: str) -> None:
 def _print_web_link(section: str, key: str) -> None:
     url = _serve_get_url()
     if url:
-        print(f"\n  \033[96mWeb:\033[0m {url}/{section}/{key}\n")
+        print(f"\n  \033[96mSLWeb:\033[0m {url}/{section}/{key}\n")
 
 
 def _serve_help_main() -> None:

