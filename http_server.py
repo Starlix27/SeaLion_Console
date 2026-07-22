@@ -503,16 +503,21 @@ def _base_html(title: str, body: str, active: str = "") -> str:
         box.classList.add('open');return;
       }}
       const cats={{notes:'Notes',vuln:'Vuln',tools:'Tools'}};
-      box.innerHTML=data.results.map(r=>
-        `<a class="sr-item" href="${{r.href}}">` +
-        `<span class="sr-tag">${{cats[r.section]||r.section}}</span>` +
-        `<span class="sr-name">${{esc(r.name)}}</span>` +
-        `<span class="sr-ctx">${{esc(r.context)}}</span></a>`
-      ).join('');
+      box.innerHTML=data.results.map(r=>{{
+        const href=r.href+'?q='+encodeURIComponent(q);
+        return `<a class="sr-item" href="${{href}}">` +
+          `<span class="sr-tag">${{cats[r.section]||r.section}}</span>` +
+          `<span class="sr-name">${{hl(r.name,q)}}</span>` +
+          `<span class="sr-ctx">${{hl(r.context,q)}}</span></a>`;
+      }}).join('');
       box.classList.add('open');
     }}).catch(()=>{{box.innerHTML='<div class="sr-empty">Errore</div>';box.classList.add('open');}});
   }}
   function esc(s){{const d=document.createElement('div');d.textContent=s;return d.innerHTML;}}
+  function hl(text,q){{
+    const e=esc(text),re=new RegExp('('+esc(q).replace(/[.*+?^${{}}()|[\\]\\\\]/g,'\\\\$&')+')','gi');
+    return e.replace(re,'<mark>$1</mark>');
+  }}
   input.addEventListener('input',()=>{{clearTimeout(timer);timer=setTimeout(doSearch,250);}});
   input.addEventListener('focus',()=>{{if(box.innerHTML)box.classList.add('open');}});
   document.addEventListener('click',e=>{{if(!e.target.closest('.search-box'))box.classList.remove('open');}});
