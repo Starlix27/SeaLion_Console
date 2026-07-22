@@ -313,6 +313,46 @@ margin-bottom:10px}
 .editor-topbar .fname{font-size:16px;font-weight:700;color:var(--accent)}
 .save-status{font-size:12px;color:var(--text2);margin-left:12px}
 
+/* Search bar */
+.topbar-right{display:flex;align-items:center}
+.search-box{position:relative}
+.search-box input{background:var(--bg);border:1px solid var(--border);border-radius:4px;
+padding:5px 12px;color:var(--text);font-family:inherit;font-size:12px;width:220px;
+outline:none;transition:border-color .15s}
+.search-box input:focus{border-color:var(--accent)}
+.search-box input::placeholder{color:var(--text2)}
+.search-results{position:absolute;top:100%;right:0;width:380px;max-height:420px;
+overflow-y:auto;background:var(--surface);border:1px solid var(--border);
+border-radius:6px;margin-top:6px;display:none;z-index:20;
+box-shadow:0 8px 24px rgba(0,0,0,.4)}
+.search-results.open{display:block}
+.sr-item{display:flex;flex-direction:column;gap:2px;padding:10px 14px;
+color:var(--text);text-decoration:none;border-bottom:1px solid var(--border);
+transition:background .1s}
+.sr-item:last-child{border-bottom:none}
+.sr-item:hover{background:var(--hover)}
+.sr-tag{font-size:10px;text-transform:uppercase;letter-spacing:.5px;
+color:var(--green);font-weight:600}
+.sr-name{font-size:13px;font-weight:600;color:var(--accent)}
+.sr-ctx{font-size:11px;color:var(--text2);white-space:nowrap;overflow:hidden;
+text-overflow:ellipsis}
+.sr-empty{padding:16px;text-align:center;color:var(--text2);font-size:13px}
+
+/* Search results page */
+.search-page-item{background:var(--surface);border:1px solid var(--border);
+border-radius:6px;padding:14px 18px;margin:8px 0;transition:border-color .15s}
+.search-page-item:hover{border-color:var(--accent)}
+.search-page-item a{text-decoration:none}
+.search-page-item .sp-header{display:flex;align-items:center;gap:10px;margin-bottom:4px}
+.search-page-item .sp-tag{font-size:10px;text-transform:uppercase;letter-spacing:.5px;
+padding:2px 8px;border-radius:3px;font-weight:600}
+.search-page-item .sp-tag.notes{background:rgba(88,166,255,.15);color:var(--accent)}
+.search-page-item .sp-tag.vuln{background:rgba(248,81,73,.15);color:var(--red)}
+.search-page-item .sp-tag.tools{background:rgba(63,185,80,.15);color:var(--green)}
+.search-page-item .sp-name{font-size:15px;font-weight:600;color:var(--accent)}
+.search-page-item .sp-ctx{font-size:12px;color:var(--text2);margin-top:4px;
+line-height:1.5}
+
 /* ===== MOBILE RESPONSIVE ===== */
 @media(max-width:768px){
   body{font-size:13px}
@@ -356,6 +396,12 @@ margin-bottom:10px}
   .editor-topbar{flex-direction:column;align-items:flex-start;gap:8px}
   .editor-topbar .fname{font-size:14px}
   .breadcrumb{font-size:11px}
+  .search-box input{width:100%;font-size:14px;padding:8px 12px}
+  .topbar-right{width:100%;order:3}
+  .search-box{width:100%}
+  .search-results{width:100%;left:0;right:0}
+  .search-page-item{padding:12px}
+  .search-page-item .sp-name{font-size:14px}
 }
 @media(max-width:400px){
   .topbar nav a{font-size:11px;padding:5px 7px}
@@ -434,8 +480,52 @@ def _base_html(title: str, body: str, active: str = "") -> str:
 <a href="/" class="logo"><span class="prompt">&gt;_</span> SeaLion_Web</a>
 <nav>{nav_html}</nav>
 </div>
+<div class="topbar-right">
+<div class="search-box">
+<input type="text" id="global-search" placeholder="Cerca..." autocomplete="off" spellcheck="false">
+<div class="search-results" id="search-results"></div>
+</div>
+</div>
 </div>
 {body}
+<script>
+(function(){{
+  const input=document.getElementById('global-search');
+  const box=document.getElementById('search-results');
+  let timer=null;
+  function doSearch(){{
+    const q=input.value.trim();
+    if(q.length<2){{box.classList.remove('open');box.innerHTML='';return;}}
+    fetch('/api/search?q='+encodeURIComponent(q))
+    .then(r=>r.json()).then(data=>{{
+      if(!data.results||!data.results.length){{
+        box.innerHTML='<div class="sr-empty">Nessun risultato</div>';
+        box.classList.add('open');return;
+      }}
+      const cats={{notes:'Notes',vuln:'Vuln',tools:'Tools'}};
+      box.innerHTML=data.results.map(r=>
+        `<a class="sr-item" href="${{r.href}}">` +
+        `<span class="sr-tag">${{cats[r.section]||r.section}}</span>` +
+        `<span class="sr-name">${{esc(r.name)}}</span>` +
+        `<span class="sr-ctx">${{esc(r.context)}}</span></a>`
+      ).join('');
+      box.classList.add('open');
+    }}).catch(()=>{{box.innerHTML='<div class="sr-empty">Errore</div>';box.classList.add('open');}});
+  }}
+  function esc(s){{const d=document.createElement('div');d.textContent=s;return d.innerHTML;}}
+  input.addEventListener('input',()=>{{clearTimeout(timer);timer=setTimeout(doSearch,250);}});
+  input.addEventListener('focus',()=>{{if(box.innerHTML)box.classList.add('open');}});
+  document.addEventListener('click',e=>{{if(!e.target.closest('.search-box'))box.classList.remove('open');}});
+  input.addEventListener('keydown',e=>{{
+    if(e.key==='Escape'){{box.classList.remove('open');input.blur();}}
+    if(e.key==='Enter'){{
+      const first=box.querySelector('.sr-item');
+      if(first)location.href=first.href;
+      else if(input.value.trim().length>=2)location.href='/search?q='+encodeURIComponent(input.value.trim());
+    }}
+  }});
+}})();
+</script>
 </body></html>"""
 
 
@@ -758,6 +848,88 @@ document.getElementById('editor')?.addEventListener('keydown',e=>{{
     return _base_html(f"Edit — {name}", body, active="static")
 
 
+def _search_all(query: str) -> list[dict]:
+    """Search across notes, vuln, and tools. Return list of result dicts."""
+    q = query.strip().lower()
+    if not q:
+        return []
+    results: list[dict] = []
+
+    for stem, display in _discover_notes():
+        md_file = NOTES_ROOT / f"{stem}.md"
+        if not md_file.is_file():
+            continue
+        text = md_file.read_text(encoding="utf-8", errors="replace")
+        if q in text.lower() or q in stem.lower():
+            ctx = _extract_search_context(text, q)
+            results.append({"section": "notes", "name": display, "key": stem,
+                            "href": f"/notes/{stem}", "context": ctx})
+
+    for stem, display in _discover_vulns():
+        md_file = VULN_ROOT / f"{stem}.md"
+        if not md_file.is_file():
+            continue
+        text = md_file.read_text(encoding="utf-8", errors="replace")
+        if q in text.lower() or q in stem.lower():
+            ctx = _extract_search_context(text, q)
+            results.append({"section": "vuln", "name": display, "key": stem,
+                            "href": f"/vuln/{stem}", "context": ctx})
+
+    for tname, display in _discover_tools():
+        tool_dir = TOOL_ROOT / tname
+        help_f = tool_dir / "help.md"
+        if not help_f.exists():
+            help_f = tool_dir / "help.txt"
+        if not help_f.exists():
+            continue
+        text = help_f.read_text(encoding="utf-8", errors="replace")
+        if q in text.lower() or q in tname.lower():
+            ctx = _extract_search_context(text, q)
+            results.append({"section": "tools", "name": display, "key": tname,
+                            "href": f"/tools/{tname}", "context": ctx})
+
+    return results
+
+
+def _extract_search_context(text: str, query_lower: str, max_len: int = 120) -> str:
+    for line in text.splitlines():
+        if query_lower in line.lower():
+            s = line.strip()
+            if s.startswith("#"):
+                s = s.lstrip("# ")
+            if len(s) > max_len:
+                s = s[:max_len - 3] + "..."
+            return s
+    return ""
+
+
+def _page_search_results(query: str) -> str:
+    results = _search_all(query)
+    eq = html.escape(query)
+    cat_labels = {"notes": "Notes", "vuln": "Vuln", "tools": "Tools"}
+
+    cards = ""
+    for r in results:
+        tag_cls = r["section"]
+        tag_label = cat_labels.get(r["section"], r["section"])
+        cards += f"""<a href="{r['href']}" style="text-decoration:none"><div class="search-page-item">
+<div class="sp-header"><span class="sp-tag {tag_cls}">{tag_label}</span>
+<span class="sp-name">{html.escape(r['name'])}</span></div>
+<div class="sp-ctx">{html.escape(r['context'])}</div>
+</div></a>\n"""
+
+    if not results:
+        cards = f'<p style="color:var(--text2);text-align:center;padding:40px 0">Nessun risultato per "{eq}"</p>'
+
+    body = f"""<div class="container">
+<div class="breadcrumb"><a href="/">Home</a> <span>/</span> Ricerca</div>
+<div class="page-title">Ricerca: {eq}</div>
+<div class="page-sub">{len(results)} risultat{'o' if len(results) == 1 else 'i'}</div>
+{cards}
+</div>"""
+    return _base_html(f"Ricerca: {query}", body)
+
+
 def get_web_url() -> str | None:
     if _server is None:
         return None
@@ -787,7 +959,10 @@ class SlRequestHandler(http.server.BaseHTTPRequestHandler):
         return {"lhost": _lhost, "lport": _lport}
 
     def do_GET(self) -> None:
-        path = self.path.split("?")[0].rstrip("/") or "/"
+        from urllib.parse import urlparse, parse_qs
+        parsed = urlparse(self.path)
+        path = parsed.path.rstrip("/") or "/"
+        qs = parse_qs(parsed.query)
         pv = self._payload_vars()
 
         ua = self.headers.get("User-Agent", "")
@@ -804,6 +979,13 @@ class SlRequestHandler(http.server.BaseHTTPRequestHandler):
             self._send_text(REVSHELL_BASH.format(**pv))
         elif path == "/sh":
             self._send_text(REVSHELL_PYTHON.format(**pv))
+        elif path == "/api/search":
+            q = qs.get("q", [""])[0]
+            results = _search_all(q)
+            self._send_json({"results": results})
+        elif path == "/search":
+            q = qs.get("q", [""])[0]
+            self._send_html(_page_search_results(q))
         elif path == "/notes":
             self._send_html(_page_list("Notes", "notes", _discover_notes()))
         elif path.startswith("/notes/"):
