@@ -1305,13 +1305,22 @@ Non serve un listener sulla tua macchina — lo script lavora solo sulla shell c
 
 ## Cosa fa lo script
 
-Tenta cinque metodi in cascata:
+Tenta 9 metodi in cascata (usa il primo disponibile):
 
-1. **python3 pty** — `python3 -c 'import pty; pty.spawn("/bin/bash")'`
-2. **python2 pty** — stesso metodo con python2
-3. **script** — `script -qc /bin/bash /dev/null`
-4. **expect** — `expect -c 'spawn /bin/bash; interact'`
-5. **perl** — `perl -e 'exec "/bin/bash";'`
+| # | Metodo | Comando | TTY piena |
+|---|--------|---------|-----------|
+| 1 | **python3 pty.fork** | Full PTY proxy con raw mode + resize | Sì |
+| 2 | **python2 pty.fork** | Stesso approccio con python2 | Sì |
+| 3 | **script** | `script -qc /bin/bash /dev/null` | Parziale |
+| 4 | **expect** | `expect -c 'spawn /bin/bash; interact'` | Parziale |
+| 5 | **perl** | `perl -e 'exec "/bin/sh";'` | No |
+| 6 | **ruby** | `ruby -e 'exec "/bin/sh"'` | No |
+| 7 | **lua** | `lua -e 'os.execute("/bin/sh")'` | No |
+| 8 | **awk** | `awk 'BEGIN {system("/bin/sh")}'` | No |
+| 9 | **/bin/sh -i** | Fallback diretto | No |
+
+I metodi 1-2 (python) danno una TTY completa con frecce, Tab, history e resize.
+I metodi 3-4 danno una TTY parziale. I metodi 5-9 spawnano una shell ma senza TTY.
 
 ## Differenza con /upgrade
 
@@ -1319,7 +1328,7 @@ Tenta cinque metodi in cascata:
 |---|---|---|
 | Connessione | Nuova reverse verso LHOST:LPORT | Nessuna, lavora in-place |
 | Prerequisito | Listener (socat/nc) | Nessuno |
-| TTY piena | Sì (socat) | Dipende dal metodo |
+| TTY piena | Sì (socat) | Sì con python, parziale con altri |
 | Quando usarlo | Vuoi una shell dedicata stabile | Vuoi upgradare quella che hai |
 """)
 

