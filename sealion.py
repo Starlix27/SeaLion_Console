@@ -318,6 +318,7 @@ def print_help_text() -> None:
     print("  serve <azione>     Server HTTP di delivery (serve help per dettagli)")
     print("  serve list         Elenca i file in static/")
     print("  loot [azione]      Gestisci file ricevuti dalla vulnbox (loot help)")
+    print("  wordfind [url]     Wizard wordlist per fuzzing/bruteforce")
     print("  sealsay [testo]    Stampa un messaggio in stile cowsay")
     print("  back               Torna alla console principale")
     print("  help               Mostra questo aiuto")
@@ -462,6 +463,8 @@ def build_parser() -> argparse.ArgumentParser:
     loot_p = subparsers.add_parser("loot", add_help=False)
     loot_p.add_argument("action", nargs="?", default="list")
     loot_p.add_argument("target", nargs="?", default=None)
+    wordfind_p = subparsers.add_parser("wordfind", add_help=False)
+    wordfind_p.add_argument("url", nargs="?", default=None)
     return parser
 
 
@@ -477,7 +480,7 @@ def setup_readline() -> None:
 
 
 _COMPLETABLE = sorted(["sealsay", "list", "install", "use", "search", "vuln",
-                        "notes", "find", "back", "help", "serve", "loot", "exit"])
+                        "notes", "find", "back", "help", "serve", "loot", "wordfind", "exit"])
 _input_history: list[str] = []
 
 
@@ -699,6 +702,7 @@ def run_command(argv: list[str], state: ConsoleState | None = None) -> int:
         "find": cmd_find,
         "serve": cmd_serve,
         "loot": cmd_loot,
+        "wordfind": cmd_wordfind,
     }
     handler = handlers.get(args.command)
     if handler is None:
@@ -815,7 +819,7 @@ def run_console() -> int:
                     state.last_vuln_tools = _extract_vuln_tools(text)
                 continue
 
-        known_commands = {"sealsay", "list", "install", "use", "search", "vuln", "notes", "find", "back", "help", "?", "--version", "-h", "--help", "serve", "loot"}
+        known_commands = {"sealsay", "list", "install", "use", "search", "vuln", "notes", "find", "back", "help", "?", "--version", "-h", "--help", "serve", "loot", "wordfind"}
         if argv[0] not in known_commands:
             print("Comando non riconosciuto. Digita 'help' per i comandi.")
             continue
@@ -1596,6 +1600,533 @@ def cmd_loot(args: argparse.Namespace, state: ConsoleState | None = None) -> int
     print(f"Azione sconosciuta: {action}")
     print("Azioni disponibili: list, read <nome|num>, clear, help")
     return 1
+
+
+# ---------------------------------------------------------------------------
+# wordfind — Wizard per wordlist SecLists
+# ---------------------------------------------------------------------------
+
+_SECLISTS_BASE = "/usr/share/seclists"
+
+_SCOPE_MENU = [
+    ("dir", "Directory / file"),
+    ("sub", "Sottodomini"),
+    ("vhost", "Virtual host (vhost)"),
+    ("param", "Parametri (GET/POST)"),
+    ("user", "Username"),
+    ("pass", "Password"),
+    ("api", "API endpoint"),
+]
+
+_TECH_MENU = [
+    ("php", "PHP", [".php", ".phtml"]),
+    ("asp", "ASP / ASPX", [".asp", ".aspx"]),
+    ("java", "Java / JSP", [".jsp", ".do", ".action"]),
+    ("python", "Python (Django/Flask)", [".py"]),
+    ("node", "Node.js", [".js", ".json"]),
+    ("wp", "WordPress", [".php"]),
+    ("joomla", "Joomla", [".php"]),
+    ("generic", "Non so / generico", []),
+]
+
+_INTENSITY_DIR = [
+    ("fast", "Veloce", "~5k parole", "⚡ primo giro"),
+    ("medium", "Media", "~20k parole", "⚖️  buon compromesso"),
+    ("full", "Completa", "~220k parole", "🔍 esaustiva"),
+]
+
+_INTENSITY_SUB = [
+    ("fast", "Veloce", "~100 sottodomini", "⚡"),
+    ("medium", "Media", "~5k sottodomini", "⚖️"),
+    ("full", "Completa", "~110k sottodomini", "🔍"),
+]
+
+_INTENSITY_GENERIC = [
+    ("fast", "Veloce", "wordlist piccola", "⚡"),
+    ("medium", "Media", "wordlist media", "⚖️"),
+    ("full", "Completa", "wordlist grande", "🔍"),
+]
+
+_API_TYPE_MENU = [
+    ("rest", "REST generico"),
+    ("graphql", "GraphQL"),
+    ("swagger", "Swagger / OpenAPI"),
+    ("unknown", "Non so"),
+]
+
+_PASS_CONTEXT_MENU = [
+    ("web", "Login web generico"),
+    ("service", "SSH / FTP / servizio di rete"),
+    ("offline", "Hash da crackare (offline)"),
+]
+
+_LANG_MENU = [
+    ("en", "Inglese (default)"),
+    ("it", "Italiano"),
+    ("es", "Spagnolo"),
+    ("de", "Tedesco"),
+    ("fr", "Francese"),
+    ("mixed", "Misto / non importa"),
+]
+
+# Wordlist database: (relative path from seclists, approx size label)
+_WL = {
+    # Directory / files
+    "dir_fast":    ("Discovery/Web-Content/common.txt", "4.7k"),
+    "dir_medium":  ("Discovery/Web-Content/directory-list-2.3-medium.txt", "220k"),
+    "dir_full":    ("Discovery/Web-Content/directory-list-2.3-big.txt", "1.3M"),
+    "dir_small":   ("Discovery/Web-Content/directory-list-2.3-small.txt", "87k"),
+    "raft_dirs":   ("Discovery/Web-Content/raft-medium-directories.txt", "30k"),
+    "raft_files":  ("Discovery/Web-Content/raft-medium-files.txt", "17k"),
+    # Tech-specific
+    "php_fuzz":    ("Discovery/Web-Content/PHP.fuzz.txt", "274"),
+    "asp_fuzz":    ("Discovery/Web-Content/IIS.fuzz.txt", "211"),
+    "wp_content":  ("Discovery/Web-Content/CMS/wordpress.fuzz.txt", "1.2k"),
+    "wp_plugins":  ("Discovery/Web-Content/CMS/wp-plugins.fuzz.txt", "13k"),
+    "wp_themes":   ("Discovery/Web-Content/CMS/wp-themes.fuzz.txt", "500"),
+    "joomla_fuzz": ("Discovery/Web-Content/CMS/joomla-plugins.fuzz.txt", "1k"),
+    # Subdomains
+    "sub_fast":    ("Discovery/DNS/subdomains-top1million-20.txt", "100"),
+    "sub_medium":  ("Discovery/DNS/subdomains-top1million-5000.txt", "5k"),
+    "sub_full":    ("Discovery/DNS/subdomains-top1million-110000.txt", "110k"),
+    "sub_names":   ("Discovery/DNS/namelist.txt", "1.9k"),
+    "sub_bitquark": ("Discovery/DNS/bitquark-subdomains-top100000.txt", "100k"),
+    # Parameters
+    "param_burp":  ("Discovery/Web-Content/burp-parameter-names.txt", "6.5k"),
+    "param_top":   ("Discovery/Web-Content/api/known-api-parameter-names.txt", "800"),
+    # Usernames
+    "user_names":  ("Usernames/Names/names.txt", "10k"),
+    "user_top":    ("Usernames/top-usernames-shortlist.txt", "17"),
+    "user_xato":   ("Usernames/xato-net-10-million-usernames.txt", "8.3M"),
+    # Passwords
+    "pass_top10k": ("Passwords/Common-Credentials/10-million-password-list-top-10000.txt", "10k"),
+    "pass_top1m":  ("Passwords/Common-Credentials/10-million-password-list-top-1000000.txt", "1M"),
+    "pass_rockyou": ("Passwords/Leaked-Databases/rockyou.txt", "14M"),
+    "pass_500":    ("Passwords/Common-Credentials/500-worst-passwords.txt", "500"),
+    "pass_common": ("Passwords/Common-Credentials/common-passwords-win.txt", "815"),
+    "pass_default_web": ("Passwords/Default-Credentials/default-passwords.txt", "1.2k"),
+    # Language-specific passwords
+    "pass_it":     ("Passwords/Leaked-Databases/italian-passwords.txt", ""),
+    "pass_es":     ("Passwords/Leaked-Databases/spanish-passwords.txt", ""),
+    "pass_de":     ("Passwords/Leaked-Databases/german-passwords.txt", ""),
+    "pass_fr":     ("Passwords/Leaked-Databases/french-passwords.txt", ""),
+    # API
+    "api_endpoints": ("Discovery/Web-Content/api/api-endpoints-res.txt", "2.2k"),
+    "api_objects":   ("Discovery/Web-Content/api/objects.txt", "2.9k"),
+    "api_common":    ("Discovery/Web-Content/common-api-endpoints-mazen160.txt", "174"),
+    "api_graphql":   ("Discovery/Web-Content/graphql.txt", "80"),
+}
+
+
+def _wl_path(key: str) -> str:
+    return f"{_SECLISTS_BASE}/{_WL[key][0]}"
+
+
+def _wl_label(key: str) -> str:
+    path, size = _WL[key]
+    name = path.rsplit("/", 1)[-1]
+    if size:
+        return f"{name}  ({size})"
+    return name
+
+
+def _wf_ask(prompt: str, options: list[tuple], default: int = 1) -> int:
+    print(f"\n  \033[1m{prompt}\033[0m\n")
+    for i, opt in enumerate(options, 1):
+        label = opt[1] if len(opt) >= 2 else opt[0]
+        extra = ""
+        if len(opt) >= 4:
+            extra = f"  {opt[2]:20s} {opt[3]}"
+        elif len(opt) >= 3:
+            extra = f"  \033[90m{opt[2]}\033[0m"
+        print(f"    [{i}] {label}{extra}")
+    print()
+    while True:
+        try:
+            raw = input(f"  Scelta [{default}]: ").strip()
+        except (EOFError, KeyboardInterrupt):
+            print()
+            return -1
+        if not raw:
+            return default
+        if raw.isdigit() and 1 <= int(raw) <= len(options):
+            return int(raw)
+        print(f"  Inserisci un numero da 1 a {len(options)}.")
+
+
+def _wf_ask_text(prompt: str, default: str = "") -> str:
+    try:
+        raw = input(f"  {prompt}: ").strip()
+    except (EOFError, KeyboardInterrupt):
+        print()
+        return default
+    return raw or default
+
+
+def _parse_target(url: str) -> dict:
+    from urllib.parse import urlparse
+    parsed = urlparse(url)
+    scheme = parsed.scheme or "http"
+    host = parsed.hostname or url.replace("http://", "").replace("https://", "").split("/")[0].split(":")[0]
+    port = parsed.port
+    path = parsed.path or "/"
+    domain = host
+    base = f"{scheme}://{parsed.netloc or host}"
+    if path and path != "/":
+        base_with_path = f"{base}{path.rstrip('/')}"
+    else:
+        base_with_path = base
+    return {
+        "url": url, "scheme": scheme, "host": host, "port": port,
+        "path": path, "domain": domain, "base": base,
+        "base_path": base_with_path,
+    }
+
+
+def _build_dir_result(target: dict, tech_key: str, tech_exts: list[str], intensity: str) -> dict:
+    wordlists = []
+    extras = []
+
+    if intensity == "fast":
+        wordlists.append("dir_fast")
+    elif intensity == "medium":
+        wordlists.append("dir_medium")
+        wordlists.append("dir_fast")
+    else:
+        wordlists.append("dir_full")
+        wordlists.append("dir_medium")
+
+    wordlists.append("raft_files")
+
+    if tech_key == "php":
+        extras.append("php_fuzz")
+        tech_exts = [".php", ".phtml", ".txt", ".bak", ".php.bak"]
+    elif tech_key == "asp":
+        extras.append("asp_fuzz")
+        tech_exts = [".asp", ".aspx", ".txt", ".bak", ".config"]
+    elif tech_key == "java":
+        tech_exts = [".jsp", ".do", ".action", ".xml", ".txt"]
+    elif tech_key == "python":
+        tech_exts = [".py", ".txt", ".json", ".yaml"]
+    elif tech_key == "node":
+        tech_exts = [".js", ".json", ".txt", ".map"]
+    elif tech_key == "wp":
+        extras.extend(["wp_content", "wp_plugins", "wp_themes"])
+        tech_exts = [".php", ".txt", ".bak"]
+    elif tech_key == "joomla":
+        extras.append("joomla_fuzz")
+        tech_exts = [".php", ".txt", ".bak"]
+    else:
+        tech_exts = [".txt", ".bak", ".html"]
+
+    ext_str = ",".join(e.lstrip(".") for e in tech_exts)
+    ext_dot = ",".join(tech_exts)
+    main_wl = wordlists[0]
+    url = target["base_path"]
+
+    commands = []
+    commands.append(("gobuster", f"gobuster dir -u {url} -w {_wl_path(main_wl)} -x {ext_str} -t 50"))
+    commands.append(("ffuf", f"ffuf -u {url}/FUZZ -w {_wl_path(main_wl)} -e {ext_dot} -t 50 -c"))
+    commands.append(("dirb", f"dirb {url} {_wl_path(main_wl)} -X {ext_dot}"))
+    commands.append(("feroxbuster", f"feroxbuster -u {url} -w {_wl_path(main_wl)} -x {ext_str} -t 50"))
+    commands.append(("wfuzz", f"wfuzz -u {url}/FUZZ -w {_wl_path(main_wl)} --hc 404 -t 50"))
+    commands.append(("dirsearch", f"dirsearch -u {url} -w {_wl_path(main_wl)} -e {ext_str} -t 50"))
+
+    return {"wordlists": wordlists + extras, "extensions": ext_dot, "commands": commands}
+
+
+def _build_sub_result(target: dict, intensity: str) -> dict:
+    domain = target["domain"]
+    wordlists = []
+
+    if intensity == "fast":
+        wordlists = ["sub_fast", "sub_names"]
+    elif intensity == "medium":
+        wordlists = ["sub_medium", "sub_names", "sub_bitquark"]
+    else:
+        wordlists = ["sub_full", "sub_bitquark", "sub_names"]
+
+    main_wl = wordlists[0]
+    commands = []
+    commands.append(("gobuster", f"gobuster dns -d {domain} -w {_wl_path(main_wl)} -t 50"))
+    commands.append(("ffuf", f"ffuf -u http://FUZZ.{domain} -w {_wl_path(main_wl)} -c"))
+    commands.append(("wfuzz", f"wfuzz -u http://FUZZ.{domain} -w {_wl_path(main_wl)} --hc 404 -t 50"))
+    commands.append(("amass", f"amass enum -d {domain} -w {_wl_path(main_wl)}"))
+    commands.append(("dnsenum", f"dnsenum --dnsserver 8.8.8.8 -f {_wl_path(main_wl)} {domain}"))
+
+    return {"wordlists": wordlists, "commands": commands}
+
+
+def _build_vhost_result(target: dict, intensity: str) -> dict:
+    domain = target["domain"]
+    base = target["base"]
+    wordlists = []
+
+    if intensity == "fast":
+        wordlists = ["sub_fast", "sub_names"]
+    elif intensity == "medium":
+        wordlists = ["sub_medium", "sub_names"]
+    else:
+        wordlists = ["sub_full", "sub_bitquark"]
+
+    main_wl = wordlists[0]
+    commands = []
+    commands.append(("gobuster", f"gobuster vhost -u {base} -w {_wl_path(main_wl)} --append-domain -t 50"))
+    commands.append(("ffuf", f'ffuf -u {base} -H "Host: FUZZ.{domain}" -w {_wl_path(main_wl)} -c -fs 0'))
+    commands.append(("wfuzz", f'wfuzz -u {base} -H "Host: FUZZ.{domain}" -w {_wl_path(main_wl)} --hc 404 -t 50'))
+
+    return {"wordlists": wordlists, "commands": commands}
+
+
+def _build_param_result(target: dict, intensity: str) -> dict:
+    url = target["base_path"]
+    wordlists = ["param_burp", "param_top"]
+
+    main_wl = wordlists[0]
+    commands = []
+    commands.append(("ffuf GET", f'ffuf -u "{url}?FUZZ=test" -w {_wl_path(main_wl)} -c -fs 0'))
+    commands.append(("ffuf POST", f'ffuf -u {url} -X POST -d "FUZZ=test" -w {_wl_path(main_wl)} -c -fs 0'))
+    commands.append(("wfuzz GET", f'wfuzz -u "{url}?FUZZ=test" -w {_wl_path(main_wl)} --hc 404 -t 50'))
+    commands.append(("arjun", f"arjun -u {url} -w {_wl_path(main_wl)}"))
+
+    return {"wordlists": wordlists, "commands": commands}
+
+
+def _build_user_result(target: dict, intensity: str) -> dict:
+    wordlists = []
+    if intensity == "fast":
+        wordlists = ["user_top", "user_names"]
+    elif intensity == "medium":
+        wordlists = ["user_names", "user_top"]
+    else:
+        wordlists = ["user_xato", "user_names"]
+
+    return {"wordlists": wordlists, "commands": []}
+
+
+def _build_pass_result(target: dict, context: str, lang: str, username: str, intensity: str) -> dict:
+    url = target["base_path"]
+    wordlists = []
+
+    if intensity == "fast":
+        wordlists = ["pass_500", "pass_default_web"]
+    elif intensity == "medium":
+        wordlists = ["pass_top10k", "pass_common"]
+    else:
+        wordlists = ["pass_top1m", "pass_rockyou"]
+
+    lang_wl = {"it": "pass_it", "es": "pass_es", "de": "pass_de", "fr": "pass_fr"}
+    if lang in lang_wl:
+        wordlists.append(lang_wl[lang])
+
+    user = username or "admin"
+    main_wl = wordlists[0]
+    commands = []
+
+    if context == "web":
+        commands.append(("hydra", f'hydra -l {user} -P {_wl_path(main_wl)} {target["host"]} http-post-form "/login:user=^USER^&pass=^PASS^:Invalid"'))
+        commands.append(("ffuf", f"ffuf -u {url} -X POST -d \"user={user}&pass=FUZZ\" -w {_wl_path(main_wl)} -fc 401,403 -c"))
+        commands.append(("wfuzz", f"wfuzz -u {url} -d \"user={user}&pass=FUZZ\" -w {_wl_path(main_wl)} --hc 401,403 -t 50"))
+        commands.append(("medusa", f"medusa -h {target['host']} -u {user} -P {_wl_path(main_wl)} -M http -m DIR:{target['path']}"))
+    elif context == "service":
+        commands.append(("hydra SSH", f"hydra -l {user} -P {_wl_path(main_wl)} {target['host']} ssh -t 4"))
+        commands.append(("hydra FTP", f"hydra -l {user} -P {_wl_path(main_wl)} {target['host']} ftp -t 4"))
+        commands.append(("hydra RDP", f"hydra -l {user} -P {_wl_path(main_wl)} {target['host']} rdp -t 4"))
+        commands.append(("medusa SSH", f"medusa -h {target['host']} -u {user} -P {_wl_path(main_wl)} -M ssh -t 4"))
+        commands.append(("ncrack SSH", f"ncrack -u {user} -P {_wl_path(main_wl)} {target['host']}:22"))
+        commands.append(("crackmapexec SMB", f"crackmapexec smb {target['host']} -u {user} -p {_wl_path(main_wl)}"))
+    else:
+        commands.append(("john", f"john --wordlist={_wl_path(main_wl)} hash.txt"))
+        commands.append(("hashcat", f"hashcat -m 0 hash.txt {_wl_path(main_wl)}"))
+        if lang in lang_wl:
+            commands.append(("john lang", f"john --wordlist={_wl_path(lang_wl[lang])} hash.txt"))
+            commands.append(("hashcat lang", f"hashcat -m 0 hash.txt {_wl_path(lang_wl[lang])}"))
+
+    return {"wordlists": wordlists, "commands": commands}
+
+
+def _build_api_result(target: dict, api_type: str, intensity: str) -> dict:
+    url = target["base_path"]
+    wordlists = []
+
+    if api_type == "graphql":
+        wordlists = ["api_graphql", "api_common"]
+    else:
+        wordlists = ["api_endpoints", "api_objects", "api_common"]
+
+    main_wl = wordlists[0]
+    commands = []
+    commands.append(("ffuf", f"ffuf -u {url}/FUZZ -w {_wl_path(main_wl)} -t 50 -c -mc all -fc 404"))
+    commands.append(("gobuster", f"gobuster dir -u {url} -w {_wl_path(main_wl)} -t 50"))
+    commands.append(("wfuzz", f"wfuzz -u {url}/FUZZ -w {_wl_path(main_wl)} --hc 404 -t 50"))
+    commands.append(("feroxbuster", f"feroxbuster -u {url} -w {_wl_path(main_wl)} -t 50 --no-recursion"))
+
+    if api_type == "graphql":
+        commands.append(("graphql introspection", f'curl -s -X POST {url} -H "Content-Type: application/json" -d \'{{"query":"{{__schema{{types{{name}}}}}}"}}\' | python3 -m json.tool'))
+    elif api_type == "swagger":
+        swagger_paths = ["/swagger.json", "/openapi.json", "/api-docs", "/swagger/v1/swagger.json", "/v2/api-docs"]
+        for sp in swagger_paths:
+            commands.append(("curl swagger", f"curl -s {target['base']}{sp}"))
+
+    return {"wordlists": wordlists, "commands": commands}
+
+
+def _print_wordfind_result(result: dict) -> None:
+    print(f"\n  \033[92m┌─ Risultato ────────────────────────────────┐\033[0m\n")
+
+    if result.get("wordlists"):
+        print("  \033[1mWordlist consigliate:\033[0m")
+        for i, key in enumerate(result["wordlists"], 1):
+            print(f"    [{i}] {_wl_label(key)}")
+        print()
+
+    if result.get("extensions"):
+        print(f"  \033[1mEstensioni:\033[0m {result['extensions']}")
+        print()
+
+    if result.get("commands"):
+        print("  \033[1mComandi pronti (copia-incolla):\033[0m\n")
+        for tool_name, cmd in result["commands"]:
+            print(f"    \033[96m# {tool_name}\033[0m")
+            if len(cmd) > 90:
+                parts = cmd.split(" -", 1)
+                if len(parts) == 2:
+                    print(f"    {parts[0]} \\")
+                    flags = (" -" + parts[1]).split(" -")
+                    for j, flag in enumerate(flags):
+                        flag = flag.strip()
+                        if flag:
+                            suffix = " \\" if j < len(flags) - 1 else ""
+                            print(f"      -{flag}{suffix}")
+                else:
+                    print(f"    {cmd}")
+            else:
+                print(f"    {cmd}")
+            print()
+
+    print(f"  \033[92m└────────────────────────────────────────────┘\033[0m")
+
+
+def cmd_wordfind(args: argparse.Namespace, state: ConsoleState | None = None) -> int:
+    url = getattr(args, "url", None) or ""
+    if not url:
+        try:
+            url = input("\n  Target URL: ").strip()
+        except (EOFError, KeyboardInterrupt):
+            print()
+            return 0
+    if not url:
+        print("Specifica un URL target.", file=sys.stderr)
+        return 1
+
+    if not url.startswith("http://") and not url.startswith("https://"):
+        url = "http://" + url
+
+    target = _parse_target(url)
+
+    print(f"\n  \033[92m┌─ wordfind ─────────────────────────────────┐\033[0m")
+    print(f"\n  Target: \033[94m{url}\033[0m")
+
+    # Step 1: Scope
+    choice = _wf_ask("[1] Cosa stai cercando?", _SCOPE_MENU)
+    if choice == -1:
+        return 0
+    scope_key = _SCOPE_MENU[choice - 1][0]
+
+    if scope_key == "dir":
+        # Step 2: Technology
+        tech_choice = _wf_ask("[2] Tecnologia?", _TECH_MENU, default=8)
+        if tech_choice == -1:
+            return 0
+        tech_key = _TECH_MENU[tech_choice - 1][0]
+        tech_exts = _TECH_MENU[tech_choice - 1][2]
+
+        # Step 3: Intensity
+        int_choice = _wf_ask("[3] Intensità?", _INTENSITY_DIR, default=2)
+        if int_choice == -1:
+            return 0
+        intensity = _INTENSITY_DIR[int_choice - 1][0]
+
+        result = _build_dir_result(target, tech_key, tech_exts, intensity)
+
+    elif scope_key == "sub":
+        int_choice = _wf_ask("[2] Intensità?", _INTENSITY_SUB, default=2)
+        if int_choice == -1:
+            return 0
+        intensity = _INTENSITY_SUB[int_choice - 1][0]
+
+        result = _build_sub_result(target, intensity)
+
+    elif scope_key == "vhost":
+        int_choice = _wf_ask("[2] Intensità?", _INTENSITY_GENERIC, default=2)
+        if int_choice == -1:
+            return 0
+        intensity = _INTENSITY_GENERIC[int_choice - 1][0]
+
+        result = _build_vhost_result(target, intensity)
+
+    elif scope_key == "param":
+        int_choice = _wf_ask("[2] Intensità?", _INTENSITY_GENERIC, default=2)
+        if int_choice == -1:
+            return 0
+        intensity = _INTENSITY_GENERIC[int_choice - 1][0]
+
+        result = _build_param_result(target, intensity)
+
+    elif scope_key == "user":
+        int_choice = _wf_ask("[2] Intensità?", _INTENSITY_GENERIC, default=2)
+        if int_choice == -1:
+            return 0
+        intensity = _INTENSITY_GENERIC[int_choice - 1][0]
+
+        result = _build_user_result(target, intensity)
+
+    elif scope_key == "pass":
+        # Step 2: Context
+        ctx_choice = _wf_ask("[2] Contesto?", _PASS_CONTEXT_MENU)
+        if ctx_choice == -1:
+            return 0
+        context = _PASS_CONTEXT_MENU[ctx_choice - 1][0]
+
+        # Step 3: Language
+        lang_choice = _wf_ask("[3] Lingua / localizzazione?", _LANG_MENU)
+        if lang_choice == -1:
+            return 0
+        lang = _LANG_MENU[lang_choice - 1][0]
+
+        # Step 4: Username
+        print()
+        username = _wf_ask_text("[4] Username noto? (vuoto = admin)", default="admin")
+
+        # Step 5: Intensity
+        int_choice = _wf_ask("[5] Intensità?", _INTENSITY_GENERIC, default=2)
+        if int_choice == -1:
+            return 0
+        intensity = _INTENSITY_GENERIC[int_choice - 1][0]
+
+        result = _build_pass_result(target, context, lang, username, intensity)
+
+    elif scope_key == "api":
+        # Step 2: API type
+        api_choice = _wf_ask("[2] Tipo di API?", _API_TYPE_MENU)
+        if api_choice == -1:
+            return 0
+        api_type = _API_TYPE_MENU[api_choice - 1][0]
+
+        # Step 3: Intensity
+        int_choice = _wf_ask("[3] Intensità?", _INTENSITY_GENERIC, default=2)
+        if int_choice == -1:
+            return 0
+        intensity = _INTENSITY_GENERIC[int_choice - 1][0]
+
+        result = _build_api_result(target, api_type, intensity)
+
+    else:
+        print("Scopo non supportato.")
+        return 1
+
+    _print_wordfind_result(result)
+    return 0
 
 
 def cmd_find(args: argparse.Namespace, state: ConsoleState | None = None) -> int:
