@@ -87,6 +87,7 @@ slconsole> serve list             # Mostra file serviti con curl
 slconsole> loot                   # Elenca file ricevuti dalla vulnbox
 slconsole> loot read <nome|num>   # Mostra contenuto di un file loot
 slconsole> wordfind http://target # Wizard wordlist per fuzzing/bruteforce
+slconsole> passfind               # Wizard password cracking
 slconsole> back                   # Torna alla console principale
 ```
 
@@ -235,6 +236,50 @@ slconsole> wordfind http://10.10.11.42
 
     ffuf -u http://10.10.11.42/FUZZ \
       -w .../DirBuster-2007_directory-list-2.3-medium.txt -e .php,.txt,.bak -t 50 -c
+
+  └────────────────────────────────────────────┘
+```
+
+---
+
+## Passfind — Wizard Password Cracking (`passfind`)
+
+Wizard interattivo per password cracking. Genera comandi pronti per John The Ripper, Hashcat, Hydra, Medusa, ncrack e crackmapexec in base allo scenario.
+
+```
+slconsole> passfind
+```
+
+### Scopi disponibili
+
+| Scopo | Cosa fa |
+|-------|---------|
+| **Hash** | Identifica formato hash → sceglie attacco (wordlist, mask, incremental) → genera comandi john + hashcat |
+| **File protetto** | SSH key, PDF, Office, ZIP, RAR, 7z, KeePass, PuTTY → estrazione con *2john + cracking |
+| **Archivio/disco** | BitLocker, TrueCrypt, LUKS, OpenSSL enc → estrazione hash + cracking + mount |
+| **Servizio di rete** | SSH, RDP, FTP, SMB, HTTP, MySQL, WinRM, VNC → hydra/medusa/ncrack/crackmapexec |
+
+### Esempio
+
+```
+slconsole> passfind
+
+  [1] Cosa devi crackare?     → Hash
+  [2] Hai l'hash?             → Sì, identificalo
+  [3] Formato?                → NTLM
+  [4] Attacco?                → Wordlist + regole
+  [5] Intensità?              → Completa
+
+  ┌─ Risultato ────────────────────────────────┐
+
+  Comandi pronti:
+
+    # john (wordlist + rules)
+    john --format=nt --wordlist=/usr/share/wordlists/rockyou.txt --rules hash.txt
+
+    # hashcat (wordlist + rules)
+    hashcat -a 0 -m 1000 hash.txt /usr/share/wordlists/rockyou.txt \
+      -r /usr/share/hashcat/rules/best64.rule
 
   └────────────────────────────────────────────┘
 ```

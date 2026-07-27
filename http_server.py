@@ -343,6 +343,16 @@ border-top:1px solid var(--border);position:relative}
 font-family:inherit;font-size:13px;outline:none;flex:1;caret-color:var(--accent);
 padding:0;margin-left:4px}
 .terminal-input input::placeholder{color:var(--text2)}
+/* Terminal output */
+#term-output{font-size:13px;line-height:1.7;max-height:340px;overflow-y:auto;
+padding-bottom:6px;white-space:pre-wrap;word-break:break-word}
+#term-output .t-prompt{color:var(--green)}
+#term-output .t-cmd{color:var(--text)}
+#term-output .t-line{color:var(--text2)}
+#term-output .t-accent{color:var(--accent)}
+#term-output .t-grn{color:var(--green)}
+#term-output .t-head{color:var(--accent);font-weight:600}
+#term-output .t-entry{margin:1px 0}
 .suggestions{position:absolute;bottom:100%;left:0;right:0;
 background:var(--surface);border:1px solid var(--border);border-radius:4px;
 margin-bottom:4px;display:none;overflow:hidden}
@@ -762,10 +772,11 @@ def _page_home() -> str:
     </div>
   </div>
   <div class="terminal-input">
+    <div id="term-output"></div>
     <div class="suggestions" id="suggestions"></div>
     <div class="prompt-line">
       <span class="user">user@slweb</span>:<span class="path">~</span>$&nbsp;
-      <input type="text" id="term-input" placeholder="notes, vuln, tools, static..." autocomplete="off" spellcheck="false">
+      <input type="text" id="term-input" placeholder="help, notes, vuln, tools, static..." autocomplete="off" spellcheck="false">
     </div>
   </div>
 </div>
@@ -783,7 +794,42 @@ def _page_home() -> str:
   ];
   const input=document.getElementById('term-input');
   const box=document.getElementById('suggestions');
+  const out=document.getElementById('term-output');
   let sel=-1;
+  const hist=[];let hpos=-1;
+
+  const HELP=
+    '<span class="t-head">SeaLion Web — Comandi disponibili</span>\\n\\n'+
+    '  <span class="t-accent">help</span>        <span class="t-line">Mostra questo messaggio</span>\\n'+
+    '  <span class="t-accent">notes</span>       <span class="t-line">Apri le guide ({n_notes})</span>\\n'+
+    '  <span class="t-accent">vuln</span>        <span class="t-line">Cheatsheet protocolli ({n_vulns})</span>\\n'+
+    '  <span class="t-accent">tools</span>       <span class="t-line">Documentazione tool ({n_tools})</span>\\n'+
+    '  <span class="t-accent">static</span>      <span class="t-line">File statici ({n_static})</span>\\n'+
+    '  <span class="t-accent">loot</span>        <span class="t-line">File dalla vulnbox ({n_loot})</span>\\n'+
+    '  <span class="t-accent">delivery</span>    <span class="t-line">Payload &amp; comandi curl</span>\\n'+
+    '  <span class="t-accent">logs</span>        <span class="t-line">Log del server</span>\\n'+
+    '  <span class="t-accent">version</span>     <span class="t-line">Versione SLConsole</span>\\n'+
+    '  <span class="t-accent">clear</span>       <span class="t-line">Pulisci il terminale</span>\\n';
+
+  function echo(cmd,h){{
+    out.innerHTML+=
+      '<div class="t-entry"><span class="t-prompt">user@slweb</span>:<span class="t-accent">~</span>$ <span class="t-cmd">'+cmd+'</span></div>'+
+      '<div class="t-entry">'+h+'</div>';
+    out.scrollTop=out.scrollHeight;
+  }}
+
+  function run(raw){{
+    const q=raw.trim();if(!q)return;
+    hist.push(q);hpos=hist.length;
+    const lo=q.toLowerCase();
+    const nav=cats.find(c=>c.name===lo||c.label.toLowerCase()===lo);
+    if(nav){{location.href=nav.href;return;}}
+    if(lo==='help'||lo==='?')echo(q,HELP);
+    else if(lo==='clear')out.innerHTML='';
+    else if(lo==='version')echo(q,'<span class="t-grn">SeaLion Console v0.1.0</span>');
+    else echo(q,'<span class="t-line">Comando sconosciuto: '+q.replace(/</g,'&lt;')+'. Scrivi <span class="t-accent">help</span> per la lista.</span>');
+    input.value='';box.classList.remove('open');
+  }}
 
   function render(filtered){{
     if(!filtered.length){{box.classList.remove('open');return;}}
@@ -793,29 +839,46 @@ def _page_home() -> str:
     ).join('');
     box.classList.add('open');
     box.querySelectorAll('.sug').forEach(el=>{{
-      el.addEventListener('click',()=>{{input.value=el.dataset.name;box.classList.remove('open');location.href=el.dataset.href;}});
+      el.addEventListener('click',()=>{{
+        const hr=el.dataset.href;
+        if(hr&&hr!=='null')location.href=hr;
+        else{{input.value='';box.classList.remove('open');run(el.dataset.name);}}
+      }});
       el.addEventListener('mouseenter',()=>{{sel=[...box.children].indexOf(el);render(filtered);}});
     }});
   }}
 
+  const allNames=[...cats.map(c=>c.name),'help','clear','version'];
   function filter(){{
     const q=input.value.trim().toLowerCase();
     sel=-1;
     if(!q){{render(cats);return;}}
-    render(cats.filter(c=>c.name.startsWith(q)||c.label.toLowerCase().startsWith(q)));
+    const merged=allNames.filter(n=>n.startsWith(q)).map(n=>{{
+      const c=cats.find(x=>x.name===n);if(c)return c;
+      const lb={{help:'Mostra comandi',clear:'Pulisci terminale',version:'Versione'}};
+      return {{name:n,label:n.charAt(0).toUpperCase()+n.slice(1),cnt:lb[n]||'',href:null}};
+    }});
+    render(merged);
   }}
 
   input.addEventListener('input',filter);
   input.addEventListener('focus',filter);
   input.addEventListener('keydown',e=>{{
     const items=box.querySelectorAll('.sug');
-    if(e.key==='ArrowDown'){{e.preventDefault();sel=Math.min(sel+1,items.length-1);filter();}}
-    else if(e.key==='ArrowUp'){{e.preventDefault();sel=Math.max(sel-1,-1);filter();}}
+    const open=box.classList.contains('open')&&items.length;
+    if(e.key==='ArrowDown'&&open){{e.preventDefault();sel=Math.min(sel+1,items.length-1);filter();}}
+    else if(e.key==='ArrowUp'&&open){{e.preventDefault();sel=Math.max(sel-1,-1);filter();}}
+    else if(e.key==='ArrowUp'&&!open){{e.preventDefault();if(hpos>0){{hpos--;input.value=hist[hpos];}}}}
+    else if(e.key==='ArrowDown'&&!open){{e.preventDefault();if(hpos<hist.length-1){{hpos++;input.value=hist[hpos];}}}}
     else if(e.key==='Tab'&&items.length){{e.preventDefault();const t=items[Math.max(sel,0)];input.value=t.dataset.name;filter();}}
     else if(e.key==='Enter'){{
-      const active=items[Math.max(sel,0)];
-      if(active)location.href=active.dataset.href;
-      else{{const q=input.value.trim().toLowerCase();const m=cats.find(c=>c.name===q);if(m)location.href=m.href;}}
+      e.preventDefault();
+      const active=sel>=0&&items[sel]?items[sel]:null;
+      if(active){{
+        const hr=active.dataset.href;
+        if(hr&&hr!=='null')location.href=hr;
+        else run(active.dataset.name);
+      }}else run(input.value);
     }}
   }});
   document.addEventListener('click',e=>{{if(!e.target.closest('.terminal-input'))box.classList.remove('open');}});

@@ -319,6 +319,7 @@ def print_help_text() -> None:
     print("  serve list         Elenca i file in static/")
     print("  loot [azione]      Gestisci file ricevuti dalla vulnbox (loot help)")
     print("  wordfind [url]     Wizard wordlist per fuzzing/bruteforce")
+    print("  passfind           Wizard password cracking (hash, file, archivi, servizi)")
     print("  sealsay [testo]    Stampa un messaggio in stile cowsay")
     print("  back               Torna alla console principale")
     print("  help               Mostra questo aiuto")
@@ -465,6 +466,7 @@ def build_parser() -> argparse.ArgumentParser:
     loot_p.add_argument("target", nargs="?", default=None)
     wordfind_p = subparsers.add_parser("wordfind", add_help=False)
     wordfind_p.add_argument("url", nargs="?", default=None)
+    subparsers.add_parser("passfind", add_help=False)
     return parser
 
 
@@ -480,7 +482,7 @@ def setup_readline() -> None:
 
 
 _COMPLETABLE = sorted(["sealsay", "list", "install", "use", "search", "vuln",
-                        "notes", "find", "back", "help", "serve", "loot", "wordfind", "exit"])
+                        "notes", "find", "back", "help", "serve", "loot", "wordfind", "passfind", "exit"])
 _input_history: list[str] = []
 
 
@@ -703,6 +705,7 @@ def run_command(argv: list[str], state: ConsoleState | None = None) -> int:
         "serve": cmd_serve,
         "loot": cmd_loot,
         "wordfind": cmd_wordfind,
+        "passfind": cmd_passfind,
     }
     handler = handlers.get(args.command)
     if handler is None:
@@ -819,7 +822,7 @@ def run_console() -> int:
                     state.last_vuln_tools = _extract_vuln_tools(text)
                 continue
 
-        known_commands = {"sealsay", "list", "install", "use", "search", "vuln", "notes", "find", "back", "help", "?", "--version", "-h", "--help", "serve", "loot", "wordfind"}
+        known_commands = {"sealsay", "list", "install", "use", "search", "vuln", "notes", "find", "back", "help", "?", "--version", "-h", "--help", "serve", "loot", "wordfind", "passfind"}
         if argv[0] not in known_commands:
             print("Comando non riconosciuto. Digita 'help' per i comandi.")
             continue
@@ -2131,6 +2134,506 @@ def cmd_wordfind(args: argparse.Namespace, state: ConsoleState | None = None) ->
         return 1
 
     _print_wordfind_result(result)
+    return 0
+
+
+# ──────────────────────────────────────────────────────────────
+# passfind — Wizard per password cracking
+# ──────────────────────────────────────────────────────────────
+
+_PF_SCOPE_MENU = [
+    ("hash", "Hash (MD5, SHA, NTLM, bcrypt, ...)"),
+    ("file", "File protetto (SSH key, PDF, Office, ZIP, RAR, ...)"),
+    ("archive", "Archivio / disco cifrato (BitLocker, TrueCrypt, LUKS, ...)"),
+    ("service", "Servizio di rete (SSH, RDP, FTP, SMB, ...)"),
+]
+
+_PF_HASH_INPUT_MENU = [
+    ("identify", "Ho l'hash — identificalo tu"),
+    ("known", "Conosco già il formato"),
+]
+
+_PF_HASH_FORMAT_MENU = [
+    ("raw-md5",       "MD5",                "0",     "raw-md5"),
+    ("raw-sha1",      "SHA1",               "100",   "raw-sha1"),
+    ("raw-sha256",    "SHA256",             "1400",  "raw-sha256"),
+    ("raw-sha512",    "SHA512",             "1700",  "raw-sha512"),
+    ("nt",            "NTLM",              "1000",  "nt"),
+    ("bcrypt",        "bcrypt",            "3200",  "bcrypt"),
+    ("md5crypt",      "md5crypt ($1$)",    "500",   "md5crypt"),
+    ("sha512crypt",   "sha512crypt ($6$)", "1800",  "sha512crypt"),
+    ("sha256crypt",   "sha256crypt ($5$)", "7400",  "sha256crypt"),
+    ("netlmv2",       "NETNTLMv2",         "5600",  "netntlmv2"),
+    ("netntlmv2",     "NETNTLMv2",         "5600",  "netntlmv2"),
+    ("krb5tgs",       "Kerberoast (TGS)",  "13100", "krb5tgs"),
+    ("krb5asrep",     "AS-REP Roast",      "18200", "krb5asrep"),
+    ("mscash2",       "DCC2 / mscash2",    "2100",  "mscash2"),
+    ("descrypt",      "DES crypt",         "1500",  "descrypt"),
+    ("lm",            "LM",                "3000",  "LM"),
+    ("phpass",        "phpass (WordPress)", "400",   "phpass-md5"),
+    ("ipmi",          "IPMI 2.0 RAKP",     "7300",  ""),
+    ("mysql",         "MySQL 4.1+",        "300",   "mysql-sha1"),
+    ("mssql",         "MSSQL",             "131",   "mssql05"),
+    ("oracle11",      "Oracle 11g+",       "112",   "oracle11"),
+]
+
+_PF_ATTACK_MENU = [
+    ("wordlist_rules", "Wordlist + regole", "dizionario + mutazioni (consigliato)"),
+    ("wordlist",       "Wordlist semplice", "solo dizionario, nessuna regola"),
+    ("mask",           "Mask attack",       "conosco pattern o lunghezza"),
+    ("incremental",    "Brute-force puro",  "tutte le combinazioni (lento)"),
+]
+
+_PF_INTENSITY_MENU = [
+    ("fast",   "Veloce",   "top 10k password",            "⚡"),
+    ("medium", "Media",    "rockyou.txt (~14M)",           "⚖️"),
+    ("full",   "Completa", "rockyou + regole best64.rule", "🔍"),
+]
+
+_PF_FILE_MENU = [
+    ("ssh",     "SSH private key",         "ssh2john",              "22921"),
+    ("pdf",     "PDF",                     "pdf2john",              "10700"),
+    ("office",  "Microsoft Office",        "office2john",           "9600"),
+    ("zip",     "ZIP",                     "zip2john",              "17200"),
+    ("rar",     "RAR",                     "rar2john",              "13000"),
+    ("7z",      "7-Zip",                   "7z2john",               "11600"),
+    ("keepass", "KeePass (.kdbx)",         "keepass2john",          "13400"),
+    ("putty",   "PuTTY key (.ppk)",        "putty2john",           "15300"),
+    ("gpg",     "GPG / PGP key",           "gpg2john",             "17010"),
+    ("bitcoin", "Bitcoin wallet",          "bitcoin2john",         "11300"),
+]
+
+_PF_ARCHIVE_MENU = [
+    ("bitlocker",  "BitLocker (.vhd)",     "bitlocker2john",  "22100"),
+    ("truecrypt",  "TrueCrypt / VeraCrypt","truecrypt_volume2john", "6211"),
+    ("luks",       "LUKS",                 "",                "14600"),
+    ("openssl",    "OpenSSL enc (gzip/aes)", "",              ""),
+]
+
+_PF_SERVICE_MENU = [
+    ("ssh",      "SSH",                    "22"),
+    ("rdp",      "RDP",                    "3389"),
+    ("ftp",      "FTP",                    "21"),
+    ("smb",      "SMB",                    "445"),
+    ("http",     "HTTP form login",        "80"),
+    ("mysql",    "MySQL",                  "3306"),
+    ("mssql",    "MSSQL",                  "1433"),
+    ("postgres", "PostgreSQL",             "5432"),
+    ("winrm",    "WinRM",                  "5985"),
+    ("vnc",      "VNC",                    "5900"),
+]
+
+_PF_MASK_MENU = [
+    ("lower8",  "8 caratteri minuscoli",          "?l?l?l?l?l?l?l?l"),
+    ("mixed8",  "8 caratteri misti (a-z, A-Z, 0-9)", "?a?a?a?a?a?a?a?a"),
+    ("cap_num", "Maiuscola + 5 minusc + 2 cifre", "?u?l?l?l?l?l?d?d"),
+    ("custom",  "Scrivo io la maschera",          ""),
+]
+
+
+def _pf_hash_detect_hint(hash_str: str) -> list[str]:
+    """Return hints about likely hash format from the hash string itself."""
+    h = hash_str.strip()
+    hints = []
+    if h.startswith("$1$"):
+        hints.append("md5crypt ($1$) — john: --format=md5crypt | hashcat: -m 500")
+    elif h.startswith("$5$"):
+        hints.append("sha256crypt ($5$) — john: --format=sha256crypt | hashcat: -m 7400")
+    elif h.startswith("$6$"):
+        hints.append("sha512crypt ($6$) — john: --format=sha512crypt | hashcat: -m 1800")
+    elif h.startswith("$2a$") or h.startswith("$2b$") or h.startswith("$2y$"):
+        hints.append("bcrypt — john: --format=bcrypt | hashcat: -m 3200")
+    elif h.startswith("$krb5tgs$"):
+        hints.append("Kerberoast TGS — john: --format=krb5tgs | hashcat: -m 13100")
+    elif h.startswith("$krb5asrep$"):
+        hints.append("AS-REP Roast — john: --format=krb5asrep | hashcat: -m 18200")
+    elif len(h) == 32 and all(c in "0123456789abcdefABCDEF" for c in h):
+        hints.append("Possibile MD5 o NTLM (32 hex)")
+        hints.append("  MD5  — john: --format=raw-md5 | hashcat: -m 0")
+        hints.append("  NTLM — john: --format=nt      | hashcat: -m 1000")
+    elif len(h) == 40 and all(c in "0123456789abcdefABCDEF" for c in h):
+        hints.append("Possibile SHA1 (40 hex)")
+        hints.append("  john: --format=raw-sha1 | hashcat: -m 100")
+    elif len(h) == 64 and all(c in "0123456789abcdefABCDEF" for c in h):
+        hints.append("Possibile SHA256 (64 hex)")
+        hints.append("  john: --format=raw-sha256 | hashcat: -m 1400")
+    elif len(h) == 128 and all(c in "0123456789abcdefABCDEF" for c in h):
+        hints.append("Possibile SHA512 (128 hex)")
+        hints.append("  john: --format=raw-sha512 | hashcat: -m 1700")
+    elif "::" in h and "$" not in h:
+        hints.append("Possibile NETNTLMv2")
+        hints.append("  john: --format=netntlmv2 | hashcat: -m 5600")
+    if not hints:
+        hints.append("Formato non riconosciuto — usa hashid o hashcat --identify")
+    return hints
+
+
+def _build_hash_result(john_fmt: str, hc_mode: str, attack: str,
+                       intensity: str, mask: str) -> dict:
+    wl_fast = "/usr/share/seclists/Passwords/Common-Credentials/xato-net-10-million-passwords-10000.txt"
+    wl_med = "/usr/share/wordlists/rockyou.txt"
+    rules = "/usr/share/hashcat/rules/best64.rule"
+
+    wordlists = []
+    commands = []
+
+    if attack == "mask":
+        commands.append(("hashcat (mask)", f"hashcat -a 3 -m {hc_mode} hash.txt '{mask}'"))
+        if john_fmt:
+            commands.append(("john (mask)", f"john --format={john_fmt} --mask='{mask}' hash.txt"))
+        return {"wordlists": wordlists, "commands": commands}
+
+    if attack == "incremental":
+        if john_fmt:
+            commands.append(("john (incremental)", f"john --format={john_fmt} --incremental hash.txt"))
+        commands.append(("hashcat (brute-force)", f"hashcat -a 3 -m {hc_mode} hash.txt ?a?a?a?a?a?a?a?a"))
+        return {"wordlists": wordlists, "commands": commands}
+
+    if intensity == "fast":
+        wl = wl_fast
+        wl_label = "xato-net-10-million-passwords-10000.txt"
+        wordlists.append("pass_top10k")
+    elif intensity == "medium":
+        wl = wl_med
+        wl_label = "rockyou.txt"
+        wordlists.append("pass_rockyou")
+    else:
+        wl = wl_med
+        wl_label = "rockyou.txt + best64.rule"
+        wordlists.append("pass_rockyou")
+
+    if john_fmt:
+        if attack == "wordlist_rules":
+            commands.append(("john (wordlist + rules)", f"john --format={john_fmt} --wordlist={wl} --rules hash.txt"))
+        commands.append(("john (wordlist)", f"john --format={john_fmt} --wordlist={wl} hash.txt"))
+        commands.append(("john (show)", f"john --format={john_fmt} hash.txt --show"))
+
+    if hc_mode:
+        if attack == "wordlist_rules" or intensity == "full":
+            commands.append(("hashcat (wordlist + rules)", f"hashcat -a 0 -m {hc_mode} hash.txt {wl} -r {rules}"))
+        commands.append(("hashcat (wordlist)", f"hashcat -a 0 -m {hc_mode} hash.txt {wl}"))
+
+    if not john_fmt and not hc_mode:
+        commands.append(("john (auto)", f"john --wordlist={wl} hash.txt"))
+        if attack == "wordlist_rules":
+            commands.append(("john (auto + rules)", f"john --wordlist={wl} --rules hash.txt"))
+
+    return {"wordlists": wordlists, "commands": commands}
+
+
+def _build_file_result(file_type: str, tool_2john: str, hc_mode: str,
+                       intensity: str) -> dict:
+    wl = "/usr/share/wordlists/rockyou.txt"
+    if intensity == "fast":
+        wl = "/usr/share/seclists/Passwords/Common-Credentials/xato-net-10-million-passwords-10000.txt"
+
+    rules = "/usr/share/hashcat/rules/best64.rule"
+    ext_map = {
+        "ssh": "id_rsa", "pdf": "document.pdf", "office": "file.docx",
+        "zip": "archive.zip", "rar": "archive.rar", "7z": "archive.7z",
+        "keepass": "database.kdbx", "putty": "key.ppk",
+        "gpg": "key.gpg", "bitcoin": "wallet.dat",
+    }
+    sample = ext_map.get(file_type, "file")
+
+    commands = []
+    notes = []
+
+    if tool_2john:
+        commands.append(("1. Estrai hash", f"{tool_2john} {sample} > hash.txt"))
+    else:
+        notes.append(f"Nessun tool *2john specifico — prova: locate *2john*")
+
+    commands.append(("2. john (crack)", f"john --wordlist={wl} hash.txt"))
+    if intensity == "full":
+        commands.append(("2b. john (+ rules)", f"john --wordlist={wl} --rules hash.txt"))
+    commands.append(("3. john (show)", "john hash.txt --show"))
+
+    if hc_mode:
+        if intensity == "full":
+            commands.append(("hashcat (+ rules)", f"hashcat -a 0 -m {hc_mode} hash.txt {wl} -r {rules}"))
+        else:
+            commands.append(("hashcat", f"hashcat -a 0 -m {hc_mode} hash.txt {wl}"))
+
+    result = {"commands": commands}
+    if notes:
+        result["notes"] = notes
+    return result
+
+
+def _build_archive_result(archive_type: str, tool_2john: str, hc_mode: str,
+                          intensity: str) -> dict:
+    wl = "/usr/share/wordlists/rockyou.txt"
+    if intensity == "fast":
+        wl = "/usr/share/seclists/Passwords/Common-Credentials/xato-net-10-million-passwords-10000.txt"
+    rules = "/usr/share/hashcat/rules/best64.rule"
+
+    commands = []
+
+    if archive_type == "openssl":
+        commands.append(("Brute-force OpenSSL", "for i in $(cat " + wl + ");do openssl enc -aes-256-cbc "
+                         "-d -in encrypted.gz -k $i 2>/dev/null | tar xz && echo \"Password: $i\" && break; done"))
+        return {"commands": commands}
+
+    if tool_2john:
+        sample = {"bitlocker": "disk.vhd", "truecrypt": "volume", "luks": "disk.img"}.get(archive_type, "file")
+        commands.append(("1. Estrai hash", f"{tool_2john} -i {sample} > hash.txt"))
+        if archive_type == "bitlocker":
+            commands.append(("1b. Filtra hash", 'grep "bitlocker\\$0" hash.txt > crack.hash'))
+
+    hash_file = "crack.hash" if archive_type == "bitlocker" else "hash.txt"
+    commands.append(("2. john (crack)", f"john --wordlist={wl} {hash_file}"))
+    commands.append(("3. john (show)", f"john {hash_file} --show"))
+
+    if hc_mode:
+        if intensity == "full":
+            commands.append(("hashcat (+ rules)", f"hashcat -a 0 -m {hc_mode} {hash_file} {wl} -r {rules}"))
+        else:
+            commands.append(("hashcat", f"hashcat -a 0 -m {hc_mode} {hash_file} {wl}"))
+
+    if archive_type == "bitlocker":
+        commands.append(("Monta (Linux)", "sudo dislocker /dev/loop0p2 -uPASSWORD -- /media/bitlocker && "
+                         "sudo mount -o loop /media/bitlocker/dislocker-file /media/bitlockermount"))
+
+    return {"commands": commands}
+
+
+def _build_service_result(proto: str, port: str, host: str, username: str,
+                          intensity: str) -> dict:
+    wl = "/usr/share/wordlists/rockyou.txt"
+    if intensity == "fast":
+        wl = "/usr/share/seclists/Passwords/Common-Credentials/xato-net-10-million-passwords-10000.txt"
+
+    commands = []
+
+    if proto == "http":
+        commands.append(("hydra (http-post-form)",
+            f"hydra -l {username} -P {wl} {host} http-post-form "
+            f"\"/login:user=^USER^&pass=^PASS^:F=incorrect\" -t 16"))
+        commands.append(("medusa (http)",
+            f"medusa -h {host} -u {username} -P {wl} -M http -m DIR:/login -t 4"))
+    elif proto == "winrm":
+        commands.append(("crackmapexec",
+            f"crackmapexec winrm {host} -u {username} -p {wl}"))
+        commands.append(("evil-winrm (dopo crack)",
+            f"evil-winrm -i {host} -u {username} -p 'PASSWORD'"))
+    elif proto == "smb":
+        commands.append(("hydra",
+            f"hydra -l {username} -P {wl} {host} smb -t 4"))
+        commands.append(("crackmapexec",
+            f"crackmapexec smb {host} -u {username} -p {wl}"))
+        commands.append(("medusa",
+            f"medusa -h {host} -u {username} -P {wl} -M smbnt -t 4"))
+        commands.append(("ncrack",
+            f"ncrack -u {username} -P {wl} smb://{host}"))
+    else:
+        svc = proto
+        commands.append(("hydra",
+            f"hydra -l {username} -P {wl} {host} {svc} -t 4"))
+        commands.append(("medusa",
+            f"medusa -h {host} -u {username} -P {wl} -M {svc} -t 4"))
+        commands.append(("ncrack",
+            f"ncrack -u {username} -P {wl} {svc}://{host}"))
+
+    return {"commands": commands}
+
+
+def _print_passfind_result(result: dict) -> None:
+    print(f"\n  \033[92m┌─ Risultato ────────────────────────────────┐\033[0m\n")
+
+    if result.get("hints"):
+        print("  \033[1mRilevamento hash:\033[0m")
+        for h in result["hints"]:
+            print(f"    {h}")
+        print()
+
+    if result.get("notes"):
+        for n in result["notes"]:
+            print(f"  \033[93m[!]\033[0m {n}")
+        print()
+
+    if result.get("wordlists"):
+        print("  \033[1mWordlist consigliate:\033[0m")
+        for i, key in enumerate(result["wordlists"], 1):
+            print(f"    [{i}] {_wl_label(key)}")
+        print()
+
+    if result.get("commands"):
+        print("  \033[1mComandi pronti (copia-incolla):\033[0m\n")
+        for tool_name, cmd in result["commands"]:
+            print(f"    \033[96m# {tool_name}\033[0m")
+            if len(cmd) > 90:
+                parts = cmd.split(" -", 1)
+                if len(parts) == 2:
+                    print(f"    {parts[0]} \\")
+                    flags = (" -" + parts[1]).split(" -")
+                    for j, flag in enumerate(flags):
+                        flag = flag.strip()
+                        if flag:
+                            suffix = " \\" if j < len(flags) - 1 else ""
+                            print(f"      -{flag}{suffix}")
+                else:
+                    print(f"    {cmd}")
+            else:
+                print(f"    {cmd}")
+            print()
+
+    if result.get("extra_info"):
+        print(f"  \033[1mInfo utili:\033[0m")
+        for line in result["extra_info"]:
+            print(f"    {line}")
+        print()
+
+    print(f"  \033[92m└────────────────────────────────────────────┘\033[0m")
+
+
+def cmd_passfind(args: argparse.Namespace, state: ConsoleState | None = None) -> int:
+    print(f"\n  \033[92m┌─ passfind ─────────────────────────────────┐\033[0m")
+    print(f"  \033[90m  Wizard password cracking\033[0m\n")
+
+    # Step 1: scope
+    choice = _wf_ask("[1] Cosa devi crackare?", _PF_SCOPE_MENU)
+    if choice == -1:
+        return 0
+    scope = _PF_SCOPE_MENU[choice - 1][0]
+
+    # ── Hash ──────────────────────────────────────────────────
+    if scope == "hash":
+        inp_choice = _wf_ask("[2] Hai l'hash o conosci il formato?", _PF_HASH_INPUT_MENU)
+        if inp_choice == -1:
+            return 0
+
+        john_fmt = ""
+        hc_mode = ""
+
+        if inp_choice == 1:
+            print()
+            hash_str = _wf_ask_text("[hash] Incolla l'hash")
+            if not hash_str:
+                print("  Nessun hash inserito.")
+                return 1
+            hints = _pf_hash_detect_hint(hash_str)
+
+            fmt_menu = [(f[0], f[1]) for f in _PF_HASH_FORMAT_MENU[:16]]
+            fmt_choice = _wf_ask("[3] Seleziona il formato (o basati sui suggerimenti sopra)", fmt_menu)
+            if fmt_choice == -1:
+                return 0
+            entry = _PF_HASH_FORMAT_MENU[fmt_choice - 1]
+            john_fmt = entry[3]
+            hc_mode = entry[2]
+        else:
+            fmt_menu = [(f[0], f[1]) for f in _PF_HASH_FORMAT_MENU]
+            fmt_choice = _wf_ask("[3] Formato hash?", fmt_menu)
+            if fmt_choice == -1:
+                return 0
+            entry = _PF_HASH_FORMAT_MENU[fmt_choice - 1]
+            john_fmt = entry[3]
+            hc_mode = entry[2]
+            hints = []
+
+        atk_choice = _wf_ask("[4] Metodo di attacco?", _PF_ATTACK_MENU)
+        if atk_choice == -1:
+            return 0
+        attack = _PF_ATTACK_MENU[atk_choice - 1][0]
+
+        mask = ""
+        if attack == "mask":
+            mask_choice = _wf_ask("[4b] Pattern maschera?", _PF_MASK_MENU)
+            if mask_choice == -1:
+                return 0
+            mask = _PF_MASK_MENU[mask_choice - 1][2]
+            if not mask:
+                print()
+                mask = _wf_ask_text("[mask] Inserisci la maschera (es. ?u?l?l?l?d?d)", default="?a?a?a?a?a?a?a?a")
+
+        int_choice = _wf_ask("[5] Intensità wordlist?", _PF_INTENSITY_MENU, default=2)
+        if int_choice == -1:
+            return 0
+        intensity = _PF_INTENSITY_MENU[int_choice - 1][0]
+
+        result = _build_hash_result(john_fmt, hc_mode, attack, intensity, mask)
+        if hints:
+            result["hints"] = hints
+
+        extra = []
+        extra.append("Identifica hash:   hashid -m -j '<hash>'")
+        extra.append("Formati john:      john --list=formats | grep -i <tipo>")
+        extra.append("Formati hashcat:   hashcat --help | grep -i <tipo>")
+        result["extra_info"] = extra
+
+    # ── File protetto ─────────────────────────────────────────
+    elif scope == "file":
+        file_menu = [(f[0], f[1]) for f in _PF_FILE_MENU]
+        file_choice = _wf_ask("[2] Tipo di file?", file_menu)
+        if file_choice == -1:
+            return 0
+        entry = _PF_FILE_MENU[file_choice - 1]
+        file_type = entry[0]
+        tool_2john = entry[2]
+        hc_mode = entry[3]
+
+        int_choice = _wf_ask("[3] Intensità?", _PF_INTENSITY_MENU, default=2)
+        if int_choice == -1:
+            return 0
+        intensity = _PF_INTENSITY_MENU[int_choice - 1][0]
+
+        result = _build_file_result(file_type, tool_2john, hc_mode, intensity)
+        result["extra_info"] = [
+            f"Tool estrazione:   {tool_2john}",
+            "Cerca tutti i *2john:  locate *2john*",
+        ]
+
+    # ── Archivio / disco cifrato ──────────────────────────────
+    elif scope == "archive":
+        arc_menu = [(a[0], a[1]) for a in _PF_ARCHIVE_MENU]
+        arc_choice = _wf_ask("[2] Tipo di archivio?", arc_menu)
+        if arc_choice == -1:
+            return 0
+        entry = _PF_ARCHIVE_MENU[arc_choice - 1]
+        archive_type = entry[0]
+        tool_2john = entry[2]
+        hc_mode = entry[3]
+
+        int_choice = _wf_ask("[3] Intensità?", _PF_INTENSITY_MENU, default=2)
+        if int_choice == -1:
+            return 0
+        intensity = _PF_INTENSITY_MENU[int_choice - 1][0]
+
+        result = _build_archive_result(archive_type, tool_2john, hc_mode, intensity)
+
+        if archive_type == "bitlocker":
+            result["extra_info"] = [
+                "Su Windows: doppio click sul .vhd → inserisci password",
+                "Su Linux: installa dislocker (sudo apt install dislocker)",
+            ]
+
+    # ── Servizio di rete ──────────────────────────────────────
+    elif scope == "service":
+        svc_menu = [(s[0], f"{s[1]}  (porta {s[2]})") for s in _PF_SERVICE_MENU]
+        svc_choice = _wf_ask("[2] Protocollo?", svc_menu)
+        if svc_choice == -1:
+            return 0
+        entry = _PF_SERVICE_MENU[svc_choice - 1]
+        proto = entry[0]
+        default_port = entry[2]
+
+        print()
+        host = _wf_ask_text("[3] Target IP/hostname", default="10.10.11.42")
+        print()
+        username = _wf_ask_text("[4] Username noto? (vuoto = admin)", default="admin")
+
+        int_choice = _wf_ask("[5] Intensità?", _PF_INTENSITY_MENU, default=2)
+        if int_choice == -1:
+            return 0
+        intensity = _PF_INTENSITY_MENU[int_choice - 1][0]
+
+        result = _build_service_result(proto, default_port, host, username, intensity)
+
+    else:
+        print("  Scopo non supportato.")
+        return 1
+
+    _print_passfind_result(result)
     return 0
 
 
