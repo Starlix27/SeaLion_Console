@@ -1636,8 +1636,8 @@ _INTENSITY_DIR = [
 ]
 
 _INTENSITY_SUB = [
-    ("fast", "Veloce", "~100 sottodomini", "⚡"),
-    ("medium", "Media", "~5k sottodomini", "⚖️"),
+    ("fast", "Veloce", "~5k sottodomini", "⚡"),
+    ("medium", "Media", "~20k sottodomini", "⚖️"),
     ("full", "Completa", "~110k sottodomini", "🔍"),
 ]
 
@@ -1673,43 +1673,44 @@ _LANG_MENU = [
 _WL = {
     # Directory / files
     "dir_fast":    ("Discovery/Web-Content/common.txt", "4.7k"),
-    "dir_medium":  ("Discovery/Web-Content/directory-list-2.3-medium.txt", "220k"),
-    "dir_full":    ("Discovery/Web-Content/directory-list-2.3-big.txt", "1.3M"),
-    "dir_small":   ("Discovery/Web-Content/directory-list-2.3-small.txt", "87k"),
+    "dir_medium":  ("Discovery/Web-Content/DirBuster-2007_directory-list-2.3-medium.txt", "220k"),
+    "dir_full":    ("Discovery/Web-Content/DirBuster-2007_directory-list-2.3-big.txt", "1.3M"),
+    "dir_small":   ("Discovery/Web-Content/DirBuster-2007_directory-list-2.3-small.txt", "87k"),
     "raft_dirs":   ("Discovery/Web-Content/raft-medium-directories.txt", "30k"),
     "raft_files":  ("Discovery/Web-Content/raft-medium-files.txt", "17k"),
     # Tech-specific
-    "php_fuzz":    ("Discovery/Web-Content/PHP.fuzz.txt", "274"),
-    "asp_fuzz":    ("Discovery/Web-Content/IIS.fuzz.txt", "211"),
+    "php_fuzz":    ("Discovery/Web-Content/Programming-Language-Specific/PHP.fuzz.txt", "274"),
+    "asp_fuzz":    ("Discovery/Web-Content/Programming-Language-Specific/ASP.NET/CommonBackdoors-ASP.fuzz.txt", "120"),
+    "java_fuzz":   ("Discovery/Web-Content/Programming-Language-Specific/Java-Spring-Boot.txt", "200"),
     "wp_content":  ("Discovery/Web-Content/CMS/wordpress.fuzz.txt", "1.2k"),
     "wp_plugins":  ("Discovery/Web-Content/CMS/wp-plugins.fuzz.txt", "13k"),
     "wp_themes":   ("Discovery/Web-Content/CMS/wp-themes.fuzz.txt", "500"),
     "joomla_fuzz": ("Discovery/Web-Content/CMS/joomla-plugins.fuzz.txt", "1k"),
     # Subdomains
-    "sub_fast":    ("Discovery/DNS/subdomains-top1million-20.txt", "100"),
-    "sub_medium":  ("Discovery/DNS/subdomains-top1million-5000.txt", "5k"),
+    "sub_fast":    ("Discovery/DNS/subdomains-top1million-5000.txt", "5k"),
+    "sub_medium":  ("Discovery/DNS/subdomains-top1million-20000.txt", "20k"),
     "sub_full":    ("Discovery/DNS/subdomains-top1million-110000.txt", "110k"),
     "sub_names":   ("Discovery/DNS/namelist.txt", "1.9k"),
     "sub_bitquark": ("Discovery/DNS/bitquark-subdomains-top100000.txt", "100k"),
     # Parameters
     "param_burp":  ("Discovery/Web-Content/burp-parameter-names.txt", "6.5k"),
-    "param_top":   ("Discovery/Web-Content/api/known-api-parameter-names.txt", "800"),
+    "param_top":   ("Discovery/Web-Content/api/api-endpoints.txt", "800"),
     # Usernames
     "user_names":  ("Usernames/Names/names.txt", "10k"),
     "user_top":    ("Usernames/top-usernames-shortlist.txt", "17"),
     "user_xato":   ("Usernames/xato-net-10-million-usernames.txt", "8.3M"),
     # Passwords
-    "pass_top10k": ("Passwords/Common-Credentials/10-million-password-list-top-10000.txt", "10k"),
-    "pass_top1m":  ("Passwords/Common-Credentials/10-million-password-list-top-1000000.txt", "1M"),
-    "pass_rockyou": ("Passwords/Leaked-Databases/rockyou.txt", "14M"),
+    "pass_top10k": ("Passwords/Common-Credentials/xato-net-10-million-passwords-10000.txt", "10k"),
+    "pass_top1m":  ("Passwords/Common-Credentials/xato-net-10-million-passwords-1000000.txt", "1M"),
+    "pass_rockyou": ("/usr/share/wordlists/rockyou.txt", "14M"),
     "pass_500":    ("Passwords/Common-Credentials/500-worst-passwords.txt", "500"),
     "pass_common": ("Passwords/Common-Credentials/common-passwords-win.txt", "815"),
     "pass_default_web": ("Passwords/Default-Credentials/default-passwords.txt", "1.2k"),
     # Language-specific passwords
-    "pass_it":     ("Passwords/Leaked-Databases/italian-passwords.txt", ""),
-    "pass_es":     ("Passwords/Leaked-Databases/spanish-passwords.txt", ""),
-    "pass_de":     ("Passwords/Leaked-Databases/german-passwords.txt", ""),
-    "pass_fr":     ("Passwords/Leaked-Databases/french-passwords.txt", ""),
+    "pass_it":     ("Passwords/Common-Credentials/Language-Specific/Italian_Pwdb_common-password-list-top-150.txt", "150"),
+    "pass_es":     ("Passwords/Common-Credentials/Language-Specific/Spanish_common-usernames-and-passwords.txt", "1k"),
+    "pass_de":     ("Passwords/Common-Credentials/Language-Specific/German_common-password-list-top-10000.txt", "10k"),
+    "pass_fr":     ("Passwords/Common-Credentials/Language-Specific/French-common-password-list-top-20000.txt", "20k"),
     # API
     "api_endpoints": ("Discovery/Web-Content/api/api-endpoints-res.txt", "2.2k"),
     "api_objects":   ("Discovery/Web-Content/api/objects.txt", "2.9k"),
@@ -1719,7 +1720,10 @@ _WL = {
 
 
 def _wl_path(key: str) -> str:
-    return f"{_SECLISTS_BASE}/{_WL[key][0]}"
+    p = _WL[key][0]
+    if p.startswith("/"):
+        return p
+    return f"{_SECLISTS_BASE}/{p}"
 
 
 def _wl_label(key: str) -> str:
@@ -1805,6 +1809,7 @@ def _build_dir_result(target: dict, tech_key: str, tech_exts: list[str], intensi
         extras.append("asp_fuzz")
         tech_exts = [".asp", ".aspx", ".txt", ".bak", ".config"]
     elif tech_key == "java":
+        extras.append("java_fuzz")
         tech_exts = [".jsp", ".do", ".action", ".xml", ".txt"]
     elif tech_key == "python":
         tech_exts = [".py", ".txt", ".json", ".yaml"]

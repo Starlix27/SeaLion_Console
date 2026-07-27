@@ -222,7 +222,7 @@ slconsole> wordfind http://10.10.11.42
   ┌─ Risultato ────────────────────────────────┐
 
   Wordlist consigliate:
-    [1] directory-list-2.3-medium.txt  (220k)
+    [1] DirBuster-2007_directory-list-2.3-medium.txt  (220k)
     [2] common.txt                      (4.7k)
     [3] PHP.fuzz.txt                    (274)
 
@@ -231,10 +231,10 @@ slconsole> wordfind http://10.10.11.42
   Comandi pronti:
 
     gobuster dir -u http://10.10.11.42 \
-      -w .../directory-list-2.3-medium.txt -x php,txt,bak -t 50
+      -w .../DirBuster-2007_directory-list-2.3-medium.txt -x php,txt,bak -t 50
 
     ffuf -u http://10.10.11.42/FUZZ \
-      -w .../directory-list-2.3-medium.txt -e .php,.txt,.bak -t 50 -c
+      -w .../DirBuster-2007_directory-list-2.3-medium.txt -e .php,.txt,.bak -t 50 -c
 
   └────────────────────────────────────────────┘
 ```

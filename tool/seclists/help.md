@@ -19,7 +19,7 @@ I file vengono installati in:
 |---|---|
 | `Discovery/DNS/` | Wordlist per subdomain brute force (es. `subdomains-top1million-110000.txt`) |
 | `Discovery/Web-Content/` | Directory e file comuni per fuzzing web |
-| `Passwords/` | Wordlist di password (include `rockyou.txt`) |
+| `Passwords/` | Wordlist di password (common credentials, default, language-specific) |
 | `Usernames/` | Liste di username comuni |
 | `Discovery/SNMP/` | Community string per SNMP brute force |
 | `Fuzzing/` | Payload per fuzzing generico |
@@ -30,7 +30,7 @@ I file vengono installati in:
 ### Fuzzing di directory web con gobuster
 
 ```bash
-gobuster dir -u http://target -w /usr/share/seclists/Discovery/Web-Content/directory-list-2.3-medium.txt
+gobuster dir -u http://target -w /usr/share/seclists/Discovery/Web-Content/DirBuster-2007_directory-list-2.3-medium.txt
 ```
 
 ### Enumerazione DNS con dnsenum
@@ -48,7 +48,7 @@ onesixtyone -c /usr/share/seclists/Discovery/SNMP/snmp.txt <IP>
 ### Cracking password con john
 
 ```bash
-john --wordlist=/usr/share/seclists/Passwords/Leaked-Databases/rockyou.txt hash.txt
+john --wordlist=/usr/share/wordlists/rockyou.txt hash.txt
 ```
 
 ### Enumerazione virtual host con gobuster

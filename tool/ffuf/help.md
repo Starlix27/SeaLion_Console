@@ -25,7 +25,7 @@ ffuf -u http://target.com/FUZZ -w /usr/share/seclists/Discovery/Web-Content/comm
 ### Con estensioni
 
 ```bash
-ffuf -u http://target.com/FUZZ -w /usr/share/seclists/Discovery/Web-Content/directory-list-2.3-medium.txt -e .php,.txt,.bak -c
+ffuf -u http://target.com/FUZZ -w /usr/share/seclists/Discovery/Web-Content/DirBuster-2007_directory-list-2.3-medium.txt -e .php,.txt,.bak -c
 ```
 
 ### Subdomain fuzzing
@@ -55,7 +55,7 @@ ffuf -u http://target.com/login -X POST -d "user=admin&FUZZ=test" -w /usr/share/
 ### Password bruteforce
 
 ```bash
-ffuf -u http://target.com/login -X POST -d "user=admin&pass=FUZZ" -w /usr/share/seclists/Passwords/Common-Credentials/10-million-password-list-top-10000.txt -fc 401,403 -c
+ffuf -u http://target.com/login -X POST -d "user=admin&pass=FUZZ" -w /usr/share/seclists/Passwords/Common-Credentials/xato-net-10-million-passwords-10000.txt -fc 401,403 -c
 ```
 
 ### API endpoint fuzzing

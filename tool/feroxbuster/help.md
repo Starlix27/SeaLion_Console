@@ -23,7 +23,7 @@ feroxbuster -u http://target.com -w /usr/share/seclists/Discovery/Web-Content/co
 ### Con estensioni
 
 ```bash
-feroxbuster -u http://target.com -w /usr/share/seclists/Discovery/Web-Content/directory-list-2.3-medium.txt -x php,txt,bak -t 50
+feroxbuster -u http://target.com -w /usr/share/seclists/Discovery/Web-Content/DirBuster-2007_directory-list-2.3-medium.txt -x php,txt,bak -t 50
 ```
 
 ### Senza ricorsione

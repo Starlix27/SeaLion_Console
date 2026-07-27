@@ -49,7 +49,7 @@ wfuzz -u "http://target.com/page?FUZZ=test" -w /usr/share/seclists/Discovery/Web
 ### Parameter fuzzing (POST)
 
 ```bash
-wfuzz -u http://target.com/login -d "user=admin&pass=FUZZ" -w /usr/share/seclists/Passwords/Common-Credentials/10-million-password-list-top-10000.txt --hc 401,403
+wfuzz -u http://target.com/login -d "user=admin&pass=FUZZ" -w /usr/share/seclists/Passwords/Common-Credentials/xato-net-10-million-passwords-10000.txt --hc 401,403
 ```
 
 ### Bruteforce login
