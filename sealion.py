@@ -2153,6 +2153,31 @@ def cmd_wordfind(args: argparse.Namespace, state: ConsoleState | None = None) ->
             return 0
         context = _PASS_CONTEXT_MENU[ctx_choice - 1][0]
 
+        # If service context, ask protocol + parse IP:PORT
+        svc_proto = None
+        svc_port = None
+        if context == "service":
+            svc_menu = [(s[0], f"{s[1]}  (porta {s[2]})") for s in _PF_SERVICE_MENU]
+            svc_choice = _wf_ask("[2b] Protocollo?", svc_menu)
+            if svc_choice == -1:
+                return 0
+            svc_entry = _PF_SERVICE_MENU[svc_choice - 1]
+            svc_proto = svc_entry[0]
+            svc_default_port = svc_entry[2]
+
+            # Parse IP:PORT from target
+            host_raw = target["host"]
+            if ":" in host_raw and not host_raw.startswith("["):
+                parts = host_raw.rsplit(":", 1)
+                if parts[1].isdigit():
+                    target["host"] = parts[0]
+                    svc_port = parts[1]
+
+            if not svc_port:
+                print()
+                port_input = _wf_ask_text(f"[2c] Porta? (invio = {svc_default_port})", default="")
+                svc_port = port_input if port_input else svc_default_port
+
         # Step 3: Language
         lang_choice = _wf_ask("[3] Lingua / localizzazione?", _LANG_MENU)
         if lang_choice == -1:
@@ -2192,8 +2217,24 @@ def cmd_wordfind(args: argparse.Namespace, state: ConsoleState | None = None) ->
             return 0
         intensity = _INTENSITY_GENERIC[int_choice - 1][0]
 
-        result = _build_pass_result(target, context, lang, username, intensity,
-                                    user_wl_key=user_wl_key)
+        if context == "service" and svc_proto:
+            result = _build_service_result(svc_proto, svc_port, target["host"],
+                                           username, intensity, user_wl_key=user_wl_key)
+            # Add password wordlists to result
+            pw_wls = []
+            if intensity == "fast":
+                pw_wls = ["pass_500", "pass_default_web"]
+            elif intensity == "medium":
+                pw_wls = ["pass_top10k", "pass_common"]
+            else:
+                pw_wls = ["pass_top1m", "pass_rockyou"]
+            lang_wl = {"it": "pass_it", "es": "pass_es", "de": "pass_de", "fr": "pass_fr"}
+            if lang in lang_wl:
+                pw_wls.append(lang_wl[lang])
+            result["wordlists"] = pw_wls
+        else:
+            result = _build_pass_result(target, context, lang, username, intensity,
+                                        user_wl_key=user_wl_key)
 
     elif scope_key == "api":
         # Step 2: API type
