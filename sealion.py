@@ -1681,6 +1681,9 @@ _WL = {
     "dir_small":   ("Discovery/Web-Content/DirBuster-2007_directory-list-2.3-small.txt", "87k"),
     "raft_dirs":   ("Discovery/Web-Content/raft-medium-directories.txt", "30k"),
     "raft_files":  ("Discovery/Web-Content/raft-medium-files.txt", "17k"),
+    "raft_dirs_l": ("Discovery/Web-Content/raft-large-directories.txt", "62k"),
+    "raft_files_l":("Discovery/Web-Content/raft-large-files.txt", "37k"),
+    "dir_2_3_small": ("Discovery/Web-Content/DirBuster-2007_directory-list-2.3-small.txt", "87k"),
     # Tech-specific
     "php_fuzz":    ("Discovery/Web-Content/Programming-Language-Specific/PHP.fuzz.txt", "274"),
     "asp_fuzz":    ("Discovery/Web-Content/Programming-Language-Specific/ASP.NET/CommonBackdoors-ASP.fuzz.txt", "120"),
@@ -1695,6 +1698,7 @@ _WL = {
     "sub_full":    ("Discovery/DNS/subdomains-top1million-110000.txt", "110k"),
     "sub_names":   ("Discovery/DNS/namelist.txt", "1.9k"),
     "sub_bitquark": ("Discovery/DNS/bitquark-subdomains-top100000.txt", "100k"),
+    "sub_fierce":  ("Discovery/DNS/fierce-hostlist.txt", "2.5k"),
     # Parameters
     "param_burp":  ("Discovery/Web-Content/burp-parameter-names.txt", "6.5k"),
     "param_top":   ("Discovery/Web-Content/api/api-endpoints.txt", "800"),
@@ -1702,13 +1706,33 @@ _WL = {
     "user_names":  ("Usernames/Names/names.txt", "10k"),
     "user_top":    ("Usernames/top-usernames-shortlist.txt", "17"),
     "user_xato":   ("Usernames/xato-net-10-million-usernames.txt", "8.3M"),
-    # Passwords
+    "user_cirt":   ("Usernames/cirt-default-usernames.txt", "827"),
+    "user_mssql_default": ("Usernames/mssql-betterdefaultpasslist.txt", "110"),
+    "user_service_default": ("Usernames/CommonAdminBase64.txt", "57"),
+    "user_unix":   ("Usernames/unix_users.txt", "167"),
+    "user_satanlist": ("Usernames/satanlist.txt", "87"),
+    # Passwords — common credentials
     "pass_top10k": ("Passwords/Common-Credentials/xato-net-10-million-passwords-10000.txt", "10k"),
     "pass_top1m":  ("Passwords/Common-Credentials/xato-net-10-million-passwords-1000000.txt", "1M"),
     "pass_rockyou": ("/usr/share/wordlists/rockyou.txt", "14M"),
     "pass_500":    ("Passwords/Common-Credentials/500-worst-passwords.txt", "500"),
     "pass_common": ("Passwords/Common-Credentials/common-passwords-win.txt", "815"),
     "pass_default_web": ("Passwords/Default-Credentials/default-passwords.txt", "1.2k"),
+    "pass_10k_most_common": ("Passwords/Common-Credentials/10k-most-common.txt", "10k"),
+    "pass_100k":   ("Passwords/Common-Credentials/xato-net-10-million-passwords-100000.txt", "100k"),
+    # Passwords — default credentials
+    "pass_tomcat": ("Passwords/Default-Credentials/tomcat-betterdefaultpasslist.txt", "79"),
+    "pass_ftp_default": ("Passwords/Default-Credentials/ftp-betterdefaultpasslist.txt", "52"),
+    "pass_mssql_default": ("Passwords/Default-Credentials/mssql-betterdefaultpasslist.txt", "60"),
+    "pass_mysql_default": ("Passwords/Default-Credentials/mysql-betterdefaultpasslist.txt", "15"),
+    "pass_postgres_default": ("Passwords/Default-Credentials/postgres-betterdefaultpasslist.txt", "16"),
+    "pass_ssh_default": ("Passwords/Default-Credentials/ssh-betterdefaultpasslist.txt", "40"),
+    # Passwords — leaked databases
+    "pass_darkweb_top1k": ("Passwords/Leaked-Databases/alleged-gmail-passwords.txt", "18k"),
+    "pass_openwall": ("Passwords/Leaked-Databases/openwall.net-all.txt", "3.7k"),
+    "pass_hak5":     ("Passwords/Leaked-Databases/hak5.txt", "2.4k"),
+    # Passwords — WiFi / WPA
+    "pass_wifi_probable": ("Passwords/WiFi-WPA/probable-v2-wpa-top4800.txt", "4.8k"),
     # Language-specific passwords
     "pass_it":     ("Passwords/Common-Credentials/Language-Specific/Italian_Pwdb_common-password-list-top-150.txt", "150"),
     "pass_es":     ("Passwords/Common-Credentials/Language-Specific/Spanish_common-usernames-and-passwords.txt", "1k"),
@@ -1721,12 +1745,33 @@ _WL = {
     "api_graphql":   ("Discovery/Web-Content/graphql.txt", "80"),
 }
 
+_SECLISTS_GITHUB = "https://raw.githubusercontent.com/danielmiessler/SecLists/master"
+
+def _wl_link(key: str) -> str:
+    p = _WL[key][0]
+    if p.startswith("/"):
+        if "rockyou" in p:
+            return "https://github.com/danielmiessler/SecLists/tree/master/Passwords/Leaked-Databases"
+        return ""
+    return f"{_SECLISTS_GITHUB}/{p}"
+
 
 def _wl_path(key: str) -> str:
     p = _WL[key][0]
     if p.startswith("/"):
+        if os.path.isfile(p):
+            return p
+        local = os.path.join(os.path.dirname(os.path.abspath(__file__)), os.path.basename(p))
+        if os.path.isfile(local):
+            return local
         return p
-    return f"{_SECLISTS_BASE}/{p}"
+    full = f"{_SECLISTS_BASE}/{p}"
+    if os.path.isfile(full):
+        return full
+    local = os.path.join(os.path.dirname(os.path.abspath(__file__)), os.path.basename(p))
+    if os.path.isfile(local):
+        return local
+    return full
 
 
 def _wl_label(key: str) -> str:
@@ -1912,7 +1957,8 @@ def _build_user_result(target: dict, intensity: str) -> dict:
     return {"wordlists": wordlists, "commands": []}
 
 
-def _build_pass_result(target: dict, context: str, lang: str, username: str, intensity: str) -> dict:
+def _build_pass_result(target: dict, context: str, lang: str, username: str,
+                       intensity: str, user_wl_key: str | None = None) -> dict:
     url = target["base_path"]
     wordlists = []
 
@@ -1928,21 +1974,25 @@ def _build_pass_result(target: dict, context: str, lang: str, username: str, int
         wordlists.append(lang_wl[lang])
 
     user = username or "admin"
+    user_flag = f"-L {_wl_path(user_wl_key)}" if user_wl_key else f"-l {user}"
+    user_flag_med = f"-U {_wl_path(user_wl_key)}" if user_wl_key else f"-u {user}"
+    user_flag_cme = f"-u {_wl_path(user_wl_key)}" if user_wl_key else f"-u {user}"
     main_wl = wordlists[0]
     commands = []
+    user_wls = [user_wl_key] if user_wl_key else []
 
     if context == "web":
-        commands.append(("hydra", f'hydra -l {user} -P {_wl_path(main_wl)} {target["host"]} http-post-form "/login:user=^USER^&pass=^PASS^:Invalid"'))
+        commands.append(("hydra", f'hydra {user_flag} -P {_wl_path(main_wl)} {target["host"]} http-post-form "/login:user=^USER^&pass=^PASS^:Invalid"'))
         commands.append(("ffuf", f"ffuf -u {url} -X POST -d \"user={user}&pass=FUZZ\" -w {_wl_path(main_wl)} -fc 401,403 -c"))
         commands.append(("wfuzz", f"wfuzz -u {url} -d \"user={user}&pass=FUZZ\" -w {_wl_path(main_wl)} --hc 401,403 -t 50"))
-        commands.append(("medusa", f"medusa -h {target['host']} -u {user} -P {_wl_path(main_wl)} -M http -m DIR:{target['path']}"))
+        commands.append(("medusa", f"medusa -h {target['host']} {user_flag_med} -P {_wl_path(main_wl)} -M http -m DIR:{target['path']}"))
     elif context == "service":
-        commands.append(("hydra SSH", f"hydra -l {user} -P {_wl_path(main_wl)} {target['host']} ssh -t 4"))
-        commands.append(("hydra FTP", f"hydra -l {user} -P {_wl_path(main_wl)} {target['host']} ftp -t 4"))
-        commands.append(("hydra RDP", f"hydra -l {user} -P {_wl_path(main_wl)} {target['host']} rdp -t 4"))
-        commands.append(("medusa SSH", f"medusa -h {target['host']} -u {user} -P {_wl_path(main_wl)} -M ssh -t 4"))
-        commands.append(("ncrack SSH", f"ncrack -u {user} -P {_wl_path(main_wl)} {target['host']}:22"))
-        commands.append(("crackmapexec SMB", f"crackmapexec smb {target['host']} -u {user} -p {_wl_path(main_wl)}"))
+        commands.append(("hydra SSH", f"hydra {user_flag} -P {_wl_path(main_wl)} {target['host']} ssh -t 4"))
+        commands.append(("hydra FTP", f"hydra {user_flag} -P {_wl_path(main_wl)} {target['host']} ftp -t 4"))
+        commands.append(("hydra RDP", f"hydra {user_flag} -P {_wl_path(main_wl)} {target['host']} rdp -t 4"))
+        commands.append(("medusa SSH", f"medusa -h {target['host']} {user_flag_med} -P {_wl_path(main_wl)} -M ssh -t 4"))
+        commands.append(("ncrack SSH", f"ncrack {'-U ' + _wl_path(user_wl_key) if user_wl_key else '-u ' + user} -P {_wl_path(main_wl)} {target['host']}:22"))
+        commands.append(("crackmapexec SMB", f"crackmapexec smb {target['host']} {user_flag_cme} -p {_wl_path(main_wl)}"))
     else:
         commands.append(("john", f"john --wordlist={_wl_path(main_wl)} hash.txt"))
         commands.append(("hashcat", f"hashcat -m 0 hash.txt {_wl_path(main_wl)}"))
@@ -1950,7 +2000,10 @@ def _build_pass_result(target: dict, context: str, lang: str, username: str, int
             commands.append(("john lang", f"john --wordlist={_wl_path(lang_wl[lang])} hash.txt"))
             commands.append(("hashcat lang", f"hashcat -m 0 hash.txt {_wl_path(lang_wl[lang])}"))
 
-    return {"wordlists": wordlists, "commands": commands}
+    result = {"wordlists": wordlists, "commands": commands}
+    if user_wls:
+        result["user_wordlists"] = user_wls
+    return result
 
 
 def _build_api_result(target: dict, api_type: str, intensity: str) -> dict:
@@ -1986,6 +2039,9 @@ def _print_wordfind_result(result: dict) -> None:
         print("  \033[1mWordlist consigliate:\033[0m")
         for i, key in enumerate(result["wordlists"], 1):
             print(f"    [{i}] {_wl_label(key)}")
+            link = _wl_link(key)
+            if link:
+                print(f"        \033[90m↳ {link}\033[0m")
         print()
 
     if result.get("extensions"):
@@ -2103,8 +2159,31 @@ def cmd_wordfind(args: argparse.Namespace, state: ConsoleState | None = None) ->
         lang = _LANG_MENU[lang_choice - 1][0]
 
         # Step 4: Username
-        print()
-        username = _wf_ask_text("[4] Username noto? (vuoto = admin)", default="admin")
+        _USER_MODE_WF = [
+            ("single", "Username singolo (lo scrivo io)"),
+            ("wordlist", "Wordlist username (non conosco lo username)"),
+        ]
+        user_mode = _wf_ask("[4] Username?", _USER_MODE_WF)
+        if user_mode == -1:
+            return 0
+
+        username = "admin"
+        user_wl_key = None
+        if user_mode == 1:
+            print()
+            username = _wf_ask_text("[4b] Username (vuoto = admin)", default="admin")
+        else:
+            _USER_WL_WF = [
+                ("user_top", "top-usernames-shortlist.txt  (17 — i più comuni)"),
+                ("user_cirt", "cirt-default-usernames.txt  (827 — credenziali default)"),
+                ("user_names", "names.txt  (10k — nomi comuni)"),
+                ("user_unix", "unix_users.txt  (167 — utenti UNIX tipici)"),
+                ("user_xato", "xato-net-10-million-usernames.txt  (8.3M — esaustiva)"),
+            ]
+            uwl = _wf_ask("[4b] Quale wordlist username?", _USER_WL_WF)
+            if uwl == -1:
+                return 0
+            user_wl_key = _USER_WL_WF[uwl - 1][0]
 
         # Step 5: Intensity
         int_choice = _wf_ask("[5] Intensità?", _INTENSITY_GENERIC, default=2)
@@ -2112,7 +2191,8 @@ def cmd_wordfind(args: argparse.Namespace, state: ConsoleState | None = None) ->
             return 0
         intensity = _INTENSITY_GENERIC[int_choice - 1][0]
 
-        result = _build_pass_result(target, context, lang, username, intensity)
+        result = _build_pass_result(target, context, lang, username, intensity,
+                                    user_wl_key=user_wl_key)
 
     elif scope_key == "api":
         # Step 2: API type
@@ -2151,6 +2231,7 @@ _PF_SCOPE_MENU = [
 _PF_HASH_INPUT_MENU = [
     ("identify", "Ho l'hash — identificalo tu"),
     ("known", "Conosco già il formato"),
+    ("auto", "Non conosco il formato — prova in auto"),
 ]
 
 _PF_HASH_FORMAT_MENU = [
@@ -2278,15 +2359,20 @@ def _build_hash_result(john_fmt: str, hc_mode: str, attack: str,
     commands = []
 
     if attack == "mask":
-        commands.append(("hashcat (mask)", f"hashcat -a 3 -m {hc_mode} hash.txt '{mask}'"))
         if john_fmt:
+            commands.append(("hashcat (mask)", f"hashcat -a 3 -m {hc_mode} hash.txt '{mask}'"))
             commands.append(("john (mask)", f"john --format={john_fmt} --mask='{mask}' hash.txt"))
+        else:
+            commands.append(("john (mask, auto)", f"john --mask='{mask}' hash.txt"))
         return {"wordlists": wordlists, "commands": commands}
 
     if attack == "incremental":
         if john_fmt:
             commands.append(("john (incremental)", f"john --format={john_fmt} --incremental hash.txt"))
-        commands.append(("hashcat (brute-force)", f"hashcat -a 3 -m {hc_mode} hash.txt ?a?a?a?a?a?a?a?a"))
+        else:
+            commands.append(("john (incremental, auto)", "john --incremental hash.txt"))
+        if hc_mode:
+            commands.append(("hashcat (brute-force)", f"hashcat -a 3 -m {hc_mode} hash.txt ?a?a?a?a?a?a?a?a"))
         return {"wordlists": wordlists, "commands": commands}
 
     if intensity == "fast":
@@ -2317,6 +2403,7 @@ def _build_hash_result(john_fmt: str, hc_mode: str, attack: str,
         commands.append(("john (auto)", f"john --wordlist={wl} hash.txt"))
         if attack == "wordlist_rules":
             commands.append(("john (auto + rules)", f"john --wordlist={wl} --rules hash.txt"))
+        commands.append(("john (show)", "john hash.txt --show"))
 
     return {"wordlists": wordlists, "commands": commands}
 
@@ -2399,43 +2486,62 @@ def _build_archive_result(archive_type: str, tool_2john: str, hc_mode: str,
 
 
 def _build_service_result(proto: str, port: str, host: str, username: str,
-                          intensity: str) -> dict:
+                          intensity: str, user_wl_key: str | None = None) -> dict:
     wl = "/usr/share/wordlists/rockyou.txt"
     if intensity == "fast":
         wl = "/usr/share/seclists/Passwords/Common-Credentials/xato-net-10-million-passwords-10000.txt"
 
+    user_flag = f"-L {_wl_path(user_wl_key)}" if user_wl_key else f"-l {username}"
+    user_flag_med = f"-U {_wl_path(user_wl_key)}" if user_wl_key else f"-u {username}"
+    user_flag_cme = f"-u {_wl_path(user_wl_key)}" if user_wl_key else f"-u {username}"
+    user_flag_ncr = f"-U {_wl_path(user_wl_key)}" if user_wl_key else f"-u {username}"
+
+    host_port = f"{host}:{port}" if port else host
+    host_s = f"-s {port} " if port and port not in ("22","21","445","80","3306","1433","5432","5985","5900","3389") else ""
+
     commands = []
+    result_wl = []
+    user_wls = []
+
+    if user_wl_key:
+        user_wls.append(user_wl_key)
 
     if proto == "http":
         commands.append(("hydra (http-post-form)",
-            f"hydra -l {username} -P {wl} {host} http-post-form "
+            f"hydra {user_flag} -P {wl} {host_s}{host} http-post-form "
             f"\"/login:user=^USER^&pass=^PASS^:F=incorrect\" -t 16"))
         commands.append(("medusa (http)",
-            f"medusa -h {host} -u {username} -P {wl} -M http -m DIR:/login -t 4"))
+            f"medusa -h {host} {user_flag_med} -P {wl} -M http -m DIR:/login -t 4"
+            + (f" -n {port}" if port and port != "80" else "")))
     elif proto == "winrm":
         commands.append(("crackmapexec",
-            f"crackmapexec winrm {host} -u {username} -p {wl}"))
+            f"crackmapexec winrm {host_port} {user_flag_cme} -p {wl}"))
         commands.append(("evil-winrm (dopo crack)",
-            f"evil-winrm -i {host} -u {username} -p 'PASSWORD'"))
+            f"evil-winrm -i {host} -u {username or 'USER'} -p 'PASSWORD'"))
     elif proto == "smb":
         commands.append(("hydra",
-            f"hydra -l {username} -P {wl} {host} smb -t 4"))
+            f"hydra {user_flag} -P {wl} {host_s}{host} smb -t 4"))
         commands.append(("crackmapexec",
-            f"crackmapexec smb {host} -u {username} -p {wl}"))
+            f"crackmapexec smb {host_port} {user_flag_cme} -p {wl}"))
         commands.append(("medusa",
-            f"medusa -h {host} -u {username} -P {wl} -M smbnt -t 4"))
+            f"medusa -h {host} {user_flag_med} -P {wl} -M smbnt -t 4"
+            + (f" -n {port}" if port and port != "445" else "")))
         commands.append(("ncrack",
-            f"ncrack -u {username} -P {wl} smb://{host}"))
+            f"ncrack {user_flag_ncr} -P {wl} smb://{host_port}"))
     else:
         svc = proto
         commands.append(("hydra",
-            f"hydra -l {username} -P {wl} {host} {svc} -t 4"))
+            f"hydra {user_flag} -P {wl} {host_s}{host} {svc} -t 4"))
         commands.append(("medusa",
-            f"medusa -h {host} -u {username} -P {wl} -M {svc} -t 4"))
+            f"medusa -h {host} {user_flag_med} -P {wl} -M {svc} -t 4"
+            + (f" -n {port}" if port else "")))
         commands.append(("ncrack",
-            f"ncrack -u {username} -P {wl} {svc}://{host}"))
+            f"ncrack {user_flag_ncr} -P {wl} {svc}://{host_port}"))
 
-    return {"commands": commands}
+    result = {"commands": commands}
+    if user_wls:
+        result["user_wordlists"] = user_wls
+    return result
 
 
 def _print_passfind_result(result: dict) -> None:
@@ -2456,6 +2562,18 @@ def _print_passfind_result(result: dict) -> None:
         print("  \033[1mWordlist consigliate:\033[0m")
         for i, key in enumerate(result["wordlists"], 1):
             print(f"    [{i}] {_wl_label(key)}")
+            link = _wl_link(key)
+            if link:
+                print(f"        \033[90m↳ {link}\033[0m")
+        print()
+
+    if result.get("user_wordlists"):
+        print("  \033[1mWordlist username consigliate:\033[0m")
+        for i, key in enumerate(result["user_wordlists"], 1):
+            print(f"    [{i}] {_wl_label(key)}")
+            link = _wl_link(key)
+            if link:
+                print(f"        \033[90m↳ {link}\033[0m")
         print()
 
     if result.get("commands"):
@@ -2521,7 +2639,7 @@ def cmd_passfind(args: argparse.Namespace, state: ConsoleState | None = None) ->
             entry = _PF_HASH_FORMAT_MENU[fmt_choice - 1]
             john_fmt = entry[3]
             hc_mode = entry[2]
-        else:
+        elif inp_choice == 2:
             fmt_menu = [(f[0], f[1]) for f in _PF_HASH_FORMAT_MENU]
             fmt_choice = _wf_ask("[3] Formato hash?", fmt_menu)
             if fmt_choice == -1:
@@ -2530,6 +2648,8 @@ def cmd_passfind(args: argparse.Namespace, state: ConsoleState | None = None) ->
             john_fmt = entry[3]
             hc_mode = entry[2]
             hints = []
+        else:
+            hints = ["Auto-detect: john tenterà di identificare il formato automaticamente"]
 
         atk_choice = _wf_ask("[4] Metodo di attacco?", _PF_ATTACK_MENU)
         if atk_choice == -1:
@@ -2618,16 +2738,58 @@ def cmd_passfind(args: argparse.Namespace, state: ConsoleState | None = None) ->
         default_port = entry[2]
 
         print()
-        host = _wf_ask_text("[3] Target IP/hostname", default="10.10.11.42")
+        host_raw = _wf_ask_text("[3] Target IP/hostname (oppure IP:PORTA)", default="10.10.11.42")
+        if ":" in host_raw and not host_raw.startswith("["):
+            parts = host_raw.rsplit(":", 1)
+            if parts[1].isdigit():
+                host = parts[0]
+                port = parts[1]
+            else:
+                host = host_raw
+                port = ""
+        else:
+            host = host_raw
+            port = ""
+
+        if not port:
+            print()
+            port_input = _wf_ask_text(f"[3b] Porta? (invio = {default_port})", default="")
+            port = port_input if port_input else default_port
+
         print()
-        username = _wf_ask_text("[4] Username noto? (vuoto = admin)", default="admin")
+        _USER_MODE_MENU = [
+            ("single", "Username singolo (lo scrivo io)"),
+            ("wordlist", "Wordlist username (non conosco lo username)"),
+        ]
+        user_mode_choice = _wf_ask("[4] Username?", _USER_MODE_MENU)
+        if user_mode_choice == -1:
+            return 0
+
+        username = "admin"
+        user_wl_key = None
+        if user_mode_choice == 1:
+            print()
+            username = _wf_ask_text("[4b] Username (vuoto = admin)", default="admin")
+        else:
+            _USER_WL_MENU = [
+                ("user_top", f"top-usernames-shortlist.txt  (17 — i più comuni)"),
+                ("user_cirt", f"cirt-default-usernames.txt  (827 — credenziali default)"),
+                ("user_names", f"names.txt  (10k — nomi comuni)"),
+                ("user_unix", f"unix_users.txt  (167 — utenti UNIX tipici)"),
+                ("user_xato", f"xato-net-10-million-usernames.txt  (8.3M — esaustiva)"),
+            ]
+            uwl_choice = _wf_ask("[4b] Quale wordlist username?", _USER_WL_MENU)
+            if uwl_choice == -1:
+                return 0
+            user_wl_key = _USER_WL_MENU[uwl_choice - 1][0]
 
         int_choice = _wf_ask("[5] Intensità?", _PF_INTENSITY_MENU, default=2)
         if int_choice == -1:
             return 0
         intensity = _PF_INTENSITY_MENU[int_choice - 1][0]
 
-        result = _build_service_result(proto, default_port, host, username, intensity)
+        result = _build_service_result(proto, port, host, username, intensity,
+                                       user_wl_key=user_wl_key)
 
     else:
         print("  Scopo non supportato.")
