@@ -2,6 +2,10 @@
 
 ---
 
+## Discovery Porte con Netstat
+- netstat -tulpn | grep LISTEN
+- nmap localhost
+
 ## Privilege Escalation
 
 - **LinPEAS / WinPEAS** — Privilege Escalation Awesome Script Suite
