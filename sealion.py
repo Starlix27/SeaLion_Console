@@ -3095,6 +3095,9 @@ def cmd_wordgen(args: argparse.Namespace, state: ConsoleState | None = None) -> 
 
     print(f"  \033[92m└────────────────────────────────────────────┘\033[0m")
     return 0
+
+
+def cmd_find(args: argparse.Namespace, state: ConsoleState | None = None) -> int:
     query = " ".join(args.query) if isinstance(args.query, list) else args.query
     if not query.strip():
         print("Specifica una parola da cercare.", file=sys.stderr)
