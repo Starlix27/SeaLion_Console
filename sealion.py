@@ -321,6 +321,7 @@ def print_help_text() -> None:
     print("  loot [azione]      Gestisci file ricevuti dalla vulnbox (loot help)")
     print("  wordfind [url]     Wizard wordlist per fuzzing/bruteforce")
     print("  passfind           Wizard password cracking (hash, file, archivi, servizi)")
+    print("  wordgen            Wizard creazione wordlist personalizzate")
     print("  sealsay [testo]    Stampa un messaggio in stile cowsay")
     print("  back               Torna alla console principale")
     print("  help               Mostra questo aiuto")
@@ -468,6 +469,7 @@ def build_parser() -> argparse.ArgumentParser:
     wordfind_p = subparsers.add_parser("wordfind", add_help=False)
     wordfind_p.add_argument("url", nargs="?", default=None)
     subparsers.add_parser("passfind", add_help=False)
+    subparsers.add_parser("wordgen", add_help=False)
     return parser
 
 
@@ -483,7 +485,7 @@ def setup_readline() -> None:
 
 
 _COMPLETABLE = sorted(["sealsay", "list", "install", "use", "search", "vuln",
-                        "notes", "find", "back", "help", "serve", "loot", "wordfind", "passfind", "exit"])
+                        "notes", "find", "back", "help", "serve", "loot", "wordfind", "passfind", "wordgen", "exit"])
 _input_history: list[str] = []
 
 
@@ -707,6 +709,7 @@ def run_command(argv: list[str], state: ConsoleState | None = None) -> int:
         "loot": cmd_loot,
         "wordfind": cmd_wordfind,
         "passfind": cmd_passfind,
+        "wordgen": cmd_wordgen,
     }
     handler = handlers.get(args.command)
     if handler is None:
@@ -823,7 +826,7 @@ def run_console() -> int:
                     state.last_vuln_tools = _extract_vuln_tools(text)
                 continue
 
-        known_commands = {"sealsay", "list", "install", "use", "search", "vuln", "notes", "find", "back", "help", "?", "--version", "-h", "--help", "serve", "loot", "wordfind", "passfind"}
+        known_commands = {"sealsay", "list", "install", "use", "search", "vuln", "notes", "find", "back", "help", "?", "--version", "-h", "--help", "serve", "loot", "wordfind", "passfind", "wordgen"}
         if argv[0] not in known_commands:
             print("Comando non riconosciuto. Digita 'help' per i comandi.")
             continue
@@ -2841,7 +2844,257 @@ def cmd_passfind(args: argparse.Namespace, state: ConsoleState | None = None) ->
     return 0
 
 
-def cmd_find(args: argparse.Namespace, state: ConsoleState | None = None) -> int:
+# ──────────────────────────────────────────────────────────────
+# wordgen — Wizard creazione wordlist personalizzate
+# ──────────────────────────────────────────────────────────────
+
+_WG_METHOD_MENU = [
+    ("cewl",       "CeWL",            "crawla un sito → wordlist dalle parole trovate"),
+    ("crunch",     "Crunch",          "genera combinazioni da charset e lunghezza"),
+    ("cupp",       "CUPP",            "profila una persona → password probabili"),
+    ("john_rules", "John rules",      "muta una wordlist esistente con regole"),
+    ("hc_rules",   "Hashcat rules",   "muta una wordlist con regole hashcat"),
+    ("mask",       "Maskprocessor",   "genera da maschera (?u?l?l?d?d)"),
+    ("prince",     "Princeprocessor", "combina parole di un dizionario tra loro"),
+    ("kwproc",     "Kwprocessor",     "genera keyboard walks (qwerty, asdfgh...)"),
+    ("user_anarchy","Username Anarchy","da nome e cognome → varianti username"),
+    ("rsmangler",  "rsmangler",       "permutazioni: capitalize, reverse, append numeri"),
+    ("pydictor",   "Pydictor",        "generator Python: social eng, leet, combo"),
+    ("ttpassgen",  "TTPassGen",       "pattern: date, nomi, combinazioni custom"),
+    ("lyricpass",  "Lyricpass",       "wordlist da testi di canzoni (Genius API)"),
+    ("bewgor",     "BEWGor",          "come CUPP ma con più varianti (date IT, suffissi)"),
+    ("bash",       "Bash/Python",     "script custom con for/sed/awk/python"),
+    ("combo",      "Combinazione",    "unisci più wordlist + dedup + regole"),
+]
+
+_WG_INSTALL = {
+    "cewl":        "sudo apt install cewl",
+    "crunch":      "sudo apt install crunch",
+    "cupp":        "git clone https://github.com/Mebus/cupp.git && cd cupp && python3 cupp.py -i",
+    "john_rules":  "sudo apt install john",
+    "hc_rules":    "sudo apt install hashcat",
+    "mask":        "sudo apt install maskprocessor   # oppure: https://github.com/hashcat/maskprocessor",
+    "prince":      "https://github.com/hashcat/princeprocessor → make",
+    "kwproc":      "https://github.com/hashcat/kwprocessor → make",
+    "user_anarchy":"git clone https://github.com/urbanadventurer/username-anarchy.git",
+    "rsmangler":   "git clone https://github.com/digininja/RSMangler.git",
+    "pydictor":    "git clone https://github.com/LandGrey/pydictor.git",
+    "ttpassgen":   "pip3 install ttpassgen",
+    "lyricpass":   "git clone https://github.com/initstring/lyricpass.git",
+    "bewgor":      "git clone https://github.com/berzerk0/BEWGor.git",
+    "bash":        "(nessuna installazione — bash + coreutils)",
+    "combo":       "(nessuna installazione — bash + sort/uniq)",
+}
+
+
+def _wg_build(method: str) -> dict:
+    commands = []
+    notes = []
+    install = _WG_INSTALL.get(method, "")
+
+    if method == "cewl":
+        url = _wf_ask_text("[URL] Sito da crawlare", default="http://target.com")
+        depth = _wf_ask_text("[Depth] Profondità (default 2)", default="2")
+        minlen = _wf_ask_text("[Min] Lunghezza minima parole (default 5)", default="5")
+        outfile = _wf_ask_text("[Output] File di output", default="cewl_wordlist.txt")
+        commands.append(("CeWL base", f"cewl -d {depth} -m {minlen} -w {outfile} {url}"))
+        commands.append(("CeWL + email", f"cewl -d {depth} -m {minlen} -w {outfile} -e --email_file emails.txt {url}"))
+        commands.append(("CeWL + lowercase", f"cewl -d {depth} -m {minlen} --lowercase -w {outfile} {url}"))
+        notes.append("--with-numbers include anche parole con numeri")
+        notes.append("-c mostra il conteggio di ogni parola")
+
+    elif method == "crunch":
+        minl = _wf_ask_text("[Min] Lunghezza minima", default="6")
+        maxl = _wf_ask_text("[Max] Lunghezza massima", default="8")
+        _CHARSET_MENU = [
+            ("lower", "Solo minuscole (abcdefghijklmnopqrstuvwxyz)"),
+            ("upper", "Solo maiuscole"),
+            ("digits", "Solo numeri (0-9)"),
+            ("lower_digits", "Minuscole + numeri"),
+            ("mixed", "Tutto (a-z, A-Z, 0-9, simboli)"),
+            ("custom", "Scrivo io il charset"),
+        ]
+        cs_choice = _wf_ask("Charset?", _CHARSET_MENU)
+        if cs_choice == -1:
+            return {"commands": [], "notes": []}
+        charset_map = {
+            "lower": "abcdefghijklmnopqrstuvwxyz",
+            "upper": "ABCDEFGHIJKLMNOPQRSTUVWXYZ",
+            "digits": "0123456789",
+            "lower_digits": "abcdefghijklmnopqrstuvwxyz0123456789",
+            "mixed": "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%",
+        }
+        cs_key = _CHARSET_MENU[cs_choice - 1][0]
+        if cs_key == "custom":
+            charset = _wf_ask_text("[Charset] Inserisci i caratteri", default="abc123")
+        else:
+            charset = charset_map[cs_key]
+        outfile = _wf_ask_text("[Output] File di output", default="crunch_wordlist.txt")
+        commands.append(("Crunch", f"crunch {minl} {maxl} '{charset}' -o {outfile}"))
+        commands.append(("Crunch con pattern", f"crunch {minl} {maxl} -t ,@@%%^^ -o {outfile}"))
+        notes.append("Pattern: @ = minuscola, , = maiuscola, % = numero, ^ = simbolo")
+        notes.append(f"Attenzione: crunch {minl}-{maxl} con charset ampio genera file enormi")
+
+    elif method == "cupp":
+        commands.append(("CUPP interattivo", "python3 cupp.py -i"))
+        commands.append(("CUPP da file config", "python3 cupp.py -w"))
+        commands.append(("CUPP download default", "python3 cupp.py -l"))
+        notes.append("Ti chiederà nome, cognome, data di nascita, nick, partner, pet, ecc.")
+        notes.append("Più info inserisci, migliore è la wordlist generata")
+
+    elif method == "john_rules":
+        wl = _wf_ask_text("[Wordlist] Wordlist base da mutare", default="/usr/share/wordlists/rockyou.txt")
+        outfile = _wf_ask_text("[Output] File di output", default="mutated.txt")
+        commands.append(("John + best64", f"john --wordlist={wl} --rules=best64 --stdout > {outfile}"))
+        commands.append(("John + jumbo", f"john --wordlist={wl} --rules=jumbo --stdout > {outfile}"))
+        commands.append(("John + korelogic", f"john --wordlist={wl} --rules=KoreLogic --stdout > {outfile}"))
+        commands.append(("Lista regole", "john --list=rules"))
+        notes.append("best64 = 64 regole più efficaci (veloce)")
+        notes.append("jumbo = migliaia di regole (lento, esaustivo)")
+
+    elif method == "hc_rules":
+        wl = _wf_ask_text("[Wordlist] Wordlist base da mutare", default="/usr/share/wordlists/rockyou.txt")
+        outfile = _wf_ask_text("[Output] File di output", default="mutated.txt")
+        rules_dir = "/usr/share/hashcat/rules"
+        commands.append(("best64.rule", f"hashcat --stdout -r {rules_dir}/best64.rule {wl} > {outfile}"))
+        commands.append(("dive.rule", f"hashcat --stdout -r {rules_dir}/dive.rule {wl} > {outfile}"))
+        commands.append(("toggles.rule", f"hashcat --stdout -r {rules_dir}/toggles1.rule {wl} > {outfile}"))
+        commands.append(("combina 2 regole", f"hashcat --stdout -r {rules_dir}/best64.rule -r {rules_dir}/toggles1.rule {wl} > {outfile}"))
+        notes.append("dive.rule = ~100k regole (molto lento, molto esaustivo)")
+        notes.append(f"Lista regole: ls {rules_dir}/")
+
+    elif method == "mask":
+        mask = _wf_ask_text("[Mask] Maschera (es. ?u?l?l?l?d?d)", default="?u?l?l?l?l?l?d?d")
+        outfile = _wf_ask_text("[Output] File di output", default="mask_wordlist.txt")
+        commands.append(("Maskprocessor", f"mp64 '{mask}' -o {outfile}"))
+        commands.append(("Hashcat mask", f"hashcat -a 3 --stdout '{mask}' > {outfile}"))
+        notes.append("?l = minuscola, ?u = maiuscola, ?d = cifra, ?s = simbolo, ?a = tutto")
+        notes.append("?1 = charset custom: hashcat -a 3 -1 ?l?d --stdout '?1?1?1?1?1?1'")
+
+    elif method == "prince":
+        wl = _wf_ask_text("[Wordlist] Dizionario base", default="words.txt")
+        outfile = _wf_ask_text("[Output] File di output", default="prince_wordlist.txt")
+        commands.append(("Prince base", f"pp64 < {wl} > {outfile}"))
+        commands.append(("Prince max 3 parole", f"pp64 --elem-cnt-max=3 < {wl} > {outfile}"))
+        commands.append(("Prince con lunghezza", f"pp64 --pw-min=8 --pw-max=16 < {wl} > {outfile}"))
+        notes.append("Combina 2-3 parole del dizionario: 'password' + 'admin' → 'passwordadmin'")
+        notes.append("Molto efficace con wordlist piccole e mirate (nomi, parole target)")
+
+    elif method == "kwproc":
+        outfile = _wf_ask_text("[Output] File di output", default="keyboard_wordlist.txt")
+        commands.append(("QWERTY walks", f"kwp basechars/full.base keymaps/en-us.keymap routes/2-to-16-max-3-direction-changes.route > {outfile}"))
+        commands.append(("Solo 8 char", f"kwp basechars/full.base keymaps/en-us.keymap routes/2-to-10-max-2-direction-changes.route | awk 'length==8' > {outfile}"))
+        notes.append("Genera pattern da tastiera: qwerty, asdfgh, zxcvbn, 1qaz2wsx...")
+        notes.append("Scarica: https://github.com/hashcat/kwprocessor")
+
+    elif method == "user_anarchy":
+        nome = _wf_ask_text("[Nome] Nome e cognome", default="Mario Rossi")
+        outfile = _wf_ask_text("[Output] File di output", default="usernames.txt")
+        commands.append(("Username Anarchy", f"./username-anarchy '{nome}' > {outfile}"))
+        commands.append(("Con formato email", f"./username-anarchy --select-format first.last '{nome}' > {outfile}"))
+        commands.append(("Da file di nomi", f"./username-anarchy --input-file names.txt > {outfile}"))
+        notes.append("Genera: mrossi, m.rossi, rossim, mario.rossi, mario_rossi, ecc.")
+
+    elif method == "rsmangler":
+        wl = _wf_ask_text("[Wordlist] Parole base (una per riga)", default="base_words.txt")
+        outfile = _wf_ask_text("[Output] File di output", default="mangled.txt")
+        commands.append(("rsmangler", f"rsmangler -f {wl} > {outfile}"))
+        commands.append(("Solo capitalize + numeri", f"rsmangler -f {wl} --capitalize --numbers > {outfile}"))
+        notes.append("Permutazioni: capitalize, reverse, append 0-99, double, leet speak")
+        notes.append("Crea un file base_words.txt con poche parole chiave (nome, azienda, anno...)")
+
+    elif method == "pydictor":
+        commands.append(("Base numerica", "pydictor -base d --len 6 8 -o num_wordlist.txt"))
+        commands.append(("Leet speak", "pydictor -base dLc --len 6 12 --leet 0 1 2 -o leet_wordlist.txt"))
+        commands.append(("Social engineering", "pydictor --sedb"))
+        commands.append(("Combo da file", "pydictor -tool combiner file1.txt file2.txt -o combined.txt"))
+        notes.append("--sedb = modalità interattiva social engineering (come CUPP ma più opzioni)")
+        notes.append("Supporta plugin custom in Python")
+
+    elif method == "ttpassgen":
+        commands.append(("Da pattern", "ttpassgen --rule '[?l]{6,8}[?d]{2,4}' -o tt_wordlist.txt"))
+        commands.append(("Nome + anno", "ttpassgen --rule 'mario[?d]{4}' -o tt_wordlist.txt"))
+        commands.append(("Append special", "ttpassgen --rule '[?l]{4,6}[!@#$]{1,2}[?d]{2}' -o tt_wordlist.txt"))
+        notes.append("Sintassi regole: ?l=lower, ?u=upper, ?d=digit, ?s=special")
+        notes.append("pip3 install ttpassgen")
+
+    elif method == "lyricpass":
+        artista = _wf_ask_text("[Artista] Nome artista/band", default="Eminem")
+        outfile = _wf_ask_text("[Output] File di output", default="lyrics_wordlist.txt")
+        commands.append(("Lyricpass", f"python3 lyricpass.py -a '{artista}' -o {outfile}"))
+        notes.append("Richiede Genius API token (gratuito): export GENIUS_CLIENT_ACCESS_TOKEN=...")
+        notes.append("Utile quando sai che il target è fan di un artista specifico")
+
+    elif method == "bewgor":
+        commands.append(("BEWGor interattivo", "python3 bewgor.py"))
+        notes.append("Come CUPP ma con varianti extra: date italiane, suffissi comuni IT (123, !!, ecc.)")
+        notes.append("git clone https://github.com/berzerk0/BEWGor.git")
+
+    elif method == "bash":
+        outfile = _wf_ask_text("[Output] File di output", default="custom_wordlist.txt")
+        commands.append(("Combina parole", f"for a in mario admin root; do for b in 2024 2025 123 !; do echo \"$a$b\"; done; done > {outfile}"))
+        commands.append(("Date italiane", f"for y in $(seq 1980 2005); do for m in $(seq -w 1 12); do for d in $(seq -w 1 31); do echo \"$d$m$y\"; echo \"$d/$m/$y\"; done; done; done > {outfile}"))
+        commands.append(("Leet speak", f"sed 'y/aeiost/431057/' base.txt >> {outfile}"))
+        commands.append(("Append numeri 0-999", f"while read w; do for i in $(seq 0 999); do echo \"$w$i\"; done; done < base.txt > {outfile}"))
+        notes.append("Combinare con sort -u per rimuovere duplicati")
+
+    elif method == "combo":
+        outfile = _wf_ask_text("[Output] File di output", default="combined_wordlist.txt")
+        commands.append(("Unisci + dedup", f"cat wordlist1.txt wordlist2.txt wordlist3.txt | sort -u > {outfile}"))
+        commands.append(("Filtra per lunghezza", f"awk 'length >= 6 && length <= 16' {outfile} > filtered.txt"))
+        commands.append(("Poi muta con regole", f"john --wordlist={outfile} --rules=best64 --stdout | sort -u > final.txt"))
+        commands.append(("Conta righe", f"wc -l {outfile}"))
+        notes.append("Workflow tipico: CeWL + CUPP + base → unisci → dedup → muta con rules → dedup finale")
+
+    return {"commands": commands, "notes": notes, "install": install}
+
+
+def cmd_wordgen(args: argparse.Namespace, state: ConsoleState | None = None) -> int:
+    print(f"\n  \033[92m┌─ wordgen ──────────────────────────────────┐\033[0m")
+    print(f"  \033[90m  Wizard creazione wordlist personalizzate\033[0m\n")
+
+    choice = _wf_ask("[1] Metodo di generazione?", _WG_METHOD_MENU)
+    if choice == -1:
+        return 0
+    method = _WG_METHOD_MENU[choice - 1][0]
+
+    print()
+    result = _wg_build(method)
+
+    print(f"\n  \033[92m┌─ Risultato ────────────────────────────────┐\033[0m\n")
+
+    if result.get("install"):
+        print(f"  \033[1mInstallazione:\033[0m")
+        print(f"    {result['install']}")
+        print()
+
+    if result.get("notes"):
+        for n in result["notes"]:
+            print(f"  \033[93m[i]\033[0m {n}")
+        print()
+
+    if result.get("commands"):
+        print("  \033[1mComandi pronti (copia-incolla):\033[0m\n")
+        for tool_name, cmd in result["commands"]:
+            print(f"    \033[96m# {tool_name}\033[0m")
+            if len(cmd) > 90:
+                parts = cmd.split(" -", 1)
+                if len(parts) == 2:
+                    print(f"    {parts[0]} \\")
+                    flags = (" -" + parts[1]).split(" -")
+                    for j, flag in enumerate(flags):
+                        flag = flag.strip()
+                        if flag:
+                            suffix = " \\" if j < len(flags) - 1 else ""
+                            print(f"      -{flag}{suffix}")
+                else:
+                    print(f"    {cmd}")
+            else:
+                print(f"    {cmd}")
+            print()
+
+    print(f"  \033[92m└────────────────────────────────────────────┘\033[0m")
+    return 0
     query = " ".join(args.query) if isinstance(args.query, list) else args.query
     if not query.strip():
         print("Specifica una parola da cercare.", file=sys.stderr)
