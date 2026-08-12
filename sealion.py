@@ -2168,15 +2168,10 @@ def cmd_wordfind(args: argparse.Namespace, state: ConsoleState | None = None) ->
             svc_proto = svc_entry[0]
             svc_default_port = svc_entry[2]
 
-            # Parse IP:PORT from target
-            host_raw = target["host"]
-            if ":" in host_raw and not host_raw.startswith("["):
-                parts = host_raw.rsplit(":", 1)
-                if parts[1].isdigit():
-                    target["host"] = parts[0]
-                    svc_port = parts[1]
-
-            if not svc_port:
+            # Use port from URL if already parsed
+            if target["port"]:
+                svc_port = str(target["port"])
+            else:
                 print()
                 port_input = _wf_ask_text(f"[2c] Porta? (invio = {svc_default_port})", default="")
                 svc_port = port_input if port_input else svc_default_port
@@ -2192,7 +2187,7 @@ def cmd_wordfind(args: argparse.Namespace, state: ConsoleState | None = None) ->
             ("single", "Username singolo (lo scrivo io)"),
             ("wordlist", "Wordlist username (non conosco lo username)"),
         ]
-        user_mode = _wf_ask("[4] Username?", _USER_MODE_WF)
+        user_mode = _wf_ask("[4] Username?", _USER_MODE_WF, default=2)
         if user_mode == -1:
             return 0
 
@@ -2834,7 +2829,7 @@ def cmd_passfind(args: argparse.Namespace, state: ConsoleState | None = None) ->
             ("single", "Username singolo (lo scrivo io)"),
             ("wordlist", "Wordlist username (non conosco lo username)"),
         ]
-        user_mode_choice = _wf_ask("[4] Username?", _USER_MODE_MENU)
+        user_mode_choice = _wf_ask("[4] Username?", _USER_MODE_MENU, default=2)
         if user_mode_choice == -1:
             return 0
 
