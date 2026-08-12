@@ -2214,28 +2214,50 @@ def cmd_wordfind(args: argparse.Namespace, state: ConsoleState | None = None) ->
                 return 0
             user_wl_key = _USER_WL_WF[uwl - 1][0]
 
-        # Step 5: Intensity
-        int_choice = _wf_ask("[5] Intensità?", _INTENSITY_GENERIC, default=2)
-        if int_choice == -1:
-            return 0
-        intensity = _INTENSITY_GENERIC[int_choice - 1][0]
-
         if context == "service" and svc_proto:
+            _PF_PASS_WL_WF = [
+                ("pass_500", "500-worst-passwords.txt  (500 — velocissimo)", "⚡"),
+                ("pass_default_web", "default-passwords.txt  (1.2k — credenziali default)", "⚡"),
+                ("pass_top10k", "xato-net-10-million-passwords-10000.txt  (10k)", "⚖️"),
+                ("pass_10k_most_common", "10k-most-common.txt  (10k — alternativa)", "⚖️"),
+                ("pass_100k", "xato-net-10-million-passwords-100000.txt  (100k)", "⚖️"),
+                ("pass_top1m", "xato-net-10-million-passwords-1000000.txt  (1M)", "🔍"),
+                ("pass_rockyou", "rockyou.txt  (14M — esaustiva)", "🔍"),
+            ]
+            proto_defs = {
+                "ftp": ("pass_ftp_default", "ftp-betterdefaultpasslist.txt  (52 — default FTP)", "⭐"),
+                "ssh": ("pass_ssh_default", "ssh-betterdefaultpasslist.txt  (40 — default SSH)", "⭐"),
+                "mysql": ("pass_mysql_default", "mysql-betterdefaultpasslist.txt  (15 — default MySQL)", "⭐"),
+                "mssql": ("pass_mssql_default", "mssql-betterdefaultpasslist.txt  (60 — default MSSQL)", "⭐"),
+                "postgres": ("pass_postgres_default", "postgres-betterdefaultpasslist.txt  (16 — default Postgres)", "⭐"),
+            }
+            if svc_proto in proto_defs:
+                _PF_PASS_WL_WF.insert(0, proto_defs[svc_proto])
+
+            lang_wl_map = {"it": "pass_it", "es": "pass_es", "de": "pass_de", "fr": "pass_fr"}
+            if lang in lang_wl_map:
+                lkey = lang_wl_map[lang]
+                _PF_PASS_WL_WF.append((lkey, f"{_WL[lkey][0].rsplit('/', 1)[-1]}  ({_WL[lkey][1]})", "🌐"))
+
+            pw_ch = _wf_ask("[5] Wordlist password?", _PF_PASS_WL_WF, default=1)
+            if pw_ch == -1:
+                return 0
+            pw_key = _PF_PASS_WL_WF[pw_ch - 1][0]
+            wl_path = _wl_path(pw_key)
+
             result = _build_service_result(svc_proto, svc_port, target["host"],
-                                           username, intensity, user_wl_key=user_wl_key)
-            # Add password wordlists to result
-            pw_wls = []
-            if intensity == "fast":
-                pw_wls = ["pass_500", "pass_default_web"]
-            elif intensity == "medium":
-                pw_wls = ["pass_top10k", "pass_common"]
-            else:
-                pw_wls = ["pass_top1m", "pass_rockyou"]
-            lang_wl = {"it": "pass_it", "es": "pass_es", "de": "pass_de", "fr": "pass_fr"}
-            if lang in lang_wl:
-                pw_wls.append(lang_wl[lang])
-            result["wordlists"] = pw_wls
+                                           username, "custom", user_wl_key=user_wl_key)
+            for i, (name, cmd) in enumerate(result["commands"]):
+                for old in ["/usr/share/wordlists/rockyou.txt",
+                            "/usr/share/seclists/Passwords/Common-Credentials/xato-net-10-million-passwords-10000.txt"]:
+                    cmd = cmd.replace(old, wl_path)
+                result["commands"][i] = (name, cmd)
+            result["wordlists"] = [pw_key]
         else:
+            int_choice = _wf_ask("[5] Intensità?", _INTENSITY_GENERIC, default=2)
+            if int_choice == -1:
+                return 0
+            intensity = _INTENSITY_GENERIC[int_choice - 1][0]
             result = _build_pass_result(target, context, lang, username, intensity,
                                         user_wl_key=user_wl_key)
 
@@ -2341,7 +2363,8 @@ _PF_SERVICE_MENU = [
     ("rdp",      "RDP",                    "3389"),
     ("ftp",      "FTP",                    "21"),
     ("smb",      "SMB",                    "445"),
-    ("http",     "HTTP form login",        "80"),
+    ("http",     "HTTP form login (POST)", "80"),
+    ("http-get", "HTTP Basic/GET",         "80"),
     ("mysql",    "MySQL",                  "3306"),
     ("mssql",    "MSSQL",                  "1433"),
     ("postgres", "PostgreSQL",             "5432"),
@@ -2541,42 +2564,47 @@ def _build_service_result(proto: str, port: str, host: str, username: str,
     user_flag_cme = f"-u {_wl_path(user_wl_key)}" if user_wl_key else f"-u {username}"
     user_flag_ncr = f"-U {_wl_path(user_wl_key)}" if user_wl_key else f"-u {username}"
 
+    s_flag = f"-s {port} " if port else ""
     host_port = f"{host}:{port}" if port else host
-    host_s = f"-s {port} " if port and port not in ("22","21","445","80","3306","1433","5432","5985","5900","3389") else ""
 
     commands = []
-    result_wl = []
-    user_wls = []
-
-    if user_wl_key:
-        user_wls.append(user_wl_key)
+    user_wls = [user_wl_key] if user_wl_key else []
 
     if proto == "http":
         commands.append(("hydra (http-post-form)",
-            f"hydra {user_flag} -P {wl} {host_s}{host} http-post-form "
-            f"\"/login:user=^USER^&pass=^PASS^:F=incorrect\" -t 16"))
+            f'hydra {user_flag} -P {wl} {s_flag}{host} http-post-form '
+            f'"/login:user=^USER^&pass=^PASS^:F=incorrect" -f -t 16'))
         commands.append(("medusa (http)",
             f"medusa -h {host} {user_flag_med} -P {wl} -M http -m DIR:/login -t 4"
-            + (f" -n {port}" if port and port != "80" else "")))
+            + (f" -n {port}" if port else "")))
+    elif proto == "http-get":
+        commands.append(("hydra (http-get)",
+            f"hydra {user_flag} -P {wl} {s_flag}{host} http-get / -f -t 16"))
+        commands.append(("hydra (http-get path)",
+            f"hydra {user_flag} -P {wl} {s_flag}{host} http-get /admin -f -t 16"))
+        commands.append(("medusa (http)",
+            f"medusa -h {host} {user_flag_med} -P {wl} -M http -m DIR:/ -t 4"
+            + (f" -n {port}" if port else "")))
     elif proto == "winrm":
         commands.append(("crackmapexec",
             f"crackmapexec winrm {host_port} {user_flag_cme} -p {wl}"))
         commands.append(("evil-winrm (dopo crack)",
-            f"evil-winrm -i {host} -u {username or 'USER'} -p 'PASSWORD'"))
+            f"evil-winrm -i {host} -u {username or 'USER'} -p 'PASSWORD'"
+            + (f" -P {port}" if port and port != "5985" else "")))
     elif proto == "smb":
         commands.append(("hydra",
-            f"hydra {user_flag} -P {wl} {host_s}{host} smb -t 4"))
+            f"hydra {user_flag} -P {wl} {s_flag}{host} smb -f -t 4"))
         commands.append(("crackmapexec",
             f"crackmapexec smb {host_port} {user_flag_cme} -p {wl}"))
         commands.append(("medusa",
             f"medusa -h {host} {user_flag_med} -P {wl} -M smbnt -t 4"
-            + (f" -n {port}" if port and port != "445" else "")))
+            + (f" -n {port}" if port else "")))
         commands.append(("ncrack",
             f"ncrack {user_flag_ncr} -P {wl} smb://{host_port}"))
     else:
         svc = proto
         commands.append(("hydra",
-            f"hydra {user_flag} -P {wl} {host_s}{host} {svc} -t 4"))
+            f"hydra {user_flag} -P {wl} {s_flag}{host} {svc} -f -t 4"))
         commands.append(("medusa",
             f"medusa -h {host} {user_flag_med} -P {wl} -M {svc} -t 4"
             + (f" -n {port}" if port else "")))
@@ -2828,13 +2856,45 @@ def cmd_passfind(args: argparse.Namespace, state: ConsoleState | None = None) ->
                 return 0
             user_wl_key = _USER_WL_MENU[uwl_choice - 1][0]
 
-        int_choice = _wf_ask("[5] Intensità?", _PF_INTENSITY_MENU, default=2)
-        if int_choice == -1:
-            return 0
-        intensity = _PF_INTENSITY_MENU[int_choice - 1][0]
+        _PF_PASS_WL_MENU = [
+            ("pass_500", "500-worst-passwords.txt  (500 — velocissimo)", "⚡"),
+            ("pass_default_web", "default-passwords.txt  (1.2k — credenziali default)", "⚡"),
+            ("pass_top10k", "xato-net-10-million-passwords-10000.txt  (10k)", "⚖️"),
+            ("pass_10k_most_common", "10k-most-common.txt  (10k — alternativa)", "⚖️"),
+            ("pass_100k", "xato-net-10-million-passwords-100000.txt  (100k)", "⚖️"),
+            ("pass_top1m", "xato-net-10-million-passwords-1000000.txt  (1M)", "🔍"),
+            ("pass_rockyou", "rockyou.txt  (14M — esaustiva)", "🔍"),
+        ]
+        # Add protocol-specific defaults
+        proto_defaults = {
+            "ftp": ("pass_ftp_default", "ftp-betterdefaultpasslist.txt  (52 — default FTP)", "⭐"),
+            "ssh": ("pass_ssh_default", "ssh-betterdefaultpasslist.txt  (40 — default SSH)", "⭐"),
+            "mysql": ("pass_mysql_default", "mysql-betterdefaultpasslist.txt  (15 — default MySQL)", "⭐"),
+            "mssql": ("pass_mssql_default", "mssql-betterdefaultpasslist.txt  (60 — default MSSQL)", "⭐"),
+            "postgres": ("pass_postgres_default", "postgres-betterdefaultpasslist.txt  (16 — default Postgres)", "⭐"),
+        }
+        if proto in proto_defaults:
+            _PF_PASS_WL_MENU.insert(0, proto_defaults[proto])
 
-        result = _build_service_result(proto, port, host, username, intensity,
+        pw_choice = _wf_ask("[5] Wordlist password?", _PF_PASS_WL_MENU, default=1)
+        if pw_choice == -1:
+            return 0
+        pw_key = _PF_PASS_WL_MENU[pw_choice - 1][0]
+        wl_path = _wl_path(pw_key)
+
+        result = _build_service_result(proto, port, host, username, "custom",
                                        user_wl_key=user_wl_key)
+        # Override password wordlist in generated commands
+        for i, (name, cmd) in enumerate(result["commands"]):
+            old_wls = [
+                "/usr/share/wordlists/rockyou.txt",
+                "/usr/share/seclists/Passwords/Common-Credentials/xato-net-10-million-passwords-10000.txt",
+            ]
+            for old in old_wls:
+                cmd = cmd.replace(old, wl_path)
+            result["commands"][i] = (name, cmd)
+
+        result["wordlists"] = [pw_key]
 
     else:
         print("  Scopo non supportato.")
