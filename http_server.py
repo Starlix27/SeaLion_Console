@@ -352,6 +352,7 @@ padding-bottom:6px;white-space:pre-wrap;word-break:break-word}
 #term-output .t-accent{color:var(--accent)}
 #term-output .t-grn{color:var(--green)}
 #term-output .t-head{color:var(--accent);font-weight:600}
+#term-output .t-section{color:var(--green);font-weight:700;text-transform:uppercase;font-size:11px;letter-spacing:1px}
 #term-output .t-entry{margin:1px 0}
 .suggestions{position:absolute;bottom:100%;left:0;right:0;
 background:var(--surface);border:1px solid var(--border);border-radius:4px;
@@ -800,27 +801,27 @@ def _page_home() -> str:
 
   const HELP=
     '<span class="t-head">SeaLion Web — Comandi disponibili</span>\\n\\n'+
-    '<span class="t-head">  Docs</span>\\n'+
+    '  <span class="t-section">— Docs</span>\\n'+
     '  <span class="t-accent">notes</span>       <span class="t-line">Apri le guide di pentesting ({n_notes} disponibili)</span>\\n'+
     '              <span class="t-line">Argomenti: footprinting, shells, password cracking, SSH, ecc.</span>\\n'+
     '  <span class="t-accent">vuln</span>        <span class="t-line">Apri le cheatsheet per protocollo ({n_vulns} protocolli)</span>\\n'+
     '              <span class="t-line">Ogni scheda ha: descrizione, porte, vuln comuni, comandi enum</span>\\n'+
     '  <span class="t-accent">tools</span>       <span class="t-line">Documentazione e help dei tool installabili ({n_tools})</span>\\n'+
     '              <span class="t-line">Ogni tool ha guida d\\\'uso, opzioni principali ed esempi</span>\\n\\n'+
-    '<span class="t-head">  Serve</span>\\n'+
+    '  <span class="t-section">— Serve</span>\\n'+
     '  <span class="t-accent">delivery</span>    <span class="t-line">Pannello comandi curl per post-exploitation</span>\\n'+
     '              <span class="t-line">Reverse shell, upgrade TTY, upload file — comandi pronti da copiare</span>\\n'+
     '  <span class="t-accent">logs</span>        <span class="t-line">Log delle richieste HTTP ricevute dal server</span>\\n\\n'+
-    '  <span class="t-line">Serve Operations</span>\\n'+
+    '  <span class="t-section">  Serve Operations</span>\\n'+
     '  <span class="t-accent">static</span>      <span class="t-line">File manager per payload statici ({n_static} file)</span>\\n'+
     '              <span class="t-line">Crea, importa, modifica e scarica file serviti su /static/</span>\\n'+
     '  <span class="t-accent">loot</span>        <span class="t-line">File ricevuti dalla vulnbox ({n_loot} file)</span>\\n'+
     '              <span class="t-line">Visualizza, scarica ed elimina i file caricati via curl /upload</span>\\n\\n'+
-    '<span class="t-head">  Wordlists</span>\\n'+
+    '  <span class="t-section">— Wordlists</span>\\n'+
     '  <span class="t-accent">wordfind</span>    <span class="t-line">Wizard wordlist — suggerisce liste e comandi per fuzzing/brute-force</span>\\n'+
     '  <span class="t-accent">wordgen</span>     <span class="t-line">Wizard creazione wordlist personalizzate (cewl, crunch, ecc.)</span>\\n'+
     '  <span class="t-accent">passfind</span>    <span class="t-line">Wizard password cracking — hash, file protetti, archivi, servizi</span>\\n\\n'+
-    '<span class="t-head">  Terminale</span>\\n'+
+    '  <span class="t-section">— Terminale</span>\\n'+
     '  <span class="t-accent">help</span>        <span class="t-line">Mostra questo messaggio</span>\\n'+
     '  <span class="t-accent">help</span> <span class="t-line">&lt;cmd&gt;</span>  <span class="t-line">Dettagli su un comando (es. <span class="t-accent">help loot</span>)</span>\\n'+
     '  <span class="t-accent">version</span>     <span class="t-line">Versione SLConsole</span>\\n'+
