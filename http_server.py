@@ -1667,10 +1667,10 @@ def _page_jwt() -> str:
   <div class="jwt-section">
     <div class="jwt-section-head"><span class="dot" style="background:#00b9f1"></span><span class="lbl">Verify Signature</span></div>
     <div class="jwt-alg-row">
-      <button class="jwt-alg-btn active" data-alg="HS256" onclick="setAlg(this)">HS256</button>
+      <button class="jwt-alg-btn" data-alg="HS256" onclick="setAlg(this)">HS256</button>
       <button class="jwt-alg-btn" data-alg="HS384" onclick="setAlg(this)">HS384</button>
       <button class="jwt-alg-btn" data-alg="HS512" onclick="setAlg(this)">HS512</button>
-      <button class="jwt-alg-btn warn" data-alg="none" onclick="setAlg(this)">none</button>
+      <button class="jwt-alg-btn warn active" data-alg="none" onclick="setAlg(this)">none</button>
     </div>
     <div class="jwt-sig-box">
       <input id="jwt-secret" type="text" placeholder="Secret key" value="secret">
@@ -1726,7 +1726,7 @@ def _page_jwt() -> str:
 <script>
 (function(){
   var activeTab='decode';
-  var decAlg='HS256';
+  var decAlg='none';
   var encAlg='HS256';
 
   function b64uDec(s){
