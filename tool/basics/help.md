@@ -6,6 +6,9 @@
 - netstat -tulpn | grep LISTEN
 - nmap localhost
 
+## Ricerca terminale (senza locate)
+- find / -name "file.txt" 2>/dev/null
+
 ## Privilege Escalation
 
 - **LinPEAS / WinPEAS** — Privilege Escalation Awesome Script Suite
