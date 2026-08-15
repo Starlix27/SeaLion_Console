@@ -707,6 +707,7 @@ def _base_html(title: str, body: str, active: str = "") -> str:
         ("/delivery", "Delivery", "delivery"),
         ("/loot/", "Loot", "loot"),
         ("/logs", "Logs", "logs"),
+        ("/jwt", "JWT", "jwt"),
     ]
     nav_html = ""
     for href, label, key in nav_items:
@@ -849,6 +850,7 @@ def _page_home() -> str:
     {{name:'loot',label:'Loot',cnt:'{n_loot} file',href:'/loot/'}},
     {{name:'delivery',label:'Delivery',cnt:'payload & curl',href:'/delivery'}},
     {{name:'logs',label:'Logs',cnt:'server logs',href:'/logs'}},
+    {{name:'jwt',label:'JWT',cnt:'encoder/decoder',href:'/jwt'}},
   ];
   const input=document.getElementById('term-input');
   const box=document.getElementById('suggestions');
@@ -875,7 +877,9 @@ def _page_home() -> str:
     '  <span class="t-accent">loot</span>        <span class="t-line">File ricevuti dalla vulnbox ({n_loot} file)</span>\\n'+
     '              <span class="t-line">Visualizza, scarica ed elimina i file caricati via curl /upload</span>\\n'+
     '  <span class="t-accent">tunnel</span>      <span class="t-line">Port forwarding via chisel per accedere a servizi interni</span>\\n'+
-    '              <span class="t-line">Mappa porte del target nel browser locale (tunnel help)</span>\\n\\n'+
+    '              <span class="t-line">Mappa porte del target nel browser locale (tunnel help)</span>\\n'+
+    '  <span class="t-accent">jwt</span>         <span class="t-line">Apri il JWT Encoder/Decoder nel browser</span>\\n'+
+    '              <span class="t-line">Decodifica, crea e verifica token JWT — tutto client-side</span>\\n\\n'+
     '  <span class="t-section">— Wordlists</span>\\n'+
     '  <span class="t-accent">wordfind</span>    <span class="t-line">Wizard wordlist — suggerisce liste e comandi per fuzzing/brute-force</span>\\n'+
     '  <span class="t-accent">wordgen</span>     <span class="t-line">Wizard creazione wordlist personalizzate (cewl, crunch, ecc.)</span>\\n'+
@@ -965,6 +969,16 @@ def _page_home() -> str:
       '<span class="t-line">Esempio:</span>\\n'+
       '<span class="t-accent">  tunnel on 80</span> <span class="t-line">→ apri http://localhost:9000 nel browser</span>\\n\\n'+
       '<span class="t-line">Opzioni: <span class="t-accent">--local-port</span> (default 9000), <span class="t-accent">--server-port</span> (default 8443)</span>',
+    jwt:
+      '<span class="t-head">jwt — JWT Encoder / Decoder</span>\\\\n\\\\n'+
+      '<span class="t-line">Apre la pagina web per decodificare e creare JSON Web Token.</span>\\\\n'+
+      '<span class="t-line">Tutto il lavoro avviene nel browser (client-side, nessun invio al server).</span>\\\\n\\\\n'+
+      '<span class="t-line">Funzionalità:</span>\\\\n'+
+      '<span class="t-line">  • <span class="t-accent">Decode</span> — incolla un JWT, vedi header, payload e firma</span>\\\\n'+
+      '<span class="t-line">  • <span class="t-accent">Timestamp</span> — exp/iat/nbf convertiti in data leggibile</span>\\\\n'+
+      '<span class="t-line">  • <span class="t-accent">Verifica HMAC</span> — controlla la firma con un secret</span>\\\\n'+
+      '<span class="t-line">  • <span class="t-accent">Encode</span> — crea JWT con HS256/HS384/HS512 o alg:none</span>\\\\n\\\\n'+
+      '<span class="t-line">Digitando <span class="t-accent">jwt</span> verrai portato alla pagina JWT.</span>',
     help:
       '<span class="t-head">help — Aiuto Comandi</span>\\n\\n'+
       '<span class="t-line">Mostra la lista dei comandi disponibili nel terminale SLWeb.</span>\\n\\n'+
@@ -1074,7 +1088,7 @@ def _page_home() -> str:
     }}
     const merged=allNames.filter(n=>n.startsWith(q)).map(n=>{{
       const c=cats.find(x=>x.name===n);if(c)return c;
-      const lb={{help:'Mostra comandi · help <cmd> per dettagli',clear:'Pulisci terminale',version:'Versione',tunnel:'Port forwarding via chisel',wordfind:'Wizard wordlist fuzzing/brute-force',wordgen:'Wizard creazione wordlist',passfind:'Wizard password cracking'}};
+      const lb={{help:'Mostra comandi · help <cmd> per dettagli',clear:'Pulisci terminale',version:'Versione',tunnel:'Port forwarding via chisel',jwt:'JWT Encoder/Decoder',wordfind:'Wizard wordlist fuzzing/brute-force',wordgen:'Wizard creazione wordlist',passfind:'Wizard password cracking'}};
       return {{name:n,label:n.charAt(0).toUpperCase()+n.slice(1),cnt:lb[n]||'',href:null}};
     }});
     render(merged);
@@ -1550,6 +1564,217 @@ def _page_loot_view(name: str) -> str:
     return _base_html(f"Loot — {name}", body, active="loot")
 
 
+def _page_jwt() -> str:
+    body = """\
+<div class="container">
+<div class="breadcrumb"><a href="/">Home</a> <span>/</span> JWT</div>
+<div class="page-title">JWT Encoder / Decoder</div>
+<div class="page-sub">Decodifica e crea JSON Web Token — tutto lato client</div>
+
+<div style="display:flex;gap:20px;margin-top:20px;flex-wrap:wrap;align-items:flex-start">
+
+<div style="flex:1;min-width:340px">
+<h3 style="color:var(--text);margin:0 0 10px">Decode</h3>
+<textarea id="jwt-in" rows="4" spellcheck="false"
+  placeholder="Incolla un JWT qui (header.payload.signature)"
+  style="width:100%;background:var(--surface);color:var(--text);border:1px solid var(--border);
+  border-radius:6px;padding:10px;font-family:monospace;font-size:13px;resize:vertical;box-sizing:border-box"></textarea>
+<div id="jwt-err" style="color:#e55;font-size:12px;min-height:18px;margin:4px 0"></div>
+
+<div class="delivery-card" style="margin-top:8px">
+<div class="dc-header"><span class="dc-endpoint">Header</span><span class="dc-title" id="jwt-alg"></span></div>
+<pre id="jwt-header" style="margin:0;white-space:pre-wrap;word-break:break-all;font-size:13px;color:var(--text);
+  background:var(--bg);padding:10px;border-radius:4px;min-height:20px"></pre>
+</div>
+
+<div class="delivery-card" style="margin-top:10px">
+<div class="dc-header"><span class="dc-endpoint">Payload</span><span class="dc-title" id="jwt-sub"></span></div>
+<pre id="jwt-payload" style="margin:0;white-space:pre-wrap;word-break:break-all;font-size:13px;color:var(--text);
+  background:var(--bg);padding:10px;border-radius:4px;min-height:20px"></pre>
+<div id="jwt-times" style="font-size:11px;color:var(--text2);margin-top:6px"></div>
+</div>
+
+<div class="delivery-card" style="margin-top:10px">
+<div class="dc-header"><span class="dc-endpoint">Signature</span></div>
+<pre id="jwt-sig" style="margin:0;white-space:pre-wrap;word-break:break-all;font-size:12px;color:var(--text2);
+  background:var(--bg);padding:10px;border-radius:4px;min-height:20px"></pre>
+<div style="margin-top:6px;display:flex;gap:8px;align-items:center">
+<input id="jwt-secret" type="text" placeholder="Secret (per verifica HMAC)"
+  style="flex:1;background:var(--surface);color:var(--text);border:1px solid var(--border);
+  border-radius:4px;padding:6px 8px;font-family:monospace;font-size:12px">
+<button onclick="verifyHMAC()" class="btn btn-primary" style="padding:6px 14px;font-size:12px">Verifica</button>
+</div>
+<div id="jwt-verify" style="font-size:12px;min-height:18px;margin-top:4px"></div>
+</div>
+</div>
+
+<div style="flex:1;min-width:340px">
+<h3 style="color:var(--text);margin:0 0 10px">Encode</h3>
+<label style="font-size:12px;color:var(--text2)">Header JSON</label>
+<textarea id="enc-header" rows="3" spellcheck="false"
+  style="width:100%;background:var(--surface);color:var(--text);border:1px solid var(--border);
+  border-radius:6px;padding:10px;font-family:monospace;font-size:13px;resize:vertical;box-sizing:border-box;margin-top:4px">{"alg":"HS256","typ":"JWT"}</textarea>
+
+<label style="font-size:12px;color:var(--text2);margin-top:10px;display:block">Payload JSON</label>
+<textarea id="enc-payload" rows="5" spellcheck="false"
+  style="width:100%;background:var(--surface);color:var(--text);border:1px solid var(--border);
+  border-radius:6px;padding:10px;font-family:monospace;font-size:13px;resize:vertical;box-sizing:border-box;margin-top:4px">{"sub":"1","name":"test","iat":0}</textarea>
+
+<label style="font-size:12px;color:var(--text2);margin-top:10px;display:block">Secret / Key</label>
+<input id="enc-secret" type="text" value="secret"
+  style="width:100%;background:var(--surface);color:var(--text);border:1px solid var(--border);
+  border-radius:4px;padding:8px 10px;font-family:monospace;font-size:13px;margin-top:4px;box-sizing:border-box">
+
+<div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap">
+<button onclick="encode('HS256')" class="btn btn-primary" style="padding:8px 16px;font-size:13px">HS256</button>
+<button onclick="encode('HS384')" class="btn" style="padding:8px 16px;font-size:13px;background:var(--surface);color:var(--text);border:1px solid var(--border)">HS384</button>
+<button onclick="encode('HS512')" class="btn" style="padding:8px 16px;font-size:13px;background:var(--surface);color:var(--text);border:1px solid var(--border)">HS512</button>
+<button onclick="encode('none')" class="btn" style="padding:8px 16px;font-size:13px;background:#552;color:#ec3;border:1px solid #883">alg: none</button>
+</div>
+<div id="enc-err" style="color:#e55;font-size:12px;min-height:18px;margin-top:6px"></div>
+
+<div class="delivery-card" style="margin-top:8px">
+<div class="dc-header"><span class="dc-endpoint">Token</span>
+<button onclick="copyToken()" style="margin-left:auto;background:var(--surface);color:var(--accent);
+  border:1px solid var(--border);border-radius:4px;padding:3px 10px;font-size:11px;cursor:pointer">Copia</button>
+</div>
+<pre id="enc-out" style="margin:0;white-space:pre-wrap;word-break:break-all;font-size:13px;color:var(--accent);
+  background:var(--bg);padding:10px;border-radius:4px;min-height:30px;cursor:text;user-select:all"></pre>
+</div>
+</div>
+
+</div>
+</div>
+<script>
+(function(){
+  var inp=document.getElementById('jwt-in');
+  var errEl=document.getElementById('jwt-err');
+  var headerEl=document.getElementById('jwt-header');
+  var payloadEl=document.getElementById('jwt-payload');
+  var sigEl=document.getElementById('jwt-sig');
+  var algEl=document.getElementById('jwt-alg');
+  var subEl=document.getElementById('jwt-sub');
+  var timesEl=document.getElementById('jwt-times');
+  var verifyEl=document.getElementById('jwt-verify');
+
+  function b64uDec(s){
+    s=s.replace(/-/g,'+').replace(/_/g,'/');
+    while(s.length%4)s+='=';
+    return atob(s);
+  }
+  function b64uEnc(s){
+    return btoa(s).replace(/\\+/g,'-').replace(/\\//g,'_').replace(/=+$/,'');
+  }
+  function u8b64u(u8){
+    var bin='';for(var i=0;i<u8.length;i++)bin+=String.fromCharCode(u8[i]);
+    return btoa(bin).replace(/\\+/g,'-').replace(/\\//g,'_').replace(/=+$/,'');
+  }
+  function esc(s){var d=document.createElement('div');d.textContent=s;return d.innerHTML;}
+  function fmtTs(v){
+    if(typeof v!=='number')return null;
+    var d=new Date(v*1000);
+    return d.toISOString().replace('T',' ').replace(/\\.\\d+Z/,' UTC');
+  }
+
+  function decode(){
+    errEl.textContent='';headerEl.textContent='';payloadEl.textContent='';
+    sigEl.textContent='';algEl.textContent='';subEl.textContent='';timesEl.innerHTML='';verifyEl.textContent='';
+    var raw=inp.value.trim();if(!raw)return;
+    var parts=raw.split('.');
+    if(parts.length<2||parts.length>3){errEl.textContent='Formato non valido (attesi 2-3 segmenti separati da punto)';return;}
+    try{
+      var hdr=JSON.parse(b64uDec(parts[0]));
+      headerEl.textContent=JSON.stringify(hdr,null,2);
+      algEl.textContent=hdr.alg||'';
+    }catch(e){errEl.textContent='Header non decodificabile: '+e.message;return;}
+    try{
+      var pay=JSON.parse(b64uDec(parts[1]));
+      payloadEl.textContent=JSON.stringify(pay,null,2);
+      if(pay.sub)subEl.textContent='sub: '+pay.sub;
+      var ts=[];
+      if(pay.iat!=null){var f=fmtTs(pay.iat);if(f)ts.push('iat (issued): '+f);}
+      if(pay.exp!=null){
+        var f=fmtTs(pay.exp);if(f){
+          var now=Math.floor(Date.now()/1000);
+          var exp=pay.exp<now?' (SCADUTO)':' (valido)';
+          ts.push('exp (expires): '+f+exp);
+        }
+      }
+      if(pay.nbf!=null){var f=fmtTs(pay.nbf);if(f)ts.push('nbf (not before): '+f);}
+      if(ts.length)timesEl.innerHTML=ts.map(function(t){return esc(t);}).join('<br>');
+    }catch(e){errEl.textContent='Payload non decodificabile: '+e.message;return;}
+    if(parts.length===3&&parts[2]){sigEl.textContent=parts[2];}
+    else{sigEl.textContent='(nessuna firma)';}
+  }
+
+  inp.addEventListener('input',decode);
+
+  var algMap={'HS256':'SHA-256','HS384':'SHA-384','HS512':'SHA-512'};
+
+  window.verifyHMAC=function(){
+    verifyEl.textContent='';verifyEl.style.color='';
+    var raw=inp.value.trim();if(!raw){verifyEl.textContent='Nessun token da verificare';verifyEl.style.color='#e55';return;}
+    var sec=document.getElementById('jwt-secret').value;
+    if(!sec){verifyEl.textContent='Inserisci un secret';verifyEl.style.color='#e55';return;}
+    var parts=raw.split('.');if(parts.length!==3){verifyEl.textContent='Token non valido';verifyEl.style.color='#e55';return;}
+    try{var hdr=JSON.parse(b64uDec(parts[0]));}catch(e){verifyEl.textContent='Header non valido';verifyEl.style.color='#e55';return;}
+    var ha=algMap[hdr.alg];
+    if(!ha){verifyEl.textContent='Algoritmo '+hdr.alg+' non verificabile (solo HMAC)';verifyEl.style.color='var(--text2)';return;}
+    var te=new TextEncoder();
+    var data=te.encode(parts[0]+'.'+parts[1]);
+    var keyData=te.encode(sec);
+    crypto.subtle.importKey('raw',keyData,{name:'HMAC',hash:ha},false,['sign'])
+    .then(function(key){return crypto.subtle.sign('HMAC',key,data);})
+    .then(function(sig){
+      var computed=u8b64u(new Uint8Array(sig));
+      if(computed===parts[2]){
+        verifyEl.textContent='Firma VALIDA';verifyEl.style.color='var(--green)';
+      }else{
+        verifyEl.textContent='Firma NON VALIDA';verifyEl.style.color='#e55';
+      }
+    })
+    .catch(function(e){verifyEl.textContent='Errore: '+e.message;verifyEl.style.color='#e55';});
+  };
+
+  window.encode=function(alg){
+    var eErr=document.getElementById('enc-err');
+    var out=document.getElementById('enc-out');
+    eErr.textContent='';out.textContent='';
+    var hdrTxt=document.getElementById('enc-header').value.trim();
+    var payTxt=document.getElementById('enc-payload').value.trim();
+    try{JSON.parse(hdrTxt);}catch(e){eErr.textContent='Header JSON non valido: '+e.message;return;}
+    try{JSON.parse(payTxt);}catch(e){eErr.textContent='Payload JSON non valido: '+e.message;return;}
+    var hdrObj=JSON.parse(hdrTxt);
+    hdrObj.alg=alg;if(alg==='none')delete hdrObj.alg;else hdrObj.typ='JWT';
+    var h=b64uEnc(JSON.stringify(hdrObj));
+    var p=b64uEnc(payTxt);
+    var unsigned=h+'.'+p;
+    if(alg==='none'){
+      out.textContent=unsigned+'.';return;
+    }
+    var sec=document.getElementById('enc-secret').value;
+    if(!sec){eErr.textContent='Inserisci un secret per firmare';return;}
+    var ha=algMap[alg];if(!ha){eErr.textContent='Algoritmo non supportato';return;}
+    var te=new TextEncoder();
+    crypto.subtle.importKey('raw',te.encode(sec),{name:'HMAC',hash:ha},false,['sign'])
+    .then(function(key){return crypto.subtle.sign('HMAC',key,te.encode(unsigned));})
+    .then(function(sig){out.textContent=unsigned+'.'+u8b64u(new Uint8Array(sig));})
+    .catch(function(e){eErr.textContent='Errore firma: '+e.message;});
+  };
+
+  window.copyToken=function(){
+    var t=document.getElementById('enc-out').textContent;
+    if(!t)return;
+    navigator.clipboard.writeText(t).then(function(){
+      var btn=event.target;btn.textContent='Copiato!';setTimeout(function(){btn.textContent='Copia';},1500);
+    });
+  };
+})();
+</script>
+"""
+    return _base_html("JWT", body, active="jwt")
+
+
 def _page_delivery() -> str:
     if _server is not None:
         port = _server.server_address[1]
@@ -1857,6 +2082,8 @@ class SlRequestHandler(http.server.BaseHTTPRequestHandler):
                 self._send_html(_page_delivery())
         elif path == "/loot":
             self._send_html(_page_loot())
+        elif path == "/jwt":
+            self._send_html(_page_jwt())
         elif path.startswith("/loot/view/"):
             name = path[11:]
             if ".." in name or "/" in name:
