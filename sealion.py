@@ -1702,6 +1702,12 @@ http://localhost:9000
 # 5. Tunnel multipli — ogni volta con porta locale diversa
 slconsole> tunnel on 8080 --local-port 9001
 ```
+
+## Note
+
+- Se il target ha già `/tmp/chisel` in uso da un tunnel precedente, `curl` darà
+  **Text file busy**. Nella revshell: `kill %1 2>/dev/null; rm -f /tmp/chisel`
+  oppure usa un path diverso: `-o /tmp/chisel2`
 """)
 
 

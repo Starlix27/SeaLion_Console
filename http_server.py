@@ -2148,6 +2148,9 @@ class _QuietTCPServer(socketserver.TCPServer):
     allow_reuse_address = True
     daemon_threads = True
 
+    def handle_error(self, request, client_address):
+        pass
+
 
 def start(port: int = 2727, lhost: str | None = None, lport: int = 4444) -> str:
     global _server, _thread, _lhost, _lport
