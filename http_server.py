@@ -1839,6 +1839,16 @@ class SlRequestHandler(http.server.BaseHTTPRequestHandler):
                 self.send_error(403)
             else:
                 self._send_html(_page_static_edit(name))
+        elif path.startswith("/static/"):
+            name = path[8:]
+            if ".." in name or "/" in name:
+                self.send_error(403)
+            else:
+                fpath = STATIC_ROOT / name
+                if fpath.is_file():
+                    self._serve_static(name)
+                else:
+                    self._send_html(_page_static_list())
         elif path == "/delivery":
             ua = self.headers.get("User-Agent", "")
             if "curl" in ua.lower():
