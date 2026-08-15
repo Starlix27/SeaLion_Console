@@ -1598,12 +1598,13 @@ def _page_jwt() -> str:
 .jwt-panel-head{padding:12px 16px;font-size:11px;text-transform:uppercase;letter-spacing:1px;
   color:var(--text2);font-weight:600;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:8px}
 .jwt-panel-head .badge{font-size:10px;padding:2px 8px;border-radius:3px;text-transform:none;letter-spacing:0}
-.jwt-encoded{flex:1;padding:16px;overflow:auto}
+.jwt-encoded{flex:1;padding:16px;overflow:auto;position:relative}
 .jwt-encoded textarea{width:100%;height:100%;min-height:400px;background:transparent;border:none;
-  color:var(--text);font-family:'SFMono-Regular',Consolas,monospace;font-size:14px;line-height:1.7;
-  resize:none;outline:none;word-break:break-all;box-sizing:border-box}
+  color:transparent;caret-color:var(--text);font-family:'SFMono-Regular',Consolas,monospace;font-size:14px;line-height:1.7;
+  resize:none;outline:none;word-break:break-all;box-sizing:border-box;position:relative;z-index:1}
 .jwt-colored{font-family:'SFMono-Regular',Consolas,monospace;font-size:14px;line-height:1.7;
-  word-break:break-all;cursor:text;min-height:400px;outline:none;white-space:pre-wrap}
+  word-break:break-all;min-height:400px;white-space:pre-wrap;
+  position:absolute;top:16px;left:16px;right:16px;pointer-events:none;z-index:0}
 .jwt-colored .jc-h{color:#fb015b}.jwt-colored .jc-d{color:var(--text2)}
 .jwt-colored .jc-p{color:#d63aff}.jwt-colored .jc-s{color:#00b9f1}
 .jwt-section{padding:16px;border-bottom:1px solid var(--border)}
@@ -1644,7 +1645,7 @@ def _page_jwt() -> str:
     <button class="jwt-copy-btn" style="margin-left:auto;padding:3px 10px;font-size:11px" onclick="copyEncoded()">Copia</button>
   </div>
   <div class="jwt-encoded">
-    <div id="jwt-colored" class="jwt-colored" contenteditable="false"></div>
+    <div id="jwt-colored" class="jwt-colored"></div>
     <textarea id="jwt-in" spellcheck="false" placeholder="Incolla un JWT qui..."></textarea>
   </div>
 </div>
@@ -1758,7 +1759,7 @@ def _page_jwt() -> str:
   var timesEl=document.getElementById('jwt-times');
   var verifyEl=document.getElementById('jwt-verify');
   var badge=document.getElementById('jwt-badge');
-  var fromRight=false;
+  var rebuildGen=0;
 
   window.switchTab=function(tab){
     activeTab=tab;
@@ -1785,17 +1786,15 @@ def _page_jwt() -> str:
     else{badge.style.background='rgba(248,81,73,.12)';badge.style.color='var(--red)';badge.style.border='1px solid rgba(248,81,73,.3)';}
   }
 
-  function decode(){
-    errEl.textContent='';algEl.textContent='';subEl.textContent='';timesEl.innerHTML='';verifyEl.textContent='';
+  function updateMeta(raw){
+    errEl.textContent='';algEl.textContent='';subEl.textContent='';timesEl.innerHTML='';
     badge.style.display='none';
-    var raw=inp.value.trim();
     colorize(raw);
-    if(!raw){headerEl.value='';payloadEl.value='';return;}
+    if(!raw)return;
     var parts=raw.split('.');
-    if(parts.length<2||parts.length>3){errEl.textContent='Token non valido';headerEl.value='';payloadEl.value='';return;}
+    if(parts.length<2||parts.length>3){errEl.textContent='Token non valido';return;}
     try{
       var hdr=JSON.parse(b64uDec(parts[0]));
-      if(!fromRight)headerEl.value=JSON.stringify(hdr,null,2);
       algEl.textContent=hdr.alg||'none';
       if(hdr.alg&&algMap[hdr.alg]){
         document.querySelectorAll('#view-decode .jwt-alg-btn').forEach(function(b){
@@ -1806,7 +1805,6 @@ def _page_jwt() -> str:
     }catch(e){errEl.textContent='Header: '+e.message;return;}
     try{
       var pay=JSON.parse(b64uDec(parts[1]));
-      if(!fromRight)payloadEl.value=JSON.stringify(pay,null,2);
       if(pay.sub)subEl.textContent='sub: '+pay.sub;
       var ts=[];
       if(pay.iat!=null){var f=fmtTs(pay.iat);if(f)ts.push('iat (issued): '+f);}
@@ -1823,8 +1821,24 @@ def _page_jwt() -> str:
     showBadge(true,'Valid JWT');
   }
 
+  function decode(){
+    var raw=inp.value.trim();
+    updateMeta(raw);
+    if(!raw){headerEl.value='';payloadEl.value='';return;}
+    var parts=raw.split('.');
+    if(parts.length<2||parts.length>3){headerEl.value='';payloadEl.value='';return;}
+    try{
+      var hdr=JSON.parse(b64uDec(parts[0]));
+      headerEl.value=JSON.stringify(hdr,null,2);
+    }catch(e){return;}
+    try{
+      var pay=JSON.parse(b64uDec(parts[1]));
+      payloadEl.value=JSON.stringify(pay,null,2);
+    }catch(e){return;}
+  }
+
   function rebuildFromRight(){
-    fromRight=true;
+    var gen=++rebuildGen;
     try{
       var hdrTxt=headerEl.value.trim();
       var payTxt=payloadEl.value.trim();
@@ -1832,24 +1846,26 @@ def _page_jwt() -> str:
       var h=b64uEnc(hdrTxt);
       var p=b64uEnc(payTxt);
       var sec=document.getElementById('jwt-secret').value;
-      if(decAlg==='none'){
+      if(decAlg==='none'||!algMap[decAlg]||!sec){
         inp.value=h+'.'+p+'.';
-        decode();fromRight=false;return;
+        updateMeta(inp.value.trim());return;
       }
       var ha=algMap[decAlg];
-      if(!ha||!sec){inp.value=h+'.'+p+'.';decode();fromRight=false;return;}
       var te=new TextEncoder();
       var unsigned=h+'.'+p;
       crypto.subtle.importKey('raw',te.encode(sec),{name:'HMAC',hash:ha},false,['sign'])
       .then(function(key){return crypto.subtle.sign('HMAC',key,te.encode(unsigned));})
       .then(function(sig){
+        if(gen!==rebuildGen)return;
         inp.value=unsigned+'.'+u8b64u(new Uint8Array(sig));
-        decode();fromRight=false;
+        updateMeta(inp.value.trim());
       });
-    }catch(e){fromRight=false;}
+    }catch(e){
+      errEl.textContent='JSON non valido';
+    }
   }
 
-  inp.addEventListener('input',function(){fromRight=false;decode();});
+  inp.addEventListener('input',decode);
   headerEl.addEventListener('input',rebuildFromRight);
   payloadEl.addEventListener('input',rebuildFromRight);
 
