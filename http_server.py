@@ -2617,14 +2617,15 @@ class _QuietTCPServer(socketserver.TCPServer):
         pass
 
 
-def start(port: int = 2727, lhost: str | None = None, lport: int = 2727) -> str:
+def start(port: int = 2727, lhost: str | None = None, lport: int | None = None) -> str:
     global _server, _thread, _lhost, _lport
 
     if _server is not None:
         return f"Server già attivo su porta {_server.server_address[1]}."
 
     _lhost = lhost or get_default_ip()
-    _lport = lport
+    if lport is not None:
+        _lport = lport
 
     try:
         _server = _QuietTCPServer(("", port), SlRequestHandler)

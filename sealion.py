@@ -474,7 +474,7 @@ def build_parser() -> argparse.ArgumentParser:
     serve_p.add_argument("subtopic", nargs="?", default=None)
     serve_p.add_argument("--port", type=int, default=2727)
     serve_p.add_argument("--lhost", default=None)
-    serve_p.add_argument("--lport", type=int, default=2727)
+    serve_p.add_argument("--lport", type=int, default=None)
     serve_p.add_argument("--force", action="store_true", default=False)
     loot_p = subparsers.add_parser("loot", add_help=False)
     loot_p.add_argument("action", nargs="?", default="list")
@@ -1565,7 +1565,7 @@ def cmd_serve(args: argparse.Namespace, state: ConsoleState | None = None) -> in
     if action in {"on", "start"}:
         port = getattr(args, "port", 2727)
         lhost = getattr(args, "lhost", None)
-        lport = getattr(args, "lport", 2727)
+        lport = getattr(args, "lport", None)
 
         if lhost is None:
             ifaces = _serve_discover_interfaces()
