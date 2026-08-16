@@ -1567,6 +1567,9 @@ def cmd_serve(args: argparse.Namespace, state: ConsoleState | None = None) -> in
         lhost = getattr(args, "lhost", None)
         lport = getattr(args, "lport", None)
 
+        if subtopic and subtopic.isdigit():
+            port = int(subtopic)
+
         if lhost is None:
             ifaces = _serve_discover_interfaces()
             if not ifaces:
