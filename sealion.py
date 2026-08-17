@@ -495,6 +495,7 @@ def build_parser() -> argparse.ArgumentParser:
     catch_p.add_argument("extra", nargs="?", default=None)
     recon_p = subparsers.add_parser("recon", add_help=False)
     recon_p.add_argument("target", nargs="?", default=None)
+    recon_p.add_argument("name", nargs="?", default=None)
     recon_p.add_argument("-o", dest="save", action="store_true", default=False)
     recon_p.add_argument("-l", dest="loot", action="store_true", default=False)
     recon_p.add_argument("-s", dest="silent", action="store_true", default=False)
@@ -713,6 +714,25 @@ def _smart_input(prompt: str) -> str | None:
 
 def run_command(argv: list[str], state: ConsoleState | None = None) -> int:
     parser = build_parser()
+    if argv and argv[0] == "recon":
+        _reordered = [argv[0]]
+        _flags = []
+        _positionals = []
+        _skip_next = False
+        for i, a in enumerate(argv[1:]):
+            if _skip_next:
+                _skip_next = False
+                _flags.append(a)
+            elif a.startswith("--") and "=" not in a and a in ("--phase", "--name"):
+                _flags.append(a)
+                _skip_next = True
+            elif a.startswith("-"):
+                _flags.append(a)
+            else:
+                _positionals.append(a)
+        _reordered.extend(_positionals)
+        _reordered.extend(_flags)
+        argv = _reordered
     try:
         args = parser.parse_args(argv)
     except SystemExit:
@@ -3432,9 +3452,10 @@ def cmd_recon(args: argparse.Namespace, state: ConsoleState | None = None) -> in
     if target in {"help", "-h", "--help"}:
         print(
             "\n  \033[1mrecon\033[0m — Reconnaissance automatica\n\n"
-            "  \033[93mrecon <target>\033[0m              Scan completo in un nuovo pane\n"
+            "  \033[93mrecon <target>\033[0m              Scan completo\n"
             "  \033[93mrecon <target> -o\033[0m           Salva output in loot/recon/<target>/\n"
             "  \033[93mrecon <target> -lo\033[0m          Salva + upload a loot\n"
+            "  \033[93mrecon <target> -lo <name>\033[0m   Salva in loot/recon/<name>/ + upload\n"
             "  \033[93mrecon <target> --fast\033[0m       Solo top ports + web enum\n"
             "  \033[93mrecon <target> --phase web\033[0m  Solo una fase (ports/web/services/report)\n"
             "  \033[93mrecon <target> --no-ping\033[0m    Forza -Pn su nmap\n"
@@ -3488,6 +3509,9 @@ def cmd_recon(args: argparse.Namespace, state: ConsoleState | None = None) -> in
     phase = getattr(args, "phase", None)
     if phase:
         cmd_parts.extend(["--phase", phase])
+    name = getattr(args, "name", None)
+    if name:
+        cmd_parts.extend(["--name", name])
 
     # Inject LHOST
     url = _serve_get_url()

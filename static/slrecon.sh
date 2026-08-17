@@ -22,6 +22,7 @@ LHOST=""
 FAST=0
 PHASE=""
 NO_PING=0
+SCAN_NAME=""
 START_TIME=$(date +%s)
 
 # ── Colors ───────────────────────────────────────────────────
@@ -77,6 +78,7 @@ while [ $# -gt 0 ]; do
     --fast) FAST=1; shift ;;
     --no-ping) NO_PING=1; shift ;;
     --phase) shift; PHASE="$1"; shift ;;
+    --name) shift; SCAN_NAME="$1"; shift ;;
     -*)
       _flags=$(echo "$1" | sed 's/^-//')
       shift
@@ -149,8 +151,9 @@ _elapsed() {
 
 # ── Setup output directory ───────────────────────────────────
 if [ "$SAVE" -eq 1 ]; then
-  OUTDIR="loot/recon/$TARGET"
-  mkdir -p "$OUTDIR" 2>/dev/null || OUTDIR="/tmp/slrecon_$TARGET"
+  _outname="${SCAN_NAME:-$TARGET}"
+  OUTDIR="loot/recon/$_outname"
+  mkdir -p "$OUTDIR" 2>/dev/null || OUTDIR="/tmp/slrecon_$_outname"
   mkdir -p "$OUTDIR" 2>/dev/null
   : > "$OUTDIR/report.txt"
 fi
