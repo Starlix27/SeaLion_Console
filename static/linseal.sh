@@ -45,26 +45,57 @@ USAGE
 while [ $# -gt 0 ]; do
   case "$1" in
     -h|--help) usage ;;
-    -s) SILENT=1; shift ;;
-    -l) LOOT=1; shift ;;
     -o)
       shift
       if [ $# -gt 0 ] && [ "${1#-}" = "$1" ] && [ -n "$1" ]; then
         OUTFILE="$1"
         shift
       else
-        n=1
-        while [ -e "output_$n" ]; do
-          n=$((n + 1))
-        done
-        OUTFILE="output_$n"
+        OUTFILE="__auto__"
       fi
+      ;;
+    -*)
+      _flags=$(echo "$1" | sed 's/^-//')
+      shift
+      case "$_flags" in
+        *o*)
+          _rest=$(echo "$_flags" | sed 's/o//')
+          case "$_rest" in *s*) SILENT=1 ;; esac
+          case "$_rest" in *l*) LOOT=1 ;; esac
+          if [ $# -gt 0 ] && [ "${1#-}" = "$1" ] && [ -n "$1" ]; then
+            OUTFILE="$1"
+            shift
+          else
+            OUTFILE="__auto__"
+          fi
+          ;;
+        *)
+          case "$_flags" in *s*) SILENT=1 ;; esac
+          case "$_flags" in *l*) LOOT=1 ;; esac
+          ;;
+      esac
       ;;
     *) shift ;;
   esac
 done
 
+if [ "$OUTFILE" = "__auto__" ]; then
+  n=1
+  while [ -e "output_$n" ]; do
+    n=$((n + 1))
+  done
+  OUTFILE="output_$n"
+fi
+
 if [ "$SILENT" -eq 1 ] && [ -z "$OUTFILE" ]; then
+  n=1
+  while [ -e "output_$n" ]; do
+    n=$((n + 1))
+  done
+  OUTFILE="output_$n"
+fi
+
+if [ "$LOOT" -eq 1 ] && [ -z "$OUTFILE" ]; then
   n=1
   while [ -e "output_$n" ]; do
     n=$((n + 1))
