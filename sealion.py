@@ -328,6 +328,7 @@ def print_help_text() -> None:
     print("  \033[92;1m  Serve Operations\033[0m")
     print("  loot [azione]      Gestisci file ricevuti dalla vulnbox (loot help)")
     print("  tunnel <azione>    Port forwarding via chisel (tunnel help)")
+    print("  recon <target>     Reconnaissance automatica (recon help)")
     print()
     print("  \033[92;1m— Wordlists\033[0m")
     print("  wordfind [url]     Wizard wordlist per fuzzing/bruteforce")
@@ -489,6 +490,17 @@ def build_parser() -> argparse.ArgumentParser:
     tunnel_p.add_argument("--local-port", type=int, default=9000)
     tunnel_p.add_argument("--server-port", type=int, default=8443)
     tunnel_p.add_argument("--force", action="store_true", default=False)
+    catch_p = subparsers.add_parser("catch", add_help=False)
+    catch_p.add_argument("action", nargs="?", default=None)
+    catch_p.add_argument("extra", nargs="?", default=None)
+    recon_p = subparsers.add_parser("recon", add_help=False)
+    recon_p.add_argument("target", nargs="?", default=None)
+    recon_p.add_argument("-o", dest="save", action="store_true", default=False)
+    recon_p.add_argument("-l", dest="loot", action="store_true", default=False)
+    recon_p.add_argument("-s", dest="silent", action="store_true", default=False)
+    recon_p.add_argument("--fast", action="store_true", default=False)
+    recon_p.add_argument("--phase", default=None)
+    recon_p.add_argument("--no-ping", action="store_true", default=False)
     return parser
 
 
@@ -504,7 +516,7 @@ def setup_readline() -> None:
 
 
 _COMPLETABLE = sorted(["sealsay", "list", "install", "use", "search", "vuln",
-                        "notes", "find", "back", "help", "serve", "loot", "wordfind", "passfind", "wordgen", "tunnel", "exit"])
+                        "notes", "find", "back", "help", "serve", "loot", "wordfind", "passfind", "wordgen", "tunnel", "recon", "exit"])
 _input_history: list[str] = []
 
 
@@ -730,6 +742,7 @@ def run_command(argv: list[str], state: ConsoleState | None = None) -> int:
         "passfind": cmd_passfind,
         "wordgen": cmd_wordgen,
         "tunnel": cmd_tunnel,
+        "recon": cmd_recon,
     }
     handler = handlers.get(args.command)
     if handler is None:
@@ -846,7 +859,7 @@ def run_console() -> int:
                     state.last_vuln_tools = _extract_vuln_tools(text)
                 continue
 
-        known_commands = {"sealsay", "list", "install", "use", "search", "vuln", "notes", "find", "back", "help", "?", "--version", "-h", "--help", "serve", "loot", "wordfind", "passfind", "wordgen", "tunnel"}
+        known_commands = {"sealsay", "list", "install", "use", "search", "vuln", "notes", "find", "back", "help", "?", "--version", "-h", "--help", "serve", "loot", "wordfind", "passfind", "wordgen", "tunnel", "recon"}
         if argv[0] not in known_commands:
             print("Comando non riconosciuto. Digita 'help' per i comandi.")
             continue
@@ -3405,6 +3418,91 @@ def cmd_find(args: argparse.Namespace, state: ConsoleState | None = None) -> int
             _print_find_page(matches, query, page)
         elif key in ("quit", "esc", "enter"):
             break
+    return 0
+
+
+# ── recon command ────────────────────────────────────────────
+
+SLRECON_SCRIPT = PROJECT_ROOT / "static" / "slrecon.sh"
+
+
+def cmd_recon(args: argparse.Namespace, state: ConsoleState | None = None) -> int:
+    target = getattr(args, "target", None)
+
+    if target in {"help", "-h", "--help"}:
+        print(
+            "\n  \033[1mrecon\033[0m — Reconnaissance automatica\n\n"
+            "  \033[93mrecon <target>\033[0m              Scan completo in un nuovo pane\n"
+            "  \033[93mrecon <target> -o\033[0m           Salva output in loot/recon/<target>/\n"
+            "  \033[93mrecon <target> -lo\033[0m          Salva + upload a loot\n"
+            "  \033[93mrecon <target> --fast\033[0m       Solo top ports + web enum\n"
+            "  \033[93mrecon <target> --phase web\033[0m  Solo una fase (ports/web/services/report)\n"
+            "  \033[93mrecon <target> --no-ping\033[0m    Forza -Pn su nmap\n"
+            "  \033[93mrecon status\033[0m                Mostra scan in corso\n"
+            "  \033[93mrecon report <target>\033[0m       Rimostra ultimo report\n"
+        )
+        return 0
+
+    if target == "status":
+        print("  \033[93m[*]\033[0m Controlla il terminale per il progresso dello scan.")
+        return 0
+
+    if target == "report":
+        extra = getattr(args, "phase", None) or getattr(args, "target", None)
+        # try second positional
+        report_target = None
+        for a in sys.argv:
+            if a != "recon" and a != "report" and not a.startswith("-"):
+                report_target = a
+        if report_target:
+            report_file = Path(f"loot/recon/{report_target}/report.txt")
+            if report_file.exists():
+                print(report_file.read_text(encoding="utf-8", errors="replace"))
+            else:
+                print(f"  Nessun report trovato per {report_target}")
+                print(f"  Cercato in: {report_file}")
+        else:
+            print("  Uso: recon report <target>")
+        return 0
+
+    if not target:
+        print("  Uso: \033[93mrecon <target>\033[0m | \033[93mrecon help\033[0m")
+        return 0
+
+    if not SLRECON_SCRIPT.exists():
+        print(f"  \033[91mScript non trovato: {SLRECON_SCRIPT}\033[0m")
+        return 1
+
+    # Build command
+    cmd_parts = ["sh", str(SLRECON_SCRIPT), target]
+    if getattr(args, "save", False):
+        cmd_parts.append("-o")
+    if getattr(args, "loot", False):
+        cmd_parts.append("-l")
+    if getattr(args, "silent", False):
+        cmd_parts.append("-s")
+    if getattr(args, "fast", False):
+        cmd_parts.append("--fast")
+    if getattr(args, "no_ping", False):
+        cmd_parts.append("--no-ping")
+    phase = getattr(args, "phase", None)
+    if phase:
+        cmd_parts.extend(["--phase", phase])
+
+    # Inject LHOST
+    url = _serve_get_url()
+    if url:
+        from urllib.parse import urlparse
+        parsed = urlparse(url)
+        if parsed.hostname:
+            cmd_parts.extend(["-L", parsed.hostname])
+
+    recon_cmd = " ".join(cmd_parts)
+
+    print(f"  Recon avviato su \033[1m{target}\033[0m")
+    print(f"  \033[93m$ {recon_cmd}\033[0m\n")
+    subprocess.run(recon_cmd, shell=True)
+
     return 0
 
 

