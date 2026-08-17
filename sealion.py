@@ -128,53 +128,6 @@ def load_sealsay_art() -> str:
     return load_logo()
 
 
-# ── tmux helpers ─────────────────────────────────────────────
-
-_catches: dict[int, str] = {}
-
-
-def _in_tmux() -> bool:
-    return bool(os.environ.get("TMUX"))
-
-
-def _tmux_run(*args: str, capture: bool = False) -> subprocess.CompletedProcess:
-    return subprocess.run(
-        ["tmux", *args],
-        stdout=subprocess.PIPE if capture else subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-    )
-
-
-def _tmux_split(cmd: str, name: str, horizontal: bool = False) -> str | None:
-    direction = "-h" if horizontal else "-v"
-    result = _tmux_run(
-        "split-window", direction, "-d", "-P", "-F", "#{pane_id}",
-        "-t", "SeaLion", cmd,
-        capture=True,
-    )
-    if result.returncode != 0:
-        return None
-    pane_id = result.stdout.decode().strip()
-    _tmux_run("select-pane", "-t", pane_id, "-T", name)
-    return pane_id
-
-
-def _tmux_kill_pane(pane_id: str) -> bool:
-    return _tmux_run("kill-pane", "-t", pane_id).returncode == 0
-
-
-def _tmux_setup_status(lhost: str = "", port: int = 0) -> None:
-    if not _in_tmux():
-        return
-    _tmux_run("set", "status", "on")
-    _tmux_run("set", "status-style", "bg=#1a1a2e,fg=#e0e0e0")
-    _tmux_run("set", "status-left-length", "30")
-    _tmux_run("set", "status-right-length", "40")
-    _tmux_run("set", "status-left", " 🦭 SeaLion Console  ")
-    right = f" {lhost}:{port} " if lhost and port else ""
-    _tmux_run("set", "status-right", right)
-
-
 def normalize(value: str) -> str:
     return value.strip().lower()
 
@@ -278,14 +231,9 @@ def load_tips() -> list[str]:
 
 
 def print_banner() -> None:
-    logo = load_logo()
-    term_w = get_terminal_size((80, 24)).columns
-    for line in logo.splitlines():
-        print(f"\033[36m{line}\033[0m")
-    title = "SeaLion Console"
-    print(f"\n\033[1;97m{title:^{term_w}}\033[0m")
     tip = random.choice(load_tips())
-    print(f"\033[33m{tip:^{term_w}}\033[0m\n")
+    print_sealsay(tip)
+    print(f"\n{APP_NAME} — personal tool vault\n")
 
 
 def _read_sealsay_message(argv: list[str]) -> str:
@@ -380,7 +328,6 @@ def print_help_text() -> None:
     print("  \033[92;1m  Serve Operations\033[0m")
     print("  loot [azione]      Gestisci file ricevuti dalla vulnbox (loot help)")
     print("  tunnel <azione>    Port forwarding via chisel (tunnel help)")
-    print("  catch <porta>      Listener reverse shell in pane tmux (catch help)")
     print()
     print("  \033[92;1m— Wordlists\033[0m")
     print("  wordfind [url]     Wizard wordlist per fuzzing/bruteforce")
@@ -542,9 +489,6 @@ def build_parser() -> argparse.ArgumentParser:
     tunnel_p.add_argument("--local-port", type=int, default=9000)
     tunnel_p.add_argument("--server-port", type=int, default=8443)
     tunnel_p.add_argument("--force", action="store_true", default=False)
-    catch_p = subparsers.add_parser("catch", add_help=False)
-    catch_p.add_argument("action", nargs="?", default=None)
-    catch_p.add_argument("extra", nargs="?", default=None)
     return parser
 
 
@@ -560,7 +504,7 @@ def setup_readline() -> None:
 
 
 _COMPLETABLE = sorted(["sealsay", "list", "install", "use", "search", "vuln",
-                        "notes", "find", "back", "help", "serve", "loot", "wordfind", "passfind", "wordgen", "tunnel", "catch", "exit"])
+                        "notes", "find", "back", "help", "serve", "loot", "wordfind", "passfind", "wordgen", "tunnel", "exit"])
 _input_history: list[str] = []
 
 
@@ -786,7 +730,6 @@ def run_command(argv: list[str], state: ConsoleState | None = None) -> int:
         "passfind": cmd_passfind,
         "wordgen": cmd_wordgen,
         "tunnel": cmd_tunnel,
-        "catch": cmd_catch,
     }
     handler = handlers.get(args.command)
     if handler is None:
@@ -831,14 +774,6 @@ def _autostart_server() -> None:
 def run_console() -> int:
     state = ConsoleState()
     _autostart_server()
-    if _in_tmux():
-        url = _serve_get_url()
-        if url:
-            from urllib.parse import urlparse
-            parsed = urlparse(url)
-            _tmux_setup_status(parsed.hostname or "", parsed.port or 0)
-        else:
-            _tmux_setup_status()
     print_banner()
     url = _serve_get_url()
     if url:
@@ -911,7 +846,7 @@ def run_console() -> int:
                     state.last_vuln_tools = _extract_vuln_tools(text)
                 continue
 
-        known_commands = {"sealsay", "list", "install", "use", "search", "vuln", "notes", "find", "back", "help", "?", "--version", "-h", "--help", "serve", "loot", "wordfind", "passfind", "wordgen", "tunnel", "catch"}
+        known_commands = {"sealsay", "list", "install", "use", "search", "vuln", "notes", "find", "back", "help", "?", "--version", "-h", "--help", "serve", "loot", "wordfind", "passfind", "wordgen", "tunnel"}
         if argv[0] not in known_commands:
             print("Comando non riconosciuto. Digita 'help' per i comandi.")
             continue
@@ -1631,7 +1566,6 @@ def cmd_serve(args: argparse.Namespace, state: ConsoleState | None = None) -> in
         port = getattr(args, "port", 2727)
         lhost = getattr(args, "lhost", None)
         lport = getattr(args, "lport", None)
-        subtopic = getattr(args, "subtopic", None)
 
         if subtopic and subtopic.isdigit():
             port = int(subtopic)
@@ -1662,17 +1596,9 @@ def cmd_serve(args: argparse.Namespace, state: ConsoleState | None = None) -> in
                     print(f"  Inserisci un numero da 1 a {len(ifaces)}.")
 
         print(_serve_start(port=port, lhost=lhost, lport=lport))
-        if _in_tmux():
-            url = _serve_get_url()
-            if url:
-                from urllib.parse import urlparse
-                parsed = urlparse(url)
-                _tmux_setup_status(parsed.hostname or "", parsed.port or 0)
         return 0
     if action in {"off", "stop"}:
         print(_serve_stop())
-        if _in_tmux():
-            _tmux_setup_status()
         return 0
     if action == "fetch":
         force = getattr(args, "force", False)
@@ -3482,82 +3408,6 @@ def cmd_find(args: argparse.Namespace, state: ConsoleState | None = None) -> int
     return 0
 
 
-# ── catch command ────────────────────────────────────────────
-
-def cmd_catch(args: argparse.Namespace, state: ConsoleState | None = None) -> int:
-    action = getattr(args, "action", None)
-
-    if action in {"help", "-h", "--help"}:
-        print(
-            "\n  \033[1mcatch\033[0m — Gestione listener per reverse shell\n\n"
-            "  \033[93mcatch <porta>\033[0m         Apre un listener in un pane tmux\n"
-            "  \033[93mcatch list\033[0m            Mostra i listener attivi\n"
-            "  \033[93mcatch off [porta]\033[0m     Chiude un listener (senza porta = tutti)\n"
-        )
-        return 0
-
-    if action == "list" or action == "ls":
-        if not _catches:
-            print("  Nessun listener attivo.")
-            return 0
-        print("\n  \033[1mListener attivi:\033[0m\n")
-        for port, pane_id in sorted(_catches.items()):
-            print(f"    \033[92m●\033[0m Porta \033[1m{port}\033[0m  (pane {pane_id})")
-        print()
-        return 0
-
-    if action in {"off", "stop", "kill"}:
-        extra = getattr(args, "extra", None)
-        if extra and extra.isdigit():
-            port = int(extra)
-            pane_id = _catches.pop(port, None)
-            if pane_id:
-                _tmux_kill_pane(pane_id)
-                print(f"  Listener sulla porta {port} chiuso.")
-            else:
-                print(f"  Nessun listener attivo sulla porta {port}.")
-        else:
-            if not _catches:
-                print("  Nessun listener attivo.")
-                return 0
-            for port, pane_id in list(_catches.items()):
-                _tmux_kill_pane(pane_id)
-            _catches.clear()
-            print("  Tutti i listener chiusi.")
-        return 0
-
-    if action and action.isdigit():
-        port = int(action)
-        if port in _catches:
-            print(f"  Listener già attivo sulla porta {port} (pane {_catches[port]}).")
-            return 0
-
-        if which("socat"):
-            listen_cmd = f"socat file:$(tty),raw,echo=0 tcp-listen:{port},reuseaddr,fork"
-        else:
-            listen_cmd = f"nc -lvnp {port}"
-
-        if not _in_tmux():
-            print(f"  tmux non attivo — avvio listener in primo piano (Ctrl+C per uscire)")
-            print(f"  \033[93m$ {listen_cmd}\033[0m\n")
-            try:
-                subprocess.run(listen_cmd, shell=True)
-            except KeyboardInterrupt:
-                pass
-            return 0
-
-        pane_id = _tmux_split(listen_cmd, f"Catch:{port}")
-        if pane_id:
-            _catches[port] = pane_id
-            print(f"  Listener aperto sulla porta \033[1m{port}\033[0m (pane {pane_id})")
-        else:
-            print(f"  \033[91mErrore nell'aprire il pane tmux.\033[0m")
-        return 0
-
-    print("  Uso: \033[93mcatch <porta>\033[0m | \033[93mcatch list\033[0m | \033[93mcatch off [porta]\033[0m")
-    return 0
-
-
 def main(argv: list[str] | None = None) -> int:
     if argv is None:
         argv = sys.argv[1:]
@@ -3566,11 +3416,6 @@ def main(argv: list[str] | None = None) -> int:
     _auto_install_deps()
 
     if not argv:
-        if not _in_tmux() and which("tmux"):
-            os.execvp("tmux", [
-                "tmux", "new-session", "-s", "SeaLion", "-n", "Console",
-                "--", sys.executable, *sys.argv,
-            ])
         return run_console()
 
     if len(argv) == 1 and argv[0] in {"-h", "--help"}:
