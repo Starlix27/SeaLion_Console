@@ -216,6 +216,10 @@ fi
 #                         SCAN START
 # ══════════════════════════════════════════════════════════════
 
+_RECS_FILE=$(mktemp 2>/dev/null || echo "/tmp/.linseal_recs_$$")
+: > "$_RECS_FILE"
+_rec() { echo "$1" >> "$_RECS_FILE"; }
+
 banner
 
 # ── System Info ──────────────────────────────────────────────
@@ -240,6 +244,12 @@ fi
 for g in docker lxd adm sudo wheel disk video; do
   if id -Gn 2>/dev/null | grep -qw "$g"; then
     hi "Member of '$g' group — potential privesc vector"
+    case "$g" in
+      docker) _rec "[PRIVESC] Member of 'docker' group → docker run -v /:/mnt --rm -it alpine chroot /mnt sh" ;;
+      lxd)    _rec "[PRIVESC] Member of 'lxd' group → lxd init + mount host filesystem" ;;
+      disk)   _rec "[PRIVESC] Member of 'disk' group → debugfs /dev/sda to read any file" ;;
+      adm)    _rec "[INFO] Member of 'adm' group → can read logs in /var/log" ;;
+    esac
   fi
 done
 
@@ -252,13 +262,16 @@ if command -v sudo >/dev/null 2>&1; then
     emit "$SUDO_OUT"
     if echo "$SUDO_OUT" | grep -qi "NOPASSWD"; then
       hi "NOPASSWD entries found — check for privesc"
+      _rec "[PRIVESC] sudo NOPASSWD entries found → check GTFOBins for each allowed command"
     fi
     if echo "$SUDO_OUT" | grep -qi "(ALL)"; then
       hi "Can run commands as ALL users"
+      _rec "[PRIVESC] sudo (ALL) → may be able to escalate if any allowed command has GTFOBins entry"
     fi
     for cmd in env find vim nmap python perl ruby bash sh less more awk node php tar zip wget curl; do
       if echo "$SUDO_OUT" | grep -qw "$cmd"; then
         hi "sudo $cmd — GTFOBins candidate"
+        _rec "[PRIVESC] sudo $cmd → check https://gtfobins.github.io/gtfobins/$cmd/#sudo"
       fi
     done
   else
@@ -279,6 +292,7 @@ find / -perm -4000 -type f 2>/dev/null | while read -r f; do
       ;;
     *)
       hi "SUID: $f — NON-STANDARD"
+      _rec "[PRIVESC] Non-standard SUID: $f → check GTFOBins / known exploits for $(basename "$f")"
       ;;
   esac
 done
@@ -304,6 +318,10 @@ if command -v getcap >/dev/null 2>&1; then
   getcap -r / 2>/dev/null | while read -r line; do
     if echo "$line" | grep -qiE 'cap_setuid|cap_setgid|cap_dac_override|cap_sys_admin|cap_sys_ptrace|cap_net_raw'; then
       hi "CAP: $line"
+      _bin=$(echo "$line" | awk '{print $1}')
+      echo "$line" | grep -qi 'cap_setuid' && _rec "[PRIVESC] $_bin has cap_setuid → can change UID to root"
+      echo "$line" | grep -qi 'cap_sys_admin' && _rec "[PRIVESC] $_bin has cap_sys_admin → mount/namespace abuse possible"
+      echo "$line" | grep -qi 'cap_dac_override' && _rec "[PRIVESC] $_bin has cap_dac_override → can read/write any file"
     else
       warn "CAP: $line"
     fi
@@ -318,12 +336,19 @@ section "WRITABLE INTERESTING FILES"
 for f in /etc/passwd /etc/shadow /etc/sudoers /etc/crontab /etc/hosts /etc/ssh/sshd_config; do
   if [ -w "$f" ] 2>/dev/null; then
     hi "WRITABLE: $f"
+    case "$f" in
+      /etc/passwd) _rec "[PRIVESC] /etc/passwd is writable → add root user: echo 'root2:$(openssl passwd pass):0:0::/root:/bin/bash' >> /etc/passwd" ;;
+      /etc/shadow) _rec "[PRIVESC] /etc/shadow is writable → replace root password hash" ;;
+      /etc/sudoers) _rec "[PRIVESC] /etc/sudoers is writable → add: $(whoami) ALL=(ALL) NOPASSWD: ALL" ;;
+      /etc/crontab) _rec "[PRIVESC] /etc/crontab is writable → add reverse shell cronjob" ;;
+    esac
   fi
 done
 
 for d in /etc/cron.d /etc/cron.daily /etc/cron.hourly /etc/cron.weekly /etc/cron.monthly /etc/sudoers.d; do
   if [ -d "$d" ] && [ -w "$d" ] 2>/dev/null; then
     hi "WRITABLE DIR: $d"
+    _rec "[PRIVESC] $d is writable → drop a script/rule to get root execution"
   fi
 done
 
@@ -348,6 +373,7 @@ fi
 grep -rhE '^[^#].*/' /etc/crontab /etc/cron.d/ 2>/dev/null | grep -oE '/[^ ]+' | sort -u | while read -r s; do
   if [ -f "$s" ] && [ -w "$s" ]; then
     hi "WRITABLE cron script: $s"
+    _rec "[PRIVESC] Writable cron script: $s → inject reverse shell, wait for cron to run it as root"
   fi
 done
 
@@ -385,6 +411,75 @@ if command -v ss >/dev/null 2>&1; then
 elif command -v netstat >/dev/null 2>&1; then
   run netstat -tlnp
 fi
+
+emit_raw "\n${W}--- Port analysis ---${N}"
+_ports=""
+if command -v ss >/dev/null 2>&1; then
+  _ports=$(ss -tlnp 2>/dev/null | awk 'NR>1 {print $4}')
+elif command -v netstat >/dev/null 2>&1; then
+  _ports=$(netstat -tlnp 2>/dev/null | awk 'NR>2 {print $4}')
+fi
+
+echo "$_ports" | while read -r addr; do
+  [ -z "$addr" ] && continue
+  _ip=$(echo "$addr" | sed 's/:[0-9]*$//' | sed 's/^\*/0.0.0.0/')
+  _port=$(echo "$addr" | grep -oE '[0-9]+$')
+  [ -z "$_port" ] && continue
+
+  _note=""
+  _banner=""
+  case "$_port" in
+    21)   _note="FTP — try anonymous login" ;;
+    22)   _note="SSH" ;;
+    23)   _note="Telnet — cleartext" ;;
+    25)   _note="SMTP" ;;
+    53)   _note="DNS — try zone transfer" ;;
+    80|8080|8000|8443|8888|3000)
+          _note="HTTP"
+          _banner=$(curl -sI -m 2 "http://${_ip}:${_port}/" 2>/dev/null | grep -iE '^Server:|^X-Powered-By:' | head -2) || true
+          ;;
+    110)  _note="POP3" ;;
+    111)  _note="rpcbind — check NFS/NIS" ;;
+    143)  _note="IMAP" ;;
+    443|993|995)
+          _note="SSL/TLS service" ;;
+    445)  _note="SMB — try null session" ;;
+    1337) _note="Non-standard — may be admin panel" ;;
+    2049) _note="NFS — check exports + no_root_squash" ;;
+    3306) _note="MySQL — try default creds" ;;
+    5432) _note="PostgreSQL — try default creds" ;;
+    6379) _note="Redis — try no-auth access" ;;
+    8009) _note="AJP — GhostCat possible" ;;
+    11211) _note="Memcached — info dump" ;;
+    27017) _note="MongoDB — try no-auth" ;;
+    *)    _note="" ;;
+  esac
+
+  _scope="external"
+  case "$_ip" in
+    127.*|::1|0.0.0.0|::) _scope="internal" ;;
+  esac
+  [ "$_ip" = "0.0.0.0" ] || [ "$_ip" = "::" ] && _scope="all-interfaces"
+
+  if [ -n "$_note" ]; then
+    _line="$_ip:$_port  [$_scope]  $_note"
+    if echo "$_ip" | grep -qE '^127\.|^::1$'; then
+      warn "$_line"
+    else
+      hi "$_line"
+    fi
+    [ -n "$_banner" ] && emit "  $_banner"
+    case "$_port" in
+      21)    _rec "[ENUM] FTP on $_ip:$_port → try: ftp -a $_ip (anonymous login)" ;;
+      2049)  _rec "[ENUM] NFS on $_ip:$_port → from attacker: showmount -e <target> + check no_root_squash" ;;
+      3306)  _rec "[ENUM] MySQL on $_ip:$_port → try: mysql -u root -h $_ip (no password / creds from config files)" ;;
+      5432)  _rec "[ENUM] PostgreSQL on $_ip:$_port → try: psql -U postgres -h $_ip" ;;
+      6379)  _rec "[ENUM] Redis on $_ip:$_port → try: redis-cli -h $_ip INFO (no-auth access)" ;;
+      27017) _rec "[ENUM] MongoDB on $_ip:$_port → try: mongosh $_ip (no-auth access)" ;;
+      445)   _rec "[ENUM] SMB on $_ip:$_port → try: smbclient -L //$_ip -N (null session)" ;;
+    esac
+  fi
+done
 
 emit_raw "\n${W}--- All connections ---${N}"
 if command -v ss >/dev/null 2>&1; then
@@ -427,7 +522,14 @@ for f in /etc/shadow /etc/master.passwd; do
 done
 
 emit_raw "\n${W}--- SSH keys ---${N}"
-find / -name "id_rsa" -o -name "id_ecdsa" -o -name "id_ed25519" -o -name "*.pem" -o -name "authorized_keys" 2>/dev/null | while read -r f; do
+find / -name "id_rsa" -o -name "id_ecdsa" -o -name "id_ed25519" -o -name "id_dsa" -o -name "authorized_keys" 2>/dev/null | while read -r f; do
+  if [ -r "$f" ]; then
+    hi "FOUND: $f"
+    _ls=$(ls -la "$f" 2>/dev/null) || true
+    [ -n "$_ls" ] && emit "$_ls"
+  fi
+done
+find /home /root /opt /srv -name "*.pem" -o -name "*.key" -o -name "*.p12" -o -name "*.pfx" 2>/dev/null | grep -vE '/\.cache/|/\.local/share/gnome' | while read -r f; do
   if [ -r "$f" ]; then
     hi "FOUND: $f"
     _ls=$(ls -la "$f" 2>/dev/null) || true
@@ -461,6 +563,36 @@ done
 emit_raw "\n${W}--- Backup files ---${N}"
 find / -maxdepth 4 -type f \( -name "*.bak" -o -name "*.old" -o -name "*.save" -o -name "*.orig" -o -name "*backup*" -o -name "*.sql" -o -name "*.db" -o -name "*.sqlite" \) -readable 2>/dev/null | head -20 | while read -r f; do
   warn "BACKUP: $f"
+done
+
+emit_raw "\n${W}--- Hidden sensitive files ---${N}"
+for d in /home/* /root; do
+  [ -d "$d" ] || continue
+  for hf in .git-credentials .netrc .pgpass .my.cnf .docker/config.json .kube/config .aws/credentials .ssh/config .gnupg/private-keys-v1.d .config/filezilla/sitemanager.xml .config/rclone/rclone.conf .config/gcloud/credentials.db .local/share/keyrings .vnc/passwd .Xauthority; do
+    fp="$d/$hf"
+    if [ -r "$fp" ] 2>/dev/null; then
+      hi "HIDDEN: $fp"
+      _ls=$(ls -la "$fp" 2>/dev/null) || true
+      [ -n "$_ls" ] && emit "$_ls"
+      case "$hf" in
+        .git-credentials|.netrc|.pgpass|.my.cnf)
+          _content=$(cat "$fp" 2>/dev/null | head -5) || true
+          [ -n "$_content" ] && emit "$_content"
+          ;;
+        .ssh/config)
+          _hosts=$(grep -i 'Host\|IdentityFile\|User ' "$fp" 2>/dev/null) || true
+          [ -n "$_hosts" ] && emit "$_hosts"
+          ;;
+        .docker/config.json)
+          _auth=$(grep -i 'auth' "$fp" 2>/dev/null) || true
+          [ -n "$_auth" ] && hi "Docker auth tokens found"
+          ;;
+        .kube/config|.aws/credentials|.config/rclone/rclone.conf)
+          hi "Cloud credentials — review manually: $fp"
+          ;;
+      esac
+    fi
+  done
 done
 
 # ── /etc/passwd ──────────────────────────────────────────────
@@ -500,6 +632,7 @@ if command -v docker >/dev/null 2>&1; then
   run docker images
   if [ -w /var/run/docker.sock ]; then
     hi "docker.sock is WRITABLE — container escape possible"
+    _rec "[PRIVESC] docker.sock writable → docker run -v /:/mnt --rm -it alpine chroot /mnt sh"
   fi
 fi
 
@@ -553,6 +686,169 @@ env 2>/dev/null | grep -iE 'pass|key|secret|token|api|cred|database|db_|mysql|po
 done
 
 info "PATH: $PATH"
+
+# ── NFS exports ──────────────────────────────────────────────
+section "NFS EXPORTS"
+
+if [ -r /etc/exports ]; then
+  emit_raw "${W}--- /etc/exports ---${N}"
+  while read -r line; do
+    case "$line" in
+      \#*|"") continue ;;
+    esac
+    if echo "$line" | grep -qi 'no_root_squash'; then
+      hi "no_root_squash: $line"
+      _rec "[PRIVESC] NFS export with no_root_squash → mount on attacker, create SUID binary, run from target"
+    else
+      info "$line"
+    fi
+  done < /etc/exports
+else
+  info "/etc/exports not readable"
+fi
+
+# ── PATH hijacking ───────────────────────────────────────────
+section "PATH HIJACKING"
+
+echo "$PATH" | tr ':' '\n' | while read -r _pdir; do
+  [ -z "$_pdir" ] && continue
+  if [ -d "$_pdir" ] && [ -w "$_pdir" ] 2>/dev/null; then
+    hi "WRITABLE PATH dir: $_pdir"
+    _rec "[PRIVESC] Writable PATH directory: $_pdir → drop malicious binary to hijack commands run by root"
+  fi
+done
+
+# ── ld.so.preload ────────────────────────────────────────────
+if [ -e /etc/ld.so.preload ]; then
+  if [ -w /etc/ld.so.preload ]; then
+    hi "ld.so.preload exists and is WRITABLE — instant privesc"
+    _rec "[PRIVESC] /etc/ld.so.preload is writable → compile shared lib with root shell, add path to ld.so.preload"
+  else
+    warn "ld.so.preload exists: $(cat /etc/ld.so.preload 2>/dev/null)"
+  fi
+fi
+
+# ── ptrace scope ─────────────────────────────────────────────
+if [ -r /proc/sys/kernel/yama/ptrace_scope ]; then
+  _ptrace=$(cat /proc/sys/kernel/yama/ptrace_scope 2>/dev/null)
+  if [ "$_ptrace" = "0" ]; then
+    hi "ptrace_scope=0 — can attach to any process"
+    _rec "[INFO] ptrace_scope=0 → can inject into running processes (e.g. ssh-agent, running root services)"
+  else
+    info "ptrace_scope=$_ptrace"
+  fi
+fi
+
+# ── Web applications ────────────────────────────────────────
+section "WEB APPLICATIONS"
+
+for _webroot in /var/www/html /var/www /srv/http /opt; do
+  if [ -d "$_webroot" ]; then
+    emit_raw "${W}--- $_webroot ---${N}"
+    ls -la "$_webroot" 2>/dev/null | while read -r line; do
+      emit "$line"
+    done
+    for _wc in "$_webroot"/*/wp-config.php "$_webroot"/*/config.php "$_webroot"/*/configuration.php "$_webroot"/*/.env "$_webroot"/*/settings.py "$_webroot"/*/database.yml; do
+      if [ -r "$_wc" ] 2>/dev/null; then
+        hi "Web config: $_wc"
+        _wpass=$(grep -inE 'passw|secret|key.*=|token|db_' "$_wc" 2>/dev/null | head -5) || true
+        [ -n "$_wpass" ] && emit "$_wpass"
+      fi
+    done
+  fi
+done
+
+# ── Writable root-owned scripts ──────────────────────────────
+section "WRITABLE ROOT FILES"
+
+find /usr/local/bin /usr/local/sbin /opt /etc/init.d -type f -user root -writable 2>/dev/null | head -15 | while read -r f; do
+  hi "WRITABLE root file: $f"
+  _rec "[PRIVESC] Writable root-owned file: $f → inject code/binary to execute as root"
+done
+
+# ── Mail ─────────────────────────────────────────────────────
+section "MAIL"
+
+for _mdir in /var/mail /var/spool/mail; do
+  if [ -d "$_mdir" ]; then
+    for _mf in "$_mdir"/*; do
+      [ -f "$_mf" ] || continue
+      if [ -r "$_mf" ]; then
+        _mlines=$(wc -l < "$_mf" 2>/dev/null) || _mlines=0
+        if [ "$_mlines" -gt 0 ] 2>/dev/null; then
+          hi "MAIL: $_mf ($_mlines lines)"
+          _mgrep=$(grep -iE 'passw|credential|secret|token|ssh|key' "$_mf" 2>/dev/null | head -5) || true
+          [ -n "$_mgrep" ] && emit "$_mgrep"
+        fi
+      fi
+    done
+  fi
+done
+
+# ── Installed tools ──────────────────────────────────────────
+section "AVAILABLE TOOLS"
+
+_tools=""
+for _t in gcc cc make gdb strace ltrace python3 python perl ruby socat nmap nc ncat netcat curl wget ssh scp rsync tcpdump wireshark john hashcat hydra sqlmap gcloud aws kubectl docker; do
+  if command -v "$_t" >/dev/null 2>&1; then
+    _tools="$_tools $_t"
+  fi
+done
+if [ -n "$_tools" ]; then
+  info "Found:$_tools"
+else
+  info "No notable tools found"
+fi
+
+# ── Recommendations ──────────────────────────────────────────
+section "RECOMMENDATIONS"
+
+if [ -s "$_RECS_FILE" ]; then
+  _privesc=0
+  _enum=0
+  _info=0
+
+  while IFS= read -r _r; do
+    case "$_r" in
+      \[PRIVESC\]*) _privesc=$((_privesc + 1)) ;;
+      \[ENUM\]*)    _enum=$((_enum + 1)) ;;
+      \[INFO\]*)    _info=$((_info + 1)) ;;
+    esac
+  done < "$_RECS_FILE"
+
+  emit_raw "${R}  Privilege Escalation vectors: $_privesc${N}"
+  emit_raw "${Y}  Enumeration leads: $_enum${N}"
+  emit_raw "${G}  Informational: $_info${N}"
+  emit_raw ""
+
+  if [ "$_privesc" -gt 0 ]; then
+    emit_raw "${R}--- Privilege Escalation ---${N}"
+    grep '^\[PRIVESC\]' "$_RECS_FILE" | while IFS= read -r _r; do
+      emit_raw "${R}  ► ${_r#\[PRIVESC\] }${N}"
+    done
+    emit_raw ""
+  fi
+
+  if [ "$_enum" -gt 0 ]; then
+    emit_raw "${Y}--- Enumeration ---${N}"
+    grep '^\[ENUM\]' "$_RECS_FILE" | while IFS= read -r _r; do
+      emit_raw "${Y}  ► ${_r#\[ENUM\] }${N}"
+    done
+    emit_raw ""
+  fi
+
+  if [ "$_info" -gt 0 ]; then
+    emit_raw "${G}--- Informational ---${N}"
+    grep '^\[INFO\]' "$_RECS_FILE" | while IFS= read -r _r; do
+      emit_raw "${G}  ► ${_r#\[INFO\] }${N}"
+    done
+    emit_raw ""
+  fi
+else
+  info "No notable findings to recommend."
+fi
+
+rm -f "$_RECS_FILE"
 
 # ══════════════════════════════════════════════════════════════
 #                         SCAN COMPLETE
