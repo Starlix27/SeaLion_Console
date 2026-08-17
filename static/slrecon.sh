@@ -553,8 +553,8 @@ phase_web() {
     # ── Nikto ──
     if _has nikto && [ "$FAST" -eq 0 ]; then
       section "NIKTO — :$_hp"
-      info "Running nikto (this takes a while)..."
-      nikto -h "$_base" -nointeractive -C all 2>/dev/null | tee -a "${OUTDIR:+$OUTDIR/nikto_${_hp}.txt}" /dev/null | while IFS= read -r line; do
+      info "Running nikto (max 2 min)..."
+      timeout 150 nikto -h "$_base" -nointeractive -maxtime 120s -Tuning 123bde 2>/dev/null | tee -a "${OUTDIR:+$OUTDIR/nikto_${_hp}.txt}" /dev/null | while IFS= read -r line; do
         emit "$line"
       done
     fi
