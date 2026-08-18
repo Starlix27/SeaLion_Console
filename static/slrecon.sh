@@ -20,6 +20,7 @@ LOOT=0
 SILENT=0
 LHOST=""
 FAST=0
+MEDIUM=0
 PHASE=""
 NO_PING=0
 SCAN_NAME=""
@@ -48,7 +49,9 @@ Options:
   -s            Silent — suppress terminal output
   -L <ip>       SeaLion server IP (auto-detected if omitted)
   --fast        Quick scan: top 1000 ports + basic web enum
+  --medium      Skip nikto, wordlist scans (dir/vhost), wpscan, arjun
   --phase <p>   Run single phase: ports, web, services, report
+  --name <n>    Custom name for output dir (default: target)
   --no-ping     Force -Pn on nmap (skip host discovery)
   -h            Show this help
 
@@ -76,6 +79,7 @@ while [ $# -gt 0 ]; do
     -s) SILENT=1; SAVE=1; shift ;;
     -L) shift; LHOST="$1"; shift ;;
     --fast) FAST=1; shift ;;
+    --medium) MEDIUM=1; shift ;;
     --no-ping) NO_PING=1; shift ;;
     --phase) shift; PHASE="$1"; shift ;;
     --name) shift; SCAN_NAME="$1"; shift ;;
@@ -205,7 +209,7 @@ emit_raw "${B}║${G}              SeaLion Toolkit                 ${B}║${N}"
 emit_raw "${B}╚══════════════════════════════════════════════╝${N}"
 emit_raw ""
 info "Target: $TARGET"
-info "Mode: $([ "$FAST" -eq 1 ] && echo 'FAST' || echo 'FULL')"
+info "Mode: $([ "$FAST" -eq 1 ] && echo 'FAST' || { [ "$MEDIUM" -eq 1 ] && echo 'MEDIUM' || echo 'FULL'; })"
 [ -n "$PHASE" ] && info "Phase: $PHASE"
 [ -n "$OUTDIR" ] && info "Output: $OUTDIR/"
 emit_raw ""
@@ -427,11 +431,13 @@ phase_web() {
       _rec "[ENUM] $_cms detected on :$_hp — search for known vulns and default creds"
       case "$_cms" in
         WordPress)
-          if _has wpscan; then
+          if [ "$MEDIUM" -eq 0 ] && _has wpscan; then
             info "Running wpscan..."
             wpscan --url "$_base" --enumerate vp,vt,u --no-banner 2>/dev/null | tee -a "${OUTDIR:+$OUTDIR/wpscan_${_hp}.txt}" /dev/null | while IFS= read -r line; do
               emit "$line"
             done
+          elif [ "$MEDIUM" -eq 1 ]; then
+            info "wpscan skipped (--medium)"
           else
             warn "wpscan not installed — install for WordPress enum"
           fi
@@ -442,6 +448,7 @@ phase_web() {
     fi
 
     # ── Directory bruteforce ──
+    if [ "$MEDIUM" -eq 0 ]; then
     section "DIRECTORY SCAN — :$_hp"
 
     _wordlist=""
@@ -476,8 +483,10 @@ phase_web() {
     else
       warn "No directory scanner available (ffuf, gobuster, dirb)"
     fi
+    fi
 
     # ── VHost discovery ──
+    if [ "$MEDIUM" -eq 0 ]; then
     section "VHOST SCAN — :$_hp"
 
     _vhost_wl=""
@@ -501,6 +510,7 @@ phase_web() {
       done
     else
       warn "ffuf not installed — skipping VHost scan"
+    fi
     fi
 
     # ── Backup file probe ──
@@ -542,7 +552,7 @@ phase_web() {
     fi
 
     # ── Parameter discovery ──
-    if _has arjun && [ "$FAST" -eq 0 ]; then
+    if _has arjun && [ "$FAST" -eq 0 ] && [ "$MEDIUM" -eq 0 ]; then
       emit_raw "\n${W}--- Parameter discovery ---${N}"
       info "Running arjun on $_base..."
       arjun -u "$_base/" -q -t 10 2>/dev/null | while IFS= read -r line; do
@@ -551,7 +561,7 @@ phase_web() {
     fi
 
     # ── Nikto ──
-    if _has nikto && [ "$FAST" -eq 0 ]; then
+    if _has nikto && [ "$FAST" -eq 0 ] && [ "$MEDIUM" -eq 0 ]; then
       section "NIKTO — :$_hp"
       info "Running nikto (max 2 min)..."
       timeout 150 nikto -h "$_base" -nointeractive -maxtime 120s -Tuning 123bde 2>/dev/null | tee -a "${OUTDIR:+$OUTDIR/nikto_${_hp}.txt}" /dev/null | while IFS= read -r line; do

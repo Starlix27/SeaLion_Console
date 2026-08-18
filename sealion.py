@@ -500,6 +500,7 @@ def build_parser() -> argparse.ArgumentParser:
     recon_p.add_argument("-l", dest="loot", action="store_true", default=False)
     recon_p.add_argument("-s", dest="silent", action="store_true", default=False)
     recon_p.add_argument("--fast", action="store_true", default=False)
+    recon_p.add_argument("--medium", action="store_true", default=False)
     recon_p.add_argument("--phase", default=None)
     recon_p.add_argument("--no-ping", action="store_true", default=False)
     return parser
@@ -3456,7 +3457,8 @@ def cmd_recon(args: argparse.Namespace, state: ConsoleState | None = None) -> in
             "  \033[93mrecon <target> -o\033[0m           Salva output in loot/recon/<target>/\n"
             "  \033[93mrecon <target> -lo\033[0m          Salva + upload a loot\n"
             "  \033[93mrecon <target> -lo <name>\033[0m   Salva in loot/recon/<name>/ + upload\n"
-            "  \033[93mrecon <target> --fast\033[0m       Solo top ports + web enum\n"
+            "  \033[93mrecon <target> --medium\033[0m     Senza nikto, wordlist, wpscan\n"
+            "  \033[93mrecon <target> --fast\033[0m       Solo top ports + web base\n"
             "  \033[93mrecon <target> --phase web\033[0m  Solo una fase (ports/web/services/report)\n"
             "  \033[93mrecon <target> --no-ping\033[0m    Forza -Pn su nmap\n"
             "  \033[93mrecon status\033[0m                Mostra scan in corso\n"
@@ -3504,6 +3506,8 @@ def cmd_recon(args: argparse.Namespace, state: ConsoleState | None = None) -> in
         cmd_parts.append("-s")
     if getattr(args, "fast", False):
         cmd_parts.append("--fast")
+    if getattr(args, "medium", False):
+        cmd_parts.append("--medium")
     if getattr(args, "no_ping", False):
         cmd_parts.append("--no-ping")
     phase = getattr(args, "phase", None)
