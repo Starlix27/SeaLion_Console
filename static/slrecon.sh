@@ -185,6 +185,19 @@ _RECS_FILE=$(mktemp 2>/dev/null || echo "/tmp/.slrecon_recs_$$")
 : > "$_RECS_FILE"
 _rec() { echo "$1" >> "$_RECS_FILE"; }
 
+# ── Auto-calibrate default response size ─────────────────────
+_calibrate() {
+  _cal_base="$1"
+  _s1=$(curl -sk -o /dev/null -w '%{size_download}' -m 5 "$_cal_base/slr_cal_$(date +%s)_aa" 2>/dev/null) || _s1=""
+  _s2=$(curl -sk -o /dev/null -w '%{size_download}' -m 5 "$_cal_base/slr_cal_$(date +%s)_bb" 2>/dev/null) || _s2=""
+  _s3=$(curl -sk -o /dev/null -w '%{size_download}' -m 5 "$_cal_base/slr_cal_$(date +%s)_cc" 2>/dev/null) || _s3=""
+  if [ -n "$_s1" ] && [ -n "$_s2" ] && [ -n "$_s3" ] && [ "$_s1" = "$_s2" ] && [ "$_s2" = "$_s3" ] && [ "$_s1" -gt 0 ] 2>/dev/null; then
+    echo "$_s1"
+  else
+    echo ""
+  fi
+}
+
 # ── Nmap flags ───────────────────────────────────────────────
 NMAP_BASE=""
 if [ "$NO_PING" -eq 1 ]; then
@@ -467,13 +480,27 @@ phase_web() {
     if [ -z "$_wordlist" ]; then
       warn "No wordlist found — skipping directory bruteforce"
     elif _has ffuf; then
-      info "ffuf directory scan with $(basename "$_wordlist")"
-      ffuf -u "$_base/FUZZ" -w "$_wordlist" -mc 200,204,301,302,307,401,403,405 -t 50 -c -o "${OUTDIR:+$OUTDIR/ffuf_dirs_${_hp}.json}" -of json 2>/dev/null | grep -vE '^\[|^$|:: Progress' | while IFS= read -r line; do
+      _cal_size=$(_calibrate "$_base")
+      _fs_flag=""
+      if [ -n "$_cal_size" ]; then
+        _fs_flag="-fs $_cal_size"
+        info "ffuf directory scan with $(basename "$_wordlist") (auto-filter size: $_cal_size)"
+      else
+        info "ffuf directory scan with $(basename "$_wordlist")"
+      fi
+      ffuf -u "$_base/FUZZ" -w "$_wordlist" -mc 200,204,301,302,307,401,403,405 $_fs_flag -t 50 -c -o "${OUTDIR:+$OUTDIR/ffuf_dirs_${_hp}.json}" -of json 2>/dev/null | grep -vE '^\[|^$|:: Progress' | while IFS= read -r line; do
         emit "$line"
       done
     elif _has gobuster; then
-      info "gobuster directory scan with $(basename "$_wordlist")"
-      gobuster dir -u "$_base" -w "$_wordlist" -t 50 -q --no-error -o "${OUTDIR:+$OUTDIR/gobuster_dirs_${_hp}.txt}" 2>/dev/null | while IFS= read -r line; do
+      _cal_size=$(_calibrate "$_base")
+      _el_flag=""
+      if [ -n "$_cal_size" ]; then
+        _el_flag="--exclude-length $_cal_size"
+        info "gobuster directory scan with $(basename "$_wordlist") (auto-filter size: $_cal_size)"
+      else
+        info "gobuster directory scan with $(basename "$_wordlist")"
+      fi
+      gobuster dir -u "$_base" -w "$_wordlist" -t 50 -q --no-error $_el_flag -o "${OUTDIR:+$OUTDIR/gobuster_dirs_${_hp}.txt}" 2>/dev/null | while IFS= read -r line; do
         emit "$line"
       done
     elif _has dirb; then
@@ -631,13 +658,27 @@ phase_wordlists() {
     if [ -z "$_wordlist" ]; then
       warn "No wordlist found — skipping directory bruteforce"
     elif _has ffuf; then
-      info "ffuf directory scan with $(basename "$_wordlist")"
-      ffuf -u "$_base/FUZZ" -w "$_wordlist" -mc 200,204,301,302,307,401,403,405 -t 50 -c -o "${OUTDIR:+$OUTDIR/ffuf_dirs_${_hp}.json}" -of json 2>/dev/null | grep -vE '^\[|^$|:: Progress' | while IFS= read -r line; do
+      _cal_size=$(_calibrate "$_base")
+      _fs_flag=""
+      if [ -n "$_cal_size" ]; then
+        _fs_flag="-fs $_cal_size"
+        info "ffuf directory scan with $(basename "$_wordlist") (auto-filter size: $_cal_size)"
+      else
+        info "ffuf directory scan with $(basename "$_wordlist")"
+      fi
+      ffuf -u "$_base/FUZZ" -w "$_wordlist" -mc 200,204,301,302,307,401,403,405 $_fs_flag -t 50 -c -o "${OUTDIR:+$OUTDIR/ffuf_dirs_${_hp}.json}" -of json 2>/dev/null | grep -vE '^\[|^$|:: Progress' | while IFS= read -r line; do
         emit "$line"
       done
     elif _has gobuster; then
-      info "gobuster directory scan with $(basename "$_wordlist")"
-      gobuster dir -u "$_base" -w "$_wordlist" -t 50 -q --no-error -o "${OUTDIR:+$OUTDIR/gobuster_dirs_${_hp}.txt}" 2>/dev/null | while IFS= read -r line; do
+      _cal_size=$(_calibrate "$_base")
+      _el_flag=""
+      if [ -n "$_cal_size" ]; then
+        _el_flag="--exclude-length $_cal_size"
+        info "gobuster directory scan with $(basename "$_wordlist") (auto-filter size: $_cal_size)"
+      else
+        info "gobuster directory scan with $(basename "$_wordlist")"
+      fi
+      gobuster dir -u "$_base" -w "$_wordlist" -t 50 -q --no-error $_el_flag -o "${OUTDIR:+$OUTDIR/gobuster_dirs_${_hp}.txt}" 2>/dev/null | while IFS= read -r line; do
         emit "$line"
       done
     elif _has dirb; then
