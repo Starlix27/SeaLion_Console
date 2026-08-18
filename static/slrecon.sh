@@ -246,12 +246,12 @@ phase_ports() {
   section "TCP PORT DISCOVERY"
   if [ "$FAST" -eq 1 ]; then
     info "Fast scan: top 1000 ports"
-    nmap $NMAP_BASE -T4 --open "$TARGET" 2>/dev/null | tee -a "${OUTDIR:+$OUTDIR/nmap_fast.txt}" /dev/null | while IFS= read -r line; do
+    nmap $NMAP_BASE -T4 --open "$TARGET" 2>/dev/null | stdbuf -oL tee -a "${OUTDIR:+$OUTDIR/nmap_fast.txt}" /dev/null | while IFS= read -r line; do
       emit "$line"
     done
   else
     info "Full TCP scan: all 65535 ports (this may take a while)"
-    nmap $NMAP_BASE -p- -T4 --open --min-rate 1000 "$TARGET" 2>/dev/null | tee -a "${OUTDIR:+$OUTDIR/nmap_allports.txt}" /dev/null | while IFS= read -r line; do
+    nmap $NMAP_BASE -p- -T4 --open --min-rate 1000 "$TARGET" 2>/dev/null | stdbuf -oL tee -a "${OUTDIR:+$OUTDIR/nmap_allports.txt}" /dev/null | while IFS= read -r line; do
       emit "$line"
     done
   fi
@@ -284,7 +284,7 @@ phase_ports() {
   # Step 2: version + scripts on discovered ports
   section "SERVICE DETECTION"
   info "Running version detection + default scripts on: $OPEN_PORTS"
-  nmap $NMAP_BASE -sV -sC -p "$OPEN_PORTS" "$TARGET" 2>/dev/null | tee -a "${OUTDIR:+$OUTDIR/nmap_services.txt}" /dev/null | while IFS= read -r line; do
+  nmap $NMAP_BASE -sV -sC -p "$OPEN_PORTS" "$TARGET" 2>/dev/null | stdbuf -oL tee -a "${OUTDIR:+$OUTDIR/nmap_services.txt}" /dev/null | while IFS= read -r line; do
     emit "$line"
   done
 
@@ -314,7 +314,7 @@ phase_ports() {
     esac
     if [ -n "$_nse_scripts" ]; then
       info "NSE scripts for port $_p: $_nse_scripts"
-      nmap $NMAP_BASE --script "$_nse_scripts" -p "$_p" "$TARGET" 2>/dev/null | tee -a "${OUTDIR:+$OUTDIR/nmap_nse_${_p}.txt}" /dev/null | while IFS= read -r line; do
+      nmap $NMAP_BASE --script "$_nse_scripts" -p "$_p" "$TARGET" 2>/dev/null | stdbuf -oL tee -a "${OUTDIR:+$OUTDIR/nmap_nse_${_p}.txt}" /dev/null | while IFS= read -r line; do
         emit "$line"
       done
       _nse_scripts=""
@@ -325,7 +325,7 @@ phase_ports() {
   if [ "$FAST" -eq 0 ]; then
     section "UDP SCAN (top 50)"
     info "Scanning top 50 UDP ports..."
-    nmap $NMAP_BASE -sU --top-ports 50 -T4 "$TARGET" 2>/dev/null | tee -a "${OUTDIR:+$OUTDIR/nmap_udp.txt}" /dev/null | while IFS= read -r line; do
+    nmap $NMAP_BASE -sU --top-ports 50 -T4 "$TARGET" 2>/dev/null | stdbuf -oL tee -a "${OUTDIR:+$OUTDIR/nmap_udp.txt}" /dev/null | while IFS= read -r line; do
       emit "$line"
     done
   fi
@@ -398,7 +398,7 @@ phase_web() {
     if [ "$_proto" = "https" ] || [ "$_hp" = "443" ]; then
       if _has nmap; then
         info "SSL/TLS cipher check..."
-        nmap --script ssl-enum-ciphers -p "$_hp" "$TARGET" 2>/dev/null | grep -E 'TLSv|SSLv|VULNERABLE|WARNING' | while IFS= read -r line; do
+        nmap --script ssl-enum-ciphers -p "$_hp" "$TARGET" 2>/dev/null | grep --line-buffered -E 'TLSv|SSLv|VULNERABLE|WARNING' | while IFS= read -r line; do
           emit "  $line"
         done
       fi
@@ -447,7 +447,7 @@ phase_web() {
         WordPress)
           if [ "$MEDIUM" -eq 0 ] && _has wpscan; then
             info "Running wpscan..."
-            wpscan --url "$_base" --enumerate vp,vt,u --no-banner 2>/dev/null | tee -a "${OUTDIR:+$OUTDIR/wpscan_${_hp}.txt}" /dev/null | while IFS= read -r line; do
+            timeout 60 wpscan --url "$_base" --enumerate vp,vt,u --no-banner 2>/dev/null | stdbuf -oL tee -a "${OUTDIR:+$OUTDIR/wpscan_${_hp}.txt}" /dev/null | while IFS= read -r line; do
               emit "$line"
             done
           elif [ "$MEDIUM" -eq 1 ]; then
@@ -484,11 +484,11 @@ phase_web() {
       _fs_flag=""
       if [ -n "$_cal_size" ]; then
         _fs_flag="-fs $_cal_size"
-        info "ffuf directory scan with $(basename "$_wordlist") (auto-filter size: $_cal_size)"
+        info "ffuf directory scan with $(basename "$_wordlist") (auto-filter size: $_cal_size) [max 2m]"
       else
-        info "ffuf directory scan with $(basename "$_wordlist")"
+        info "ffuf directory scan with $(basename "$_wordlist") [max 2m]"
       fi
-      ffuf -u "$_base/FUZZ" -w "$_wordlist" -mc 200,204,301,302,307,401,403,405 $_fs_flag -t 50 -c -o "${OUTDIR:+$OUTDIR/ffuf_dirs_${_hp}.json}" -of json 2>/dev/null | grep -vE '^\[|^$|:: Progress' | while IFS= read -r line; do
+      timeout 120 ffuf -u "$_base/FUZZ" -w "$_wordlist" -mc 200,204,301,302,307,401,403,405 $_fs_flag -t 50 -c -o "${OUTDIR:+$OUTDIR/ffuf_dirs_${_hp}.json}" -of json 2>/dev/null | grep --line-buffered -vE '^\[|^$|:: Progress' | while IFS= read -r line; do
         emit "$line"
       done
     elif _has gobuster; then
@@ -496,16 +496,16 @@ phase_web() {
       _el_flag=""
       if [ -n "$_cal_size" ]; then
         _el_flag="--exclude-length $_cal_size"
-        info "gobuster directory scan with $(basename "$_wordlist") (auto-filter size: $_cal_size)"
+        info "gobuster directory scan with $(basename "$_wordlist") (auto-filter size: $_cal_size) [max 2m]"
       else
-        info "gobuster directory scan with $(basename "$_wordlist")"
+        info "gobuster directory scan with $(basename "$_wordlist") [max 2m]"
       fi
-      gobuster dir -u "$_base" -w "$_wordlist" -t 50 -q --no-error $_el_flag -o "${OUTDIR:+$OUTDIR/gobuster_dirs_${_hp}.txt}" 2>/dev/null | while IFS= read -r line; do
+      timeout 120 gobuster dir -u "$_base" -w "$_wordlist" -t 50 -q --no-error $_el_flag -o "${OUTDIR:+$OUTDIR/gobuster_dirs_${_hp}.txt}" 2>/dev/null | while IFS= read -r line; do
         emit "$line"
       done
     elif _has dirb; then
-      info "dirb scan..."
-      dirb "$_base" "$_wordlist" -S -r 2>/dev/null | grep -E '^==> |CODE:' | while IFS= read -r line; do
+      info "dirb scan... [max 2m]"
+      timeout 120 dirb "$_base" "$_wordlist" -S -r 2>/dev/null | grep --line-buffered -E '^==> |CODE:' | while IFS= read -r line; do
         emit "$line"
       done
     else
@@ -532,7 +532,7 @@ phase_web() {
     elif _has ffuf; then
       _baseline_size=$(curl -sk -m 5 -H "Host: nonexistent.xyz" "$_base/" 2>/dev/null | wc -c)
       info "VHost fuzzing (filtering size: $_baseline_size)"
-      ffuf -u "$_base/" -H "Host: FUZZ.$TARGET" -w "$_vhost_wl" -fs "$_baseline_size" -mc 200,302,301,401,403 -t 50 -c 2>/dev/null | grep -vE '^\[|^$|:: Progress' | while IFS= read -r line; do
+      timeout 60 ffuf -u "$_base/" -H "Host: FUZZ.$TARGET" -w "$_vhost_wl" -fs "$_baseline_size" -mc 200,302,301,401,403 -t 50 -c 2>/dev/null | grep --line-buffered -vE '^\[|^$|:: Progress' | while IFS= read -r line; do
         emit "$line"
         _rec "[ENUM] VHost found on :$_hp — check: $line"
       done
@@ -583,7 +583,7 @@ phase_web() {
     if _has arjun && [ "$FAST" -eq 0 ] && [ "$MEDIUM" -eq 0 ]; then
       emit_raw "\n${W}--- Parameter discovery ---${N}"
       info "Running arjun on $_base..."
-      arjun -u "$_base/" -q -t 10 2>/dev/null | while IFS= read -r line; do
+      timeout 30 arjun -u "$_base/" -q -t 10 2>/dev/null | while IFS= read -r line; do
         emit "$line"
       done
     fi
@@ -591,8 +591,8 @@ phase_web() {
     # ── Nikto ──
     if _has nikto && [ "$FAST" -eq 0 ] && [ "$MEDIUM" -eq 0 ]; then
       section "NIKTO — :$_hp"
-      info "Running nikto (max 2 min)..."
-      timeout 150 nikto -h "$_base" -nointeractive -maxtime 120s -Tuning 123bde 2>/dev/null | tee -a "${OUTDIR:+$OUTDIR/nikto_${_hp}.txt}" /dev/null | while IFS= read -r line; do
+      info "Running nikto (max 1 min)..."
+      timeout 60 nikto -h "$_base" -nointeractive -maxtime 60s -Tuning 123bde 2>/dev/null | stdbuf -oL grep -vE '^$|^\+ Target|^\+ Server:|^- Nikto|^No CGI Dir|anti-clickjacking|X-Content-Type|X-Frame-Options' | stdbuf -oL tee -a "${OUTDIR:+$OUTDIR/nikto_${_hp}.txt}" /dev/null | while IFS= read -r line; do
         emit "$line"
       done
     fi
@@ -638,7 +638,7 @@ phase_wordlists() {
       if _has wpscan; then
         section "WPSCAN — :$_hp"
         info "Running wpscan..."
-        wpscan --url "$_base" --enumerate vp,vt,u --no-banner 2>/dev/null | tee -a "${OUTDIR:+$OUTDIR/wpscan_${_hp}.txt}" /dev/null | while IFS= read -r line; do
+        timeout 60 wpscan --url "$_base" --enumerate vp,vt,u --no-banner 2>/dev/null | stdbuf -oL tee -a "${OUTDIR:+$OUTDIR/wpscan_${_hp}.txt}" /dev/null | while IFS= read -r line; do
           emit "$line"
         done
       fi
@@ -662,11 +662,11 @@ phase_wordlists() {
       _fs_flag=""
       if [ -n "$_cal_size" ]; then
         _fs_flag="-fs $_cal_size"
-        info "ffuf directory scan with $(basename "$_wordlist") (auto-filter size: $_cal_size)"
+        info "ffuf directory scan with $(basename "$_wordlist") (auto-filter size: $_cal_size) [max 2m]"
       else
-        info "ffuf directory scan with $(basename "$_wordlist")"
+        info "ffuf directory scan with $(basename "$_wordlist") [max 2m]"
       fi
-      ffuf -u "$_base/FUZZ" -w "$_wordlist" -mc 200,204,301,302,307,401,403,405 $_fs_flag -t 50 -c -o "${OUTDIR:+$OUTDIR/ffuf_dirs_${_hp}.json}" -of json 2>/dev/null | grep -vE '^\[|^$|:: Progress' | while IFS= read -r line; do
+      timeout 120 ffuf -u "$_base/FUZZ" -w "$_wordlist" -mc 200,204,301,302,307,401,403,405 $_fs_flag -t 50 -c -o "${OUTDIR:+$OUTDIR/ffuf_dirs_${_hp}.json}" -of json 2>/dev/null | grep --line-buffered -vE '^\[|^$|:: Progress' | while IFS= read -r line; do
         emit "$line"
       done
     elif _has gobuster; then
@@ -674,16 +674,16 @@ phase_wordlists() {
       _el_flag=""
       if [ -n "$_cal_size" ]; then
         _el_flag="--exclude-length $_cal_size"
-        info "gobuster directory scan with $(basename "$_wordlist") (auto-filter size: $_cal_size)"
+        info "gobuster directory scan with $(basename "$_wordlist") (auto-filter size: $_cal_size) [max 2m]"
       else
-        info "gobuster directory scan with $(basename "$_wordlist")"
+        info "gobuster directory scan with $(basename "$_wordlist") [max 2m]"
       fi
-      gobuster dir -u "$_base" -w "$_wordlist" -t 50 -q --no-error $_el_flag -o "${OUTDIR:+$OUTDIR/gobuster_dirs_${_hp}.txt}" 2>/dev/null | while IFS= read -r line; do
+      timeout 120 gobuster dir -u "$_base" -w "$_wordlist" -t 50 -q --no-error $_el_flag -o "${OUTDIR:+$OUTDIR/gobuster_dirs_${_hp}.txt}" 2>/dev/null | while IFS= read -r line; do
         emit "$line"
       done
     elif _has dirb; then
-      info "dirb scan..."
-      dirb "$_base" "$_wordlist" -S -r 2>/dev/null | grep -E '^==> |CODE:' | while IFS= read -r line; do
+      info "dirb scan... [max 2m]"
+      timeout 120 dirb "$_base" "$_wordlist" -S -r 2>/dev/null | grep --line-buffered -E '^==> |CODE:' | while IFS= read -r line; do
         emit "$line"
       done
     else
@@ -704,7 +704,7 @@ phase_wordlists() {
     elif _has ffuf; then
       _baseline_size=$(curl -sk -m 5 -H "Host: nonexistent.xyz" "$_base/" 2>/dev/null | wc -c)
       info "VHost fuzzing (filtering size: $_baseline_size)"
-      ffuf -u "$_base/" -H "Host: FUZZ.$TARGET" -w "$_vhost_wl" -fs "$_baseline_size" -mc 200,302,301,401,403 -t 50 -c 2>/dev/null | grep -vE '^\[|^$|:: Progress' | while IFS= read -r line; do
+      timeout 60 ffuf -u "$_base/" -H "Host: FUZZ.$TARGET" -w "$_vhost_wl" -fs "$_baseline_size" -mc 200,302,301,401,403 -t 50 -c 2>/dev/null | grep --line-buffered -vE '^\[|^$|:: Progress' | while IFS= read -r line; do
         emit "$line"
         _rec "[ENUM] VHost found on :$_hp — check: $line"
       done
@@ -716,7 +716,7 @@ phase_wordlists() {
     if _has arjun; then
       section "PARAMETER DISCOVERY — :$_hp"
       info "Running arjun on $_base..."
-      arjun -u "$_base/" -q -t 10 2>/dev/null | while IFS= read -r line; do
+      timeout 30 arjun -u "$_base/" -q -t 10 2>/dev/null | while IFS= read -r line; do
         emit "$line"
       done
     fi
@@ -724,8 +724,8 @@ phase_wordlists() {
     # ── Nikto ──
     if _has nikto; then
       section "NIKTO — :$_hp"
-      info "Running nikto (max 2 min)..."
-      timeout 150 nikto -h "$_base" -nointeractive -maxtime 120s -Tuning 123bde 2>/dev/null | tee -a "${OUTDIR:+$OUTDIR/nikto_${_hp}.txt}" /dev/null | while IFS= read -r line; do
+      info "Running nikto (max 1 min)..."
+      timeout 60 nikto -h "$_base" -nointeractive -maxtime 60s -Tuning 123bde 2>/dev/null | stdbuf -oL grep -vE '^$|^\+ Target|^\+ Server:|^- Nikto|^No CGI Dir|anti-clickjacking|X-Content-Type|X-Frame-Options' | stdbuf -oL tee -a "${OUTDIR:+$OUTDIR/nikto_${_hp}.txt}" /dev/null | while IFS= read -r line; do
         emit "$line"
       done
     fi
@@ -781,7 +781,7 @@ phase_services() {
     section "SSH (22)"
     if _has ssh-audit; then
       info "Running ssh-audit..."
-      ssh-audit "$TARGET" 2>/dev/null | tee -a "${OUTDIR:+$OUTDIR/ssh_audit.txt}" /dev/null | grep -iE 'vulner|weak|fail|WARN|CVE' | while IFS= read -r line; do
+      ssh-audit "$TARGET" 2>/dev/null | stdbuf -oL tee -a "${OUTDIR:+$OUTDIR/ssh_audit.txt}" /dev/null | grep --line-buffered -iE 'vulner|weak|fail|WARN|CVE' | while IFS= read -r line; do
         hi "$line"
         _rec "[ENUM] SSH vulnerability: $line"
       done
@@ -867,12 +867,12 @@ phase_services() {
     section "SMB (445)"
     if _has enum4linux-ng; then
       info "Running enum4linux-ng..."
-      enum4linux-ng -A "$TARGET" 2>/dev/null | tee -a "${OUTDIR:+$OUTDIR/enum4linux.txt}" /dev/null | grep -iE 'share|user|password|anonymous|null|writable' | while IFS= read -r line; do
+      enum4linux-ng -A "$TARGET" 2>/dev/null | stdbuf -oL tee -a "${OUTDIR:+$OUTDIR/enum4linux.txt}" /dev/null | grep --line-buffered -iE 'share|user|password|anonymous|null|writable' | while IFS= read -r line; do
         emit "$line"
       done
     elif _has enum4linux; then
       info "Running enum4linux..."
-      enum4linux -a "$TARGET" 2>/dev/null | tee -a "${OUTDIR:+$OUTDIR/enum4linux.txt}" /dev/null | grep -iE 'share|user|password|anonymous|null' | while IFS= read -r line; do
+      enum4linux -a "$TARGET" 2>/dev/null | stdbuf -oL tee -a "${OUTDIR:+$OUTDIR/enum4linux.txt}" /dev/null | grep --line-buffered -iE 'share|user|password|anonymous|null' | while IFS= read -r line; do
         emit "$line"
       done
     fi
