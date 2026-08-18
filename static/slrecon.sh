@@ -188,10 +188,9 @@ _rec() { echo "$1" >> "$_RECS_FILE"; }
 # ── Auto-calibrate default response size ─────────────────────
 _calibrate() {
   _cal_base="$1"
-  _s1=$(curl -sk -o /dev/null -w '%{size_download}' -m 5 "$_cal_base/slr_cal_$(date +%s)_aa" 2>/dev/null) || _s1=""
-  _s2=$(curl -sk -o /dev/null -w '%{size_download}' -m 5 "$_cal_base/slr_cal_$(date +%s)_bb" 2>/dev/null) || _s2=""
-  _s3=$(curl -sk -o /dev/null -w '%{size_download}' -m 5 "$_cal_base/slr_cal_$(date +%s)_cc" 2>/dev/null) || _s3=""
-  if [ -n "$_s1" ] && [ -n "$_s2" ] && [ -n "$_s3" ] && [ "$_s1" = "$_s2" ] && [ "$_s2" = "$_s3" ] && [ "$_s1" -gt 0 ] 2>/dev/null; then
+  _s1=$(curl -sk -o /dev/null -w '%{size_download}' -m 2 "$_cal_base/slr_cal_aa$$" 2>/dev/null) || _s1=""
+  _s2=$(curl -sk -o /dev/null -w '%{size_download}' -m 2 "$_cal_base/slr_cal_bb$$" 2>/dev/null) || _s2=""
+  if [ -n "$_s1" ] && [ -n "$_s2" ] && [ "$_s1" = "$_s2" ] && [ "$_s1" -gt 0 ] 2>/dev/null; then
     echo "$_s1"
   else
     echo ""
@@ -488,9 +487,10 @@ phase_web() {
       else
         info "ffuf directory scan with $(basename "$_wordlist") [max 1m]"
       fi
-      timeout 60 ffuf -u "$_base/FUZZ" -w "$_wordlist" -mc 200,204,301,302,307,401,403,405 $_fs_flag -t 50 -c -o "${OUTDIR:+$OUTDIR/ffuf_dirs_${_hp}.json}" -of json 2>/dev/null | grep --line-buffered -vE '^\[|^$|:: Progress' | while IFS= read -r line; do
-        emit "$line"
+      timeout 60 ffuf -u "$_base/FUZZ" -w "$_wordlist" -mc 200,204,301,302,307,401,403,405 $_fs_flag -t 50 -c -s 2>/dev/null | while IFS= read -r line; do
+        [ -n "$line" ] && emit "$line"
       done
+      [ -n "$OUTDIR" ] && [ -f "$OUTDIR/ffuf_dirs_${_hp}.json" ] || true
     elif _has gobuster; then
       _cal_size=$(_calibrate "$_base")
       _el_flag=""
@@ -500,8 +500,8 @@ phase_web() {
       else
         info "gobuster directory scan with $(basename "$_wordlist") [max 1m]"
       fi
-      timeout 60 gobuster dir -u "$_base" -w "$_wordlist" -t 50 -q --no-error $_el_flag -o "${OUTDIR:+$OUTDIR/gobuster_dirs_${_hp}.txt}" 2>/dev/null | while IFS= read -r line; do
-        emit "$line"
+      timeout 60 gobuster dir -u "$_base" -w "$_wordlist" -t 50 -q --no-error $_el_flag 2>/dev/null | while IFS= read -r line; do
+        [ -n "$line" ] && emit "$line"
       done
     elif _has dirb; then
       info "dirb scan... [max 1m]"
@@ -532,8 +532,8 @@ phase_web() {
     elif _has ffuf; then
       _baseline_size=$(curl -sk -m 5 -H "Host: nonexistent.xyz" "$_base/" 2>/dev/null | wc -c)
       info "VHost fuzzing (filtering size: $_baseline_size)"
-      timeout 60 ffuf -u "$_base/" -H "Host: FUZZ.$TARGET" -w "$_vhost_wl" -fs "$_baseline_size" -mc 200,302,301,401,403 -t 50 -c 2>/dev/null | grep --line-buffered -vE '^\[|^$|:: Progress' | while IFS= read -r line; do
-        emit "$line"
+      timeout 60 ffuf -u "$_base/" -H "Host: FUZZ.$TARGET" -w "$_vhost_wl" -fs "$_baseline_size" -mc 200,302,301,401,403 -t 50 -c -s 2>/dev/null | while IFS= read -r line; do
+        [ -n "$line" ] && emit "$line"
         _rec "[ENUM] VHost found on :$_hp — check: $line"
       done
     else
@@ -592,7 +592,7 @@ phase_web() {
     if _has nikto && [ "$FAST" -eq 0 ] && [ "$MEDIUM" -eq 0 ]; then
       section "NIKTO — :$_hp"
       info "Running nikto (max 1 min)..."
-      timeout 60 nikto -h "$_base" -nointeractive -maxtime 60s -Tuning 123bde 2>/dev/null | stdbuf -oL grep -vE '^$|^\+ Target|^\+ Server:|^- Nikto|^No CGI Dir|anti-clickjacking|X-Content-Type|X-Frame-Options' | stdbuf -oL tee -a "${OUTDIR:+$OUTDIR/nikto_${_hp}.txt}" /dev/null | while IFS= read -r line; do
+      timeout 60 nikto -h "$_base" -nointeractive -maxtime 60s -Tuning 123bde 2>/dev/null | grep --line-buffered -vE '^$|^\+ Target|^\+ Server:|^- Nikto|^No CGI Dir|anti-clickjacking|X-Content-Type|X-Frame-Options' | while IFS= read -r line; do
         emit "$line"
       done
     fi
@@ -666,9 +666,10 @@ phase_wordlists() {
       else
         info "ffuf directory scan with $(basename "$_wordlist") [max 1m]"
       fi
-      timeout 60 ffuf -u "$_base/FUZZ" -w "$_wordlist" -mc 200,204,301,302,307,401,403,405 $_fs_flag -t 50 -c -o "${OUTDIR:+$OUTDIR/ffuf_dirs_${_hp}.json}" -of json 2>/dev/null | grep --line-buffered -vE '^\[|^$|:: Progress' | while IFS= read -r line; do
-        emit "$line"
+      timeout 60 ffuf -u "$_base/FUZZ" -w "$_wordlist" -mc 200,204,301,302,307,401,403,405 $_fs_flag -t 50 -c -s 2>/dev/null | while IFS= read -r line; do
+        [ -n "$line" ] && emit "$line"
       done
+      [ -n "$OUTDIR" ] && [ -f "$OUTDIR/ffuf_dirs_${_hp}.json" ] || true
     elif _has gobuster; then
       _cal_size=$(_calibrate "$_base")
       _el_flag=""
@@ -678,8 +679,8 @@ phase_wordlists() {
       else
         info "gobuster directory scan with $(basename "$_wordlist") [max 1m]"
       fi
-      timeout 60 gobuster dir -u "$_base" -w "$_wordlist" -t 50 -q --no-error $_el_flag -o "${OUTDIR:+$OUTDIR/gobuster_dirs_${_hp}.txt}" 2>/dev/null | while IFS= read -r line; do
-        emit "$line"
+      timeout 60 gobuster dir -u "$_base" -w "$_wordlist" -t 50 -q --no-error $_el_flag 2>/dev/null | while IFS= read -r line; do
+        [ -n "$line" ] && emit "$line"
       done
     elif _has dirb; then
       info "dirb scan... [max 1m]"
@@ -704,8 +705,8 @@ phase_wordlists() {
     elif _has ffuf; then
       _baseline_size=$(curl -sk -m 5 -H "Host: nonexistent.xyz" "$_base/" 2>/dev/null | wc -c)
       info "VHost fuzzing (filtering size: $_baseline_size)"
-      timeout 60 ffuf -u "$_base/" -H "Host: FUZZ.$TARGET" -w "$_vhost_wl" -fs "$_baseline_size" -mc 200,302,301,401,403 -t 50 -c 2>/dev/null | grep --line-buffered -vE '^\[|^$|:: Progress' | while IFS= read -r line; do
-        emit "$line"
+      timeout 60 ffuf -u "$_base/" -H "Host: FUZZ.$TARGET" -w "$_vhost_wl" -fs "$_baseline_size" -mc 200,302,301,401,403 -t 50 -c -s 2>/dev/null | while IFS= read -r line; do
+        [ -n "$line" ] && emit "$line"
         _rec "[ENUM] VHost found on :$_hp — check: $line"
       done
     else
@@ -725,7 +726,7 @@ phase_wordlists() {
     if _has nikto; then
       section "NIKTO — :$_hp"
       info "Running nikto (max 1 min)..."
-      timeout 60 nikto -h "$_base" -nointeractive -maxtime 60s -Tuning 123bde 2>/dev/null | stdbuf -oL grep -vE '^$|^\+ Target|^\+ Server:|^- Nikto|^No CGI Dir|anti-clickjacking|X-Content-Type|X-Frame-Options' | stdbuf -oL tee -a "${OUTDIR:+$OUTDIR/nikto_${_hp}.txt}" /dev/null | while IFS= read -r line; do
+      timeout 60 nikto -h "$_base" -nointeractive -maxtime 60s -Tuning 123bde 2>/dev/null | grep --line-buffered -vE '^$|^\+ Target|^\+ Server:|^- Nikto|^No CGI Dir|anti-clickjacking|X-Content-Type|X-Frame-Options' | while IFS= read -r line; do
         emit "$line"
       done
     fi
