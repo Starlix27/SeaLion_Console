@@ -3482,7 +3482,7 @@ def cmd_recon(args: argparse.Namespace, state: ConsoleState | None = None) -> in
         print(
             "\n  \033[1mrecon\033[0m — Reconnaissance automatica\n\n"
             "  \033[93mrecon <target>\033[0m              Scan completo\n"
-            "  \033[93mrecon <target> -s\033[0m           Apri in shell separata (tmux/background)\n"
+            "  \033[93mrecon <target> -s\033[0m           Apri in nuova finestra del terminale\n"
             "  \033[93mrecon <target> -o\033[0m           Salva output in loot/recon/<target>/\n"
             "  \033[93mrecon <target> -lo\033[0m          Salva + upload a loot\n"
             "  \033[93mrecon <target> -slo <name>\033[0m  Shell separata + salva in loot/recon/<name>/\n"
@@ -3566,12 +3566,56 @@ def cmd_recon(args: argparse.Namespace, state: ConsoleState | None = None) -> in
         print(f"  Recon avviato su \033[1m{target}\033[0m in pane tmux")
         print(f"  \033[93m$ {recon_cmd}\033[0m")
     elif separate:
-        subprocess.Popen(
-            ["sh", "-c", recon_cmd],
-            start_new_session=True,
-            stdout=open(os.devnull, "w"), stderr=open(os.devnull, "w"),
-        )
-        print(f"  Recon avviato su \033[1m{target}\033[0m in background")
+        shell_cmd = recon_cmd + '; echo; echo "\\033[92m[✓] Scan completato. Premi INVIO per chiudere.\\033[0m"; read _'
+        launched = False
+        if os.environ.get("WSL_DISTRO_NAME") or os.path.exists("/proc/sys/fs/binfmt_misc/WSLInterop"):
+            for wt in ("wt.exe", "cmd.exe"):
+                wt_path = which(wt)
+                if wt_path:
+                    if wt == "wt.exe":
+                        subprocess.Popen(
+                            [wt_path, "new-tab", "--title", f"SLRecon: {target}", "wsl.exe", "-e", "sh", "-c", shell_cmd],
+                            start_new_session=True,
+                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                        )
+                    else:
+                        subprocess.Popen(
+                            [wt_path, "/c", "wsl.exe", "-e", "sh", "-c", shell_cmd],
+                            start_new_session=True,
+                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                        )
+                    launched = True
+                    break
+        if not launched:
+            for term in ("x-terminal-emulator", "gnome-terminal", "konsole", "xfce4-terminal", "xterm"):
+                term_path = which(term)
+                if term_path:
+                    if term == "gnome-terminal":
+                        subprocess.Popen(
+                            [term_path, "--title", f"SLRecon: {target}", "--", "sh", "-c", shell_cmd],
+                            start_new_session=True,
+                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                        )
+                    elif term == "konsole":
+                        subprocess.Popen(
+                            [term_path, "--title", f"SLRecon: {target}", "-e", "sh", "-c", shell_cmd],
+                            start_new_session=True,
+                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                        )
+                    else:
+                        subprocess.Popen(
+                            [term_path, "-e", "sh", "-c", shell_cmd],
+                            start_new_session=True,
+                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                        )
+                    launched = True
+                    break
+        if not launched:
+            print("  \033[91mNessun terminale trovato.\033[0m Eseguo qui:")
+            print(f"  \033[93m$ {recon_cmd}\033[0m\n")
+            subprocess.run(recon_cmd, shell=True)
+            return 0
+        print(f"  Recon avviato su \033[1m{target}\033[0m in nuova finestra")
         print(f"  \033[93m$ {recon_cmd}\033[0m")
         if getattr(args, "save", False) or getattr(args, "loot", False):
             _outname = name or target
