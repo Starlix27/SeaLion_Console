@@ -28,6 +28,20 @@ LOOT_ROOT = PROJECT_ROOT / "loot"
 TIPS_FILE = PROJECT_ROOT / "tips.txt"
 SEALSAY_FILE = PROJECT_ROOT / "sealion_say.txt"
 
+_VERSION_FILE = PROJECT_ROOT / "VERSION"
+_SL_VERSION = _VERSION_FILE.read_text(encoding="utf-8").strip() if _VERSION_FILE.exists() else "0.0.0"
+
+def _sl_version_hash() -> str:
+    import subprocess as _sp
+    try:
+        sha = _sp.check_output(
+            ["git", "rev-parse", "--short=8", "HEAD"],
+            cwd=PROJECT_ROOT, stderr=_sp.DEVNULL,
+        ).decode().strip()
+    except Exception:
+        sha = "unknown"
+    return f"{_SL_VERSION}-{sha}"
+
 _server: socketserver.TCPServer | None = None
 _thread: threading.Thread | None = None
 _lhost: str = ""
@@ -534,7 +548,8 @@ margin-bottom:10px}
 .save-status{font-size:12px;color:var(--text2);margin-left:12px}
 
 /* Search bar */
-.topbar-right{display:flex;align-items:center}
+.topbar-right{display:flex;align-items:center;gap:10px}
+.version-tag{font-size:11px;color:var(--text2);opacity:.6;white-space:nowrap}
 .search-box{position:relative}
 .search-box input{background:var(--bg);border:1px solid var(--border);border-radius:4px;
 padding:5px 12px;color:var(--text);font-family:inherit;font-size:12px;width:220px;
@@ -742,6 +757,7 @@ def _base_html(title: str, body: str, active: str = "") -> str:
 <nav>{nav_html}</nav>
 </div>
 <div class="topbar-right">
+<span class="version-tag">v{_sl_version_hash()}</span>
 <div class="search-box">
 <input type="text" id="global-search" placeholder="Cerca..." autocomplete="off" spellcheck="false">
 <div class="search-results" id="search-results"></div>
@@ -811,7 +827,7 @@ def _page_home() -> str:
 <div class="sidebar">
   <div class="info-box">
     <div class="label">Versione:</div>
-    <div class="value">v0.1.0</div>
+    <div class="value">v{_sl_version_hash()}</div>
   </div>
   <div class="info-box">
     <div class="label">GitHub:</div>
@@ -1064,7 +1080,7 @@ def _page_home() -> str:
     }}
     else if(lo==='help'||lo==='?')echo(q,HELP);
     else if(lo==='clear')out.innerHTML='';
-    else if(lo==='version')echo(q,'<span class="t-grn">SeaLion Console v0.1.0</span>');
+    else if(lo==='version')echo(q,'<span class="t-grn">SeaLion Console v{_sl_version_hash()}</span>');
     else if(CMD_HELP[lo])echo(q,CMD_HELP[lo]);
     else echo(q,'<span class="t-line">Comando sconosciuto: '+q.replace(/</g,'&lt;')+'. Scrivi <span class="t-accent">help</span> per la lista.</span>');
     input.value='';box.classList.remove('open');

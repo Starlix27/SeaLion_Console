@@ -1193,6 +1193,103 @@ phase_report() {
     info "No notable findings."
   fi
 
+  # ── Next scans ──
+  section "NEXT SCANS"
+  _has_next=0
+
+  if [ -n "$PHASE" ] && [ "$PHASE" != "report" ]; then
+    case "$PHASE" in
+      ports)
+        emit_raw "${C}  ► Porta scan completata — prosegui con:${N}"
+        emit_raw "${W}    recon $TARGET --phase web${N}"
+        emit_raw "${W}    recon $TARGET --phase services${N}"
+        _has_next=1
+        ;;
+      web)
+        if [ -s "$_RECS_FILE" ] && grep -q 'VHost found\|CMS detected\|Backup file' "$_RECS_FILE" 2>/dev/null; then
+          emit_raw "${C}  ► Web enum trovato lead — approfondisci:${N}"
+          emit_raw "${W}    recon $TARGET --phase services${N}"
+          emit_raw "${W}    recon $TARGET --wordlists        (se non già fatto)${N}"
+          _has_next=1
+        fi
+        ;;
+      services|wordlists)
+        emit_raw "${C}  ► Scan completato — genera il report:${N}"
+        emit_raw "${W}    recon $TARGET --phase report${N}"
+        _has_next=1
+        ;;
+    esac
+  fi
+
+  if [ -s "$_RECS_FILE" ]; then
+    if grep -q '\[PRIVESC\].*NFS\|no_root_squash' "$_RECS_FILE" 2>/dev/null; then
+      emit_raw "${C}  ► NFS trovato — controlla no_root_squash per privesc via SUID${N}"
+      _has_next=1
+    fi
+    if grep -q '\[PRIVESC\].*FTP anonymous' "$_RECS_FILE" 2>/dev/null; then
+      emit_raw "${C}  ► FTP anonimo — scarica tutto e cerca credenziali${N}"
+      _has_next=1
+    fi
+    if grep -q '\[PRIVESC\].*Redis\|MySQL\|PostgreSQL\|MongoDB' "$_RECS_FILE" 2>/dev/null; then
+      emit_raw "${C}  ► Database accessibile — cerca credenziali per pivot${N}"
+      _has_next=1
+    fi
+    if grep -q 'VHost found' "$_RECS_FILE" 2>/dev/null; then
+      emit_raw "${C}  ► VHost trovati — aggiungi a /etc/hosts e scansiona ogni vhost:${N}"
+      grep 'VHost found' "$_RECS_FILE" | sort -u | head -5 | while IFS= read -r _vl; do
+        emit_raw "${W}    $(echo "$_vl" | sed 's/.*check: //')${N}"
+      done
+      emit_raw "${W}    recon <vhost> --medium${N}"
+      _has_next=1
+    fi
+    if grep -q 'CMS detected' "$_RECS_FILE" 2>/dev/null; then
+      emit_raw "${C}  ► CMS trovato — cerca exploit specifici e default credentials${N}"
+      _has_next=1
+    fi
+    if grep -q 'WordPress' "$_RECS_FILE" 2>/dev/null; then
+      emit_raw "${C}  ► WordPress — se non già fatto:${N}"
+      emit_raw "${W}    wpscan --url http://$TARGET --enumerate ap,at,u --plugins-detection aggressive${N}"
+      _has_next=1
+    fi
+    if grep -q 'zone transfer' "$_RECS_FILE" 2>/dev/null; then
+      emit_raw "${C}  ► Zone transfer riuscito — aggiungi hostname e scansiona:${N}"
+      emit_raw "${W}    Aggiungi i domini trovati a /etc/hosts${N}"
+      emit_raw "${W}    recon <dominio> --medium${N}"
+      _has_next=1
+    fi
+    if grep -q 'Kerberos users' "$_RECS_FILE" 2>/dev/null; then
+      emit_raw "${C}  ► Utenti Kerberos trovati — prova AS-REP roast e password spray${N}"
+      _has_next=1
+    fi
+    if grep -q 'LDAP anonymous' "$_RECS_FILE" 2>/dev/null; then
+      emit_raw "${C}  ► LDAP anonimo — dump completo dominio e cerca credenziali in descrizioni${N}"
+      _has_next=1
+    fi
+    if grep -q 'SMB share.*WRITE' "$_RECS_FILE" 2>/dev/null; then
+      emit_raw "${C}  ► Share SMB scrivibili — possibile upload payload per esecuzione${N}"
+      _has_next=1
+    fi
+    if grep -q 'Hardcoded secrets' "$_RECS_FILE" 2>/dev/null; then
+      emit_raw "${C}  ► Secret hardcoded in JS — testa le API key/token trovate${N}"
+      _has_next=1
+    fi
+  fi
+
+  if [ "$MEDIUM" -eq 1 ] || [ "$FAST" -eq 1 ]; then
+    emit_raw "${C}  ► Scan parziale — per completare:${N}"
+    emit_raw "${W}    recon $TARGET --wordlists${N}"
+    _has_next=1
+  fi
+
+  if [ "$_has_next" -eq 0 ]; then
+    info "Nessun suggerimento di follow-up — la recon sembra completa."
+    emit_raw "${C}  ► Prossimi passi generici:${N}"
+    emit_raw "${W}    curl <base>/linseal?ol | sh     (enumerazione locale post-exploit)${N}"
+    emit_raw "${W}    searchsploit <service_version>   (cerca exploit noti)${N}"
+  fi
+
+  emit_raw ""
+
   # Timeline
   _end_time=$(date +%s)
   _total=$((_end_time - START_TIME))

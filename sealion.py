@@ -27,7 +27,22 @@ except ImportError:
 
 
 APP_NAME = "SeaLion Console"
-VERSION = "0.1.0"
+PROJECT_ROOT = Path(__file__).resolve().parent
+_VERSION_FILE = PROJECT_ROOT / "VERSION"
+VERSION = _VERSION_FILE.read_text(encoding="utf-8").strip() if _VERSION_FILE.exists() else "0.0.0"
+
+def _version_hash() -> str:
+    import subprocess as _sp
+    try:
+        sha = _sp.check_output(
+            ["git", "rev-parse", "--short=8", "HEAD"],
+            cwd=PROJECT_ROOT, stderr=_sp.DEVNULL,
+        ).decode().strip()
+    except Exception:
+        sha = "unknown"
+    return f"{VERSION}-{sha}"
+
+REPO_RAW = "https://raw.githubusercontent.com/Starlix27/SeaLion/main/VERSION"
 ASCII_FILE = Path(__file__).with_name("ascii-art.txt")
 SEALSAY_FILE = Path(__file__).with_name("sealion_say.txt")
 PROJECT_ROOT = Path(__file__).resolve().parent
@@ -233,7 +248,7 @@ def load_tips() -> list[str]:
 def print_banner() -> None:
     tip = random.choice(load_tips())
     print_sealsay(tip)
-    print(f"\n{APP_NAME} — personal tool vault\n")
+    print(f"\n{APP_NAME} v{_version_hash()} — personal tool vault\n")
 
 
 def _read_sealsay_message(argv: list[str]) -> str:
@@ -498,7 +513,7 @@ def build_parser() -> argparse.ArgumentParser:
     recon_p.add_argument("name", nargs="?", default=None)
     recon_p.add_argument("-o", dest="save", action="store_true", default=False)
     recon_p.add_argument("-l", dest="loot", action="store_true", default=False)
-    recon_p.add_argument("-s", dest="silent", action="store_true", default=False)
+    recon_p.add_argument("-s", dest="separate", action="store_true", default=False)
     recon_p.add_argument("--fast", action="store_true", default=False)
     recon_p.add_argument("--medium", action="store_true", default=False)
     recon_p.add_argument("--wordlists", action="store_true", default=False)
@@ -741,7 +756,19 @@ def run_command(argv: list[str], state: ConsoleState | None = None) -> int:
         return 1
 
     if args.version:
-        print(f"{APP_NAME} {VERSION}")
+        vh = _version_hash()
+        print(f"  {APP_NAME} v{vh}")
+        try:
+            import urllib.request
+            with urllib.request.urlopen(REPO_RAW, timeout=3) as r:
+                remote = r.read().decode().strip()
+            if remote == VERSION:
+                print(f"  \033[92m✓ Aggiornato\033[0m")
+            else:
+                print(f"  \033[93m⚠ Nuova versione disponibile: {remote}\033[0m")
+                print(f"  \033[93m  Aggiorna con: git pull\033[0m")
+        except Exception:
+            pass
         return 0
 
     if args.help or args.command is None:
@@ -3455,9 +3482,10 @@ def cmd_recon(args: argparse.Namespace, state: ConsoleState | None = None) -> in
         print(
             "\n  \033[1mrecon\033[0m — Reconnaissance automatica\n\n"
             "  \033[93mrecon <target>\033[0m              Scan completo\n"
+            "  \033[93mrecon <target> -s\033[0m           Apri in shell separata (tmux/background)\n"
             "  \033[93mrecon <target> -o\033[0m           Salva output in loot/recon/<target>/\n"
             "  \033[93mrecon <target> -lo\033[0m          Salva + upload a loot\n"
-            "  \033[93mrecon <target> -lo <name>\033[0m   Salva in loot/recon/<name>/ + upload\n"
+            "  \033[93mrecon <target> -slo <name>\033[0m  Shell separata + salva in loot/recon/<name>/\n"
             "  \033[93mrecon <target> --medium\033[0m     Senza nikto, wordlist, wpscan\n"
             "  \033[93mrecon <target> --wordlists\033[0m  Solo dir scan, VHost, wpscan, nikto, arjun\n"
             "  \033[93mrecon <target> --fast\033[0m       Solo top ports + web base\n"
@@ -3504,8 +3532,6 @@ def cmd_recon(args: argparse.Namespace, state: ConsoleState | None = None) -> in
         cmd_parts.append("-o")
     if getattr(args, "loot", False):
         cmd_parts.append("-l")
-    if getattr(args, "silent", False):
-        cmd_parts.append("-s")
     if getattr(args, "fast", False):
         cmd_parts.append("--fast")
     if getattr(args, "medium", False):
@@ -3530,10 +3556,30 @@ def cmd_recon(args: argparse.Namespace, state: ConsoleState | None = None) -> in
             cmd_parts.extend(["-L", parsed.hostname])
 
     recon_cmd = " ".join(cmd_parts)
+    separate = getattr(args, "separate", False)
 
-    print(f"  Recon avviato su \033[1m{target}\033[0m")
-    print(f"  \033[93m$ {recon_cmd}\033[0m\n")
-    subprocess.run(recon_cmd, shell=True)
+    if separate and os.environ.get("TMUX"):
+        subprocess.run(
+            ["tmux", "split-window", "-h", "-l", "50%", recon_cmd],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        )
+        print(f"  Recon avviato su \033[1m{target}\033[0m in pane tmux")
+        print(f"  \033[93m$ {recon_cmd}\033[0m")
+    elif separate:
+        subprocess.Popen(
+            ["sh", "-c", recon_cmd],
+            start_new_session=True,
+            stdout=open(os.devnull, "w"), stderr=open(os.devnull, "w"),
+        )
+        print(f"  Recon avviato su \033[1m{target}\033[0m in background")
+        print(f"  \033[93m$ {recon_cmd}\033[0m")
+        if getattr(args, "save", False) or getattr(args, "loot", False):
+            _outname = name or target
+            print(f"  Output in: \033[96mloot/recon/{_outname}/\033[0m")
+    else:
+        print(f"  Recon avviato su \033[1m{target}\033[0m")
+        print(f"  \033[93m$ {recon_cmd}\033[0m\n")
+        subprocess.run(recon_cmd, shell=True)
 
     return 0
 
@@ -3554,7 +3600,19 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if len(argv) == 1 and argv[0] == "--version":
-        print(f"{APP_NAME} {VERSION}")
+        vh = _version_hash()
+        print(f"  {APP_NAME} v{vh}")
+        try:
+            import urllib.request
+            with urllib.request.urlopen(REPO_RAW, timeout=3) as r:
+                remote = r.read().decode().strip()
+            if remote == VERSION:
+                print(f"  \033[92m✓ Aggiornato\033[0m")
+            else:
+                print(f"  \033[93m⚠ Nuova versione disponibile: {remote}\033[0m")
+                print(f"  \033[93m  Aggiorna con: git pull\033[0m")
+        except Exception:
+            pass
         return 0
 
     return run_command(argv, ConsoleState())

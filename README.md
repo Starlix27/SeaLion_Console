@@ -1,5 +1,7 @@
 # SeaLion Console
 
+![Version](https://img.shields.io/badge/dynamic/regex?url=https%3A%2F%2Fraw.githubusercontent.com%2FStarlix27%2FSeaLion%2Fmain%2FVERSION&search=(.*)&label=version&color=blue)
+
 ```
                                                      .====-:.
                                                   .==-###==+.:--
