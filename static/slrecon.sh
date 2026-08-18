@@ -59,6 +59,7 @@ Phases:
   ports         Nmap TCP + UDP scan
   web           Web enumeration (dirs, vhosts, tech, WAF)
   services      Service-specific enum (SMB, FTP, SSH, DB, etc.)
+  wordlists     Solo scansioni con wordlist (dirs, vhosts, wpscan, nikto, arjun)
   report        Generate report from existing scan data
 
 Examples:
@@ -575,6 +576,125 @@ phase_web() {
 }
 
 # ══════════════════════════════════════════════════════════════
+#              PHASE — WORDLISTS ONLY
+# ══════════════════════════════════════════════════════════════
+phase_wordlists() {
+  phase_hdr "WORDLIST SCANS"
+
+  _http_ports=""
+  if [ -f "$OUTDIR/nmap_services.txt" ]; then
+    _http_ports=$(grep -iE 'http|ssl/http|https' "$OUTDIR/nmap_services.txt" 2>/dev/null | grep -oE '^[0-9]+' | sort -u | tr '\n' ' ')
+  fi
+  if [ -z "$_http_ports" ]; then
+    for _tp in 80 443 8080 8443 8000 3000 8888; do
+      if (echo >/dev/tcp/"$TARGET"/"$_tp") 2>/dev/null; then
+        _http_ports="$_http_ports $_tp"
+      fi
+    done
+  fi
+
+  if [ -z "$_http_ports" ]; then
+    warn "No HTTP ports detected — skipping wordlist scans"
+    return
+  fi
+
+  info "HTTP ports: $_http_ports"
+
+  for _hp in $_http_ports; do
+    _proto="http"
+    case "$_hp" in 443|8443|*43) _proto="https" ;; esac
+    _base="${_proto}://${TARGET}:${_hp}"
+
+    # ── CMS — wpscan ──
+    _body=$(curl -sk -m 5 "$_base/" 2>/dev/null) || true
+    if echo "$_body" | grep -qi 'wp-content\|wp-includes\|wordpress'; then
+      if _has wpscan; then
+        section "WPSCAN — :$_hp"
+        info "Running wpscan..."
+        wpscan --url "$_base" --enumerate vp,vt,u --no-banner 2>/dev/null | tee -a "${OUTDIR:+$OUTDIR/wpscan_${_hp}.txt}" /dev/null | while IFS= read -r line; do
+          emit "$line"
+        done
+      fi
+    fi
+
+    # ── Directory bruteforce ──
+    section "DIRECTORY SCAN — :$_hp"
+    _wordlist=""
+    for _wl in /usr/share/seclists/Discovery/Web-Content/directory-list-2.3-medium.txt \
+               /usr/share/wordlists/dirbuster/directory-list-2.3-medium.txt \
+               /usr/share/seclists/Discovery/Web-Content/common.txt \
+               /usr/share/dirb/wordlists/common.txt \
+               /usr/share/wordlists/dirb/common.txt; do
+      [ -f "$_wl" ] && _wordlist="$_wl" && break
+    done
+
+    if [ -z "$_wordlist" ]; then
+      warn "No wordlist found — skipping directory bruteforce"
+    elif _has ffuf; then
+      info "ffuf directory scan with $(basename "$_wordlist")"
+      ffuf -u "$_base/FUZZ" -w "$_wordlist" -mc 200,204,301,302,307,401,403,405 -t 50 -c -o "${OUTDIR:+$OUTDIR/ffuf_dirs_${_hp}.json}" -of json 2>/dev/null | grep -vE '^\[|^$|:: Progress' | while IFS= read -r line; do
+        emit "$line"
+      done
+    elif _has gobuster; then
+      info "gobuster directory scan with $(basename "$_wordlist")"
+      gobuster dir -u "$_base" -w "$_wordlist" -t 50 -q --no-error -o "${OUTDIR:+$OUTDIR/gobuster_dirs_${_hp}.txt}" 2>/dev/null | while IFS= read -r line; do
+        emit "$line"
+      done
+    elif _has dirb; then
+      info "dirb scan..."
+      dirb "$_base" "$_wordlist" -S -r 2>/dev/null | grep -E '^==> |CODE:' | while IFS= read -r line; do
+        emit "$line"
+      done
+    else
+      warn "No directory scanner available (ffuf, gobuster, dirb)"
+    fi
+
+    # ── VHost discovery ──
+    section "VHOST SCAN — :$_hp"
+    _vhost_wl=""
+    for _vwl in /usr/share/seclists/Discovery/DNS/subdomains-top1million-5000.txt \
+                /usr/share/seclists/Discovery/DNS/namelist.txt \
+                /usr/share/wordlists/amass/subdomains-top1mil-5000.txt; do
+      [ -f "$_vwl" ] && _vhost_wl="$_vwl" && break
+    done
+
+    if [ -z "$_vhost_wl" ]; then
+      warn "No subdomain wordlist — skipping VHost scan"
+    elif _has ffuf; then
+      _baseline_size=$(curl -sk -m 5 -H "Host: nonexistent.xyz" "$_base/" 2>/dev/null | wc -c)
+      info "VHost fuzzing (filtering size: $_baseline_size)"
+      ffuf -u "$_base/" -H "Host: FUZZ.$TARGET" -w "$_vhost_wl" -fs "$_baseline_size" -mc 200,302,301,401,403 -t 50 -c 2>/dev/null | grep -vE '^\[|^$|:: Progress' | while IFS= read -r line; do
+        emit "$line"
+        _rec "[ENUM] VHost found on :$_hp — check: $line"
+      done
+    else
+      warn "ffuf not installed — skipping VHost scan"
+    fi
+
+    # ── Arjun ──
+    if _has arjun; then
+      section "PARAMETER DISCOVERY — :$_hp"
+      info "Running arjun on $_base..."
+      arjun -u "$_base/" -q -t 10 2>/dev/null | while IFS= read -r line; do
+        emit "$line"
+      done
+    fi
+
+    # ── Nikto ──
+    if _has nikto; then
+      section "NIKTO — :$_hp"
+      info "Running nikto (max 2 min)..."
+      timeout 150 nikto -h "$_base" -nointeractive -maxtime 120s -Tuning 123bde 2>/dev/null | tee -a "${OUTDIR:+$OUTDIR/nikto_${_hp}.txt}" /dev/null | while IFS= read -r line; do
+        emit "$line"
+      done
+    fi
+
+  done
+
+  info "Wordlist scans completed ($(_elapsed))"
+}
+
+# ══════════════════════════════════════════════════════════════
 #              PHASE 3 — SERVICE ENUMERATION
 # ══════════════════════════════════════════════════════════════
 phase_services() {
@@ -1046,11 +1166,12 @@ phase_report() {
 
 if [ -n "$PHASE" ]; then
   case "$PHASE" in
-    ports)    phase_ports ;;
-    web)      phase_web ;;
-    services) phase_services ;;
-    report)   phase_report ;;
-    *)        echo "Unknown phase: $PHASE (use: ports, web, services, report)"; exit 1 ;;
+    ports)      phase_ports ;;
+    web)        phase_web ;;
+    services)   phase_services ;;
+    wordlists)  phase_wordlists ;;
+    report)     phase_report ;;
+    *)          echo "Unknown phase: $PHASE (use: ports, web, services, wordlists, report)"; exit 1 ;;
   esac
   phase_report
 else
