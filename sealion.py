@@ -3566,7 +3566,8 @@ def cmd_recon(args: argparse.Namespace, state: ConsoleState | None = None) -> in
         print(f"  Recon avviato su \033[1m{target}\033[0m in pane tmux")
         print(f"  \033[93m$ {recon_cmd}\033[0m")
     elif separate:
-        shell_cmd = recon_cmd + '; echo; echo "\\033[92m[✓] Scan completato. Premi INVIO per chiudere.\\033[0m"; read _'
+        title_esc = f'printf "\\033]0;SLRecon: {target}\\007"'
+        shell_cmd = title_esc + '; ' + recon_cmd + '; echo; echo "\\033[92m[✓] Scan completato. Premi INVIO per chiudere.\\033[0m"; read _'
         launched = False
         if os.environ.get("WSL_DISTRO_NAME") or os.path.exists("/proc/sys/fs/binfmt_misc/WSLInterop"):
             for wt in ("wt.exe", "cmd.exe"):

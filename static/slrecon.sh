@@ -466,11 +466,11 @@ phase_web() {
     section "DIRECTORY SCAN — :$_hp"
 
     _wordlist=""
-    for _wl in /usr/share/seclists/Discovery/Web-Content/directory-list-2.3-medium.txt \
-               /usr/share/wordlists/dirbuster/directory-list-2.3-medium.txt \
-               /usr/share/seclists/Discovery/Web-Content/common.txt \
+    for _wl in /usr/share/seclists/Discovery/Web-Content/common.txt \
                /usr/share/dirb/wordlists/common.txt \
-               /usr/share/wordlists/dirb/common.txt; do
+               /usr/share/wordlists/dirb/common.txt \
+               /usr/share/seclists/Discovery/Web-Content/directory-list-2.3-small.txt \
+               /usr/share/wordlists/dirbuster/directory-list-2.3-small.txt; do
       if [ -f "$_wl" ]; then
         _wordlist="$_wl"
         break
@@ -484,11 +484,11 @@ phase_web() {
       _fs_flag=""
       if [ -n "$_cal_size" ]; then
         _fs_flag="-fs $_cal_size"
-        info "ffuf directory scan with $(basename "$_wordlist") (auto-filter size: $_cal_size) [max 2m]"
+        info "ffuf directory scan with $(basename "$_wordlist") (auto-filter size: $_cal_size) [max 1m]"
       else
-        info "ffuf directory scan with $(basename "$_wordlist") [max 2m]"
+        info "ffuf directory scan with $(basename "$_wordlist") [max 1m]"
       fi
-      timeout 120 ffuf -u "$_base/FUZZ" -w "$_wordlist" -mc 200,204,301,302,307,401,403,405 $_fs_flag -t 50 -c -o "${OUTDIR:+$OUTDIR/ffuf_dirs_${_hp}.json}" -of json 2>/dev/null | grep --line-buffered -vE '^\[|^$|:: Progress' | while IFS= read -r line; do
+      timeout 60 ffuf -u "$_base/FUZZ" -w "$_wordlist" -mc 200,204,301,302,307,401,403,405 $_fs_flag -t 50 -c -o "${OUTDIR:+$OUTDIR/ffuf_dirs_${_hp}.json}" -of json 2>/dev/null | grep --line-buffered -vE '^\[|^$|:: Progress' | while IFS= read -r line; do
         emit "$line"
       done
     elif _has gobuster; then
@@ -496,16 +496,16 @@ phase_web() {
       _el_flag=""
       if [ -n "$_cal_size" ]; then
         _el_flag="--exclude-length $_cal_size"
-        info "gobuster directory scan with $(basename "$_wordlist") (auto-filter size: $_cal_size) [max 2m]"
+        info "gobuster directory scan with $(basename "$_wordlist") (auto-filter size: $_cal_size) [max 1m]"
       else
-        info "gobuster directory scan with $(basename "$_wordlist") [max 2m]"
+        info "gobuster directory scan with $(basename "$_wordlist") [max 1m]"
       fi
-      timeout 120 gobuster dir -u "$_base" -w "$_wordlist" -t 50 -q --no-error $_el_flag -o "${OUTDIR:+$OUTDIR/gobuster_dirs_${_hp}.txt}" 2>/dev/null | while IFS= read -r line; do
+      timeout 60 gobuster dir -u "$_base" -w "$_wordlist" -t 50 -q --no-error $_el_flag -o "${OUTDIR:+$OUTDIR/gobuster_dirs_${_hp}.txt}" 2>/dev/null | while IFS= read -r line; do
         emit "$line"
       done
     elif _has dirb; then
-      info "dirb scan... [max 2m]"
-      timeout 120 dirb "$_base" "$_wordlist" -S -r 2>/dev/null | grep --line-buffered -E '^==> |CODE:' | while IFS= read -r line; do
+      info "dirb scan... [max 1m]"
+      timeout 60 dirb "$_base" "$_wordlist" -S -r 2>/dev/null | grep --line-buffered -E '^==> |CODE:' | while IFS= read -r line; do
         emit "$line"
       done
     else
@@ -647,11 +647,11 @@ phase_wordlists() {
     # ── Directory bruteforce ──
     section "DIRECTORY SCAN — :$_hp"
     _wordlist=""
-    for _wl in /usr/share/seclists/Discovery/Web-Content/directory-list-2.3-medium.txt \
-               /usr/share/wordlists/dirbuster/directory-list-2.3-medium.txt \
-               /usr/share/seclists/Discovery/Web-Content/common.txt \
+    for _wl in /usr/share/seclists/Discovery/Web-Content/common.txt \
                /usr/share/dirb/wordlists/common.txt \
-               /usr/share/wordlists/dirb/common.txt; do
+               /usr/share/wordlists/dirb/common.txt \
+               /usr/share/seclists/Discovery/Web-Content/directory-list-2.3-small.txt \
+               /usr/share/wordlists/dirbuster/directory-list-2.3-small.txt; do
       [ -f "$_wl" ] && _wordlist="$_wl" && break
     done
 
@@ -662,11 +662,11 @@ phase_wordlists() {
       _fs_flag=""
       if [ -n "$_cal_size" ]; then
         _fs_flag="-fs $_cal_size"
-        info "ffuf directory scan with $(basename "$_wordlist") (auto-filter size: $_cal_size) [max 2m]"
+        info "ffuf directory scan with $(basename "$_wordlist") (auto-filter size: $_cal_size) [max 1m]"
       else
-        info "ffuf directory scan with $(basename "$_wordlist") [max 2m]"
+        info "ffuf directory scan with $(basename "$_wordlist") [max 1m]"
       fi
-      timeout 120 ffuf -u "$_base/FUZZ" -w "$_wordlist" -mc 200,204,301,302,307,401,403,405 $_fs_flag -t 50 -c -o "${OUTDIR:+$OUTDIR/ffuf_dirs_${_hp}.json}" -of json 2>/dev/null | grep --line-buffered -vE '^\[|^$|:: Progress' | while IFS= read -r line; do
+      timeout 60 ffuf -u "$_base/FUZZ" -w "$_wordlist" -mc 200,204,301,302,307,401,403,405 $_fs_flag -t 50 -c -o "${OUTDIR:+$OUTDIR/ffuf_dirs_${_hp}.json}" -of json 2>/dev/null | grep --line-buffered -vE '^\[|^$|:: Progress' | while IFS= read -r line; do
         emit "$line"
       done
     elif _has gobuster; then
@@ -674,16 +674,16 @@ phase_wordlists() {
       _el_flag=""
       if [ -n "$_cal_size" ]; then
         _el_flag="--exclude-length $_cal_size"
-        info "gobuster directory scan with $(basename "$_wordlist") (auto-filter size: $_cal_size) [max 2m]"
+        info "gobuster directory scan with $(basename "$_wordlist") (auto-filter size: $_cal_size) [max 1m]"
       else
-        info "gobuster directory scan with $(basename "$_wordlist") [max 2m]"
+        info "gobuster directory scan with $(basename "$_wordlist") [max 1m]"
       fi
-      timeout 120 gobuster dir -u "$_base" -w "$_wordlist" -t 50 -q --no-error $_el_flag -o "${OUTDIR:+$OUTDIR/gobuster_dirs_${_hp}.txt}" 2>/dev/null | while IFS= read -r line; do
+      timeout 60 gobuster dir -u "$_base" -w "$_wordlist" -t 50 -q --no-error $_el_flag -o "${OUTDIR:+$OUTDIR/gobuster_dirs_${_hp}.txt}" 2>/dev/null | while IFS= read -r line; do
         emit "$line"
       done
     elif _has dirb; then
-      info "dirb scan... [max 2m]"
-      timeout 120 dirb "$_base" "$_wordlist" -S -r 2>/dev/null | grep --line-buffered -E '^==> |CODE:' | while IFS= read -r line; do
+      info "dirb scan... [max 1m]"
+      timeout 60 dirb "$_base" "$_wordlist" -S -r 2>/dev/null | grep --line-buffered -E '^==> |CODE:' | while IFS= read -r line; do
         emit "$line"
       done
     else
