@@ -328,12 +328,12 @@ phase_web() {
 
   # Determine HTTP ports from scan results or common ones
   _http_ports=""
-  if [ -f "$OUTDIR/nmap_services.txt" ]; then
+  if [ -n "$OUTDIR" ] && [ -f "$OUTDIR/nmap_services.txt" ]; then
     _http_ports=$(grep -iE 'http|ssl/http|https' "$OUTDIR/nmap_services.txt" 2>/dev/null | grep -oE '^[0-9]+' | sort -u | tr '\n' ' ')
   fi
   if [ -z "$_http_ports" ]; then
     for _tp in 80 443 8080 8443 8000 3000 8888; do
-      if (echo >/dev/tcp/"$TARGET"/"$_tp") 2>/dev/null; then
+      if nc -z -w 2 "$TARGET" "$_tp" 2>/dev/null; then
         _http_ports="$_http_ports $_tp"
       fi
     done
@@ -582,12 +582,12 @@ phase_wordlists() {
   phase_hdr "WORDLIST SCANS"
 
   _http_ports=""
-  if [ -f "$OUTDIR/nmap_services.txt" ]; then
+  if [ -n "$OUTDIR" ] && [ -f "$OUTDIR/nmap_services.txt" ]; then
     _http_ports=$(grep -iE 'http|ssl/http|https' "$OUTDIR/nmap_services.txt" 2>/dev/null | grep -oE '^[0-9]+' | sort -u | tr '\n' ' ')
   fi
   if [ -z "$_http_ports" ]; then
     for _tp in 80 443 8080 8443 8000 3000 8888; do
-      if (echo >/dev/tcp/"$TARGET"/"$_tp") 2>/dev/null; then
+      if nc -z -w 2 "$TARGET" "$_tp" 2>/dev/null; then
         _http_ports="$_http_ports $_tp"
       fi
     done
