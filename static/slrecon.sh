@@ -154,6 +154,30 @@ _elapsed() {
   printf "%dm%ds" "$_min" "$_sec"
 }
 
+# Quiet scanners only print when they find something, which can make a healthy
+# scan look frozen.  Run their output pipeline in the background and emit a
+# small heartbeat until it exits.  Keeping the scanners' own quiet modes avoids
+# filling the report with animated progress bars.
+_wait_scan() {
+  _ws_pid="$1"
+  _ws_label="$2"
+  _ws_elapsed=0
+  while kill -0 "$_ws_pid" 2>/dev/null; do
+    sleep 1
+    if kill -0 "$_ws_pid" 2>/dev/null; then
+      _ws_elapsed=$((_ws_elapsed + 1))
+      if [ $((_ws_elapsed % 10)) -eq 0 ]; then
+        info "$_ws_label still running (${_ws_elapsed}s elapsed)..."
+      fi
+    fi
+  done
+
+  wait "$_ws_pid"
+  _ws_status=$?
+  info "$_ws_label finished"
+  return "$_ws_status"
+}
+
 # ── Setup output directory ───────────────────────────────────
 if [ "$SAVE" -eq 1 ]; then
   _outname="${SCAN_NAME:-$TARGET}"
@@ -613,6 +637,7 @@ phase_wordlists() {
     _http_ports=$(grep -iE 'http|ssl/http|https' "$OUTDIR/nmap_services.txt" 2>/dev/null | grep -oE '^[0-9]+' | sort -u | tr '\n' ' ')
   fi
   if [ -z "$_http_ports" ]; then
+    info "Detecting HTTP ports on $TARGET..."
     for _tp in 80 443 8080 8443 8000 3000 8888; do
       if nc -z -w 2 "$TARGET" "$_tp" 2>/dev/null; then
         _http_ports="$_http_ports $_tp"
@@ -640,7 +665,8 @@ phase_wordlists() {
         info "Running wpscan..."
         timeout 60 wpscan --url "$_base" --enumerate vp,vt,u --no-banner 2>/dev/null | stdbuf -oL tee -a "${OUTDIR:+$OUTDIR/wpscan_${_hp}.txt}" /dev/null | while IFS= read -r line; do
           emit "$line"
-        done
+        done &
+        _wait_scan "$!" "wpscan"
       fi
     fi
 
@@ -668,7 +694,8 @@ phase_wordlists() {
       fi
       timeout 60 ffuf -u "$_base/FUZZ" -w "$_wordlist" -mc 200,204,301,302,307,401,403,405 $_fs_flag -t 50 -c -s 2>/dev/null | while IFS= read -r line; do
         [ -n "$line" ] && emit "$line"
-      done
+      done &
+      _wait_scan "$!" "ffuf directory scan"
       [ -n "$OUTDIR" ] && [ -f "$OUTDIR/ffuf_dirs_${_hp}.json" ] || true
     elif _has gobuster; then
       _cal_size=$(_calibrate "$_base")
@@ -681,12 +708,14 @@ phase_wordlists() {
       fi
       timeout 60 gobuster dir -u "$_base" -w "$_wordlist" -t 50 -q --no-error $_el_flag 2>/dev/null | while IFS= read -r line; do
         [ -n "$line" ] && emit "$line"
-      done
+      done &
+      _wait_scan "$!" "gobuster directory scan"
     elif _has dirb; then
       info "dirb scan... [max 1m]"
       timeout 60 dirb "$_base" "$_wordlist" -S -r 2>/dev/null | grep --line-buffered -E '^==> |CODE:' | while IFS= read -r line; do
         emit "$line"
-      done
+      done &
+      _wait_scan "$!" "dirb directory scan"
     else
       warn "No directory scanner available (ffuf, gobuster, dirb)"
     fi
@@ -708,7 +737,8 @@ phase_wordlists() {
       timeout 60 ffuf -u "$_base/" -H "Host: FUZZ.$TARGET" -w "$_vhost_wl" -fs "$_baseline_size" -mc 200,302,301,401,403 -t 50 -c -s 2>/dev/null | while IFS= read -r line; do
         [ -n "$line" ] && emit "$line"
         _rec "[ENUM] VHost found on :$_hp — check: $line"
-      done
+      done &
+      _wait_scan "$!" "ffuf VHost scan"
     else
       warn "ffuf not installed — skipping VHost scan"
     fi
@@ -719,7 +749,8 @@ phase_wordlists() {
       info "Running arjun on $_base..."
       timeout 30 arjun -u "$_base/" -q -t 10 2>/dev/null | while IFS= read -r line; do
         emit "$line"
-      done
+      done &
+      _wait_scan "$!" "arjun parameter scan"
     fi
 
     # ── Nikto ──
@@ -728,7 +759,8 @@ phase_wordlists() {
       info "Running nikto (max 1 min)..."
       timeout 60 nikto -h "$_base" -nointeractive -maxtime 60s -Tuning 123bde 2>/dev/null | grep --line-buffered -vE '^$|^\+ Target|^\+ Server:|^- Nikto|^No CGI Dir|anti-clickjacking|X-Content-Type|X-Frame-Options' | while IFS= read -r line; do
         emit "$line"
-      done
+      done &
+      _wait_scan "$!" "nikto scan"
     fi
 
   done
