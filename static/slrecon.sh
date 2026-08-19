@@ -25,6 +25,8 @@ PHASE=""
 NO_PING=0
 SCAN_NAME=""
 START_TIME=$(date +%s)
+SERVICES_FILE=""
+SERVICES_FILE_TEMP=0
 
 # ── Colors ───────────────────────────────────────────────────
 R='\033[1;31m'
@@ -145,6 +147,17 @@ info() { emit_raw "${G}[+] $1${N}"; }
 phase_hdr() { emit_raw "\n${M}══ PHASE: $1 ══${N}\n"; }
 
 _has() { command -v "$1" >/dev/null 2>&1; }
+
+# Copy a command stream to an optional result file while always preserving
+# terminal output.  Passing an empty path directly to `tee -a` creates a bogus
+# empty filename argument, so the no-save path uses a line-buffered `cat`.
+_save_stream() {
+  if [ -n "$1" ]; then
+    stdbuf -oL tee -a "$1"
+  else
+    stdbuf -oL cat
+  fi
+}
 
 _elapsed() {
   _now=$(date +%s)
@@ -267,34 +280,39 @@ phase_ports() {
 
   # Step 1: fast full-port discovery
   section "TCP PORT DISCOVERY"
+  _scan_is_temp=0
   if [ "$FAST" -eq 1 ]; then
     info "Fast scan: top 1000 ports"
-    nmap $NMAP_BASE -T4 --open "$TARGET" 2>/dev/null | stdbuf -oL tee -a "${OUTDIR:+$OUTDIR/nmap_fast.txt}" /dev/null | while IFS= read -r line; do
+    if [ -n "$OUTDIR" ]; then
+      _scan_file="$OUTDIR/nmap_fast.txt"
+    else
+      _scan_file=$(mktemp 2>/dev/null || echo "/tmp/.slrecon_ports_$$")
+      _scan_is_temp=1
+    fi
+    : > "$_scan_file"
+    nmap $NMAP_BASE -T4 --open --stats-every 10s "$TARGET" 2>&1 | _save_stream "$_scan_file" | while IFS= read -r line; do
       emit "$line"
     done
   else
     info "Full TCP scan: all 65535 ports (this may take a while)"
-    nmap $NMAP_BASE -p- -T4 --open --min-rate 1000 "$TARGET" 2>/dev/null | stdbuf -oL tee -a "${OUTDIR:+$OUTDIR/nmap_allports.txt}" /dev/null | while IFS= read -r line; do
+    if [ -n "$OUTDIR" ]; then
+      _scan_file="$OUTDIR/nmap_allports.txt"
+    else
+      _scan_file=$(mktemp 2>/dev/null || echo "/tmp/.slrecon_ports_$$")
+      _scan_is_temp=1
+    fi
+    : > "$_scan_file"
+    nmap $NMAP_BASE -p- -T4 --open --min-rate 1000 --stats-every 10s "$TARGET" 2>&1 | _save_stream "$_scan_file" | while IFS= read -r line; do
       emit "$line"
     done
   fi
 
   # Extract open ports
-  _scan_file=""
-  if [ "$FAST" -eq 1 ] && [ -f "$OUTDIR/nmap_fast.txt" ]; then
-    _scan_file="$OUTDIR/nmap_fast.txt"
-  elif [ -f "$OUTDIR/nmap_allports.txt" ]; then
-    _scan_file="$OUTDIR/nmap_allports.txt"
-  fi
-
   OPEN_PORTS=""
-  if [ -n "$_scan_file" ]; then
+  if [ -f "$_scan_file" ]; then
     OPEN_PORTS=$(grep -oE '^[0-9]+/tcp' "$_scan_file" 2>/dev/null | cut -d/ -f1 | sort -n | tr '\n' ',' | sed 's/,$//')
   fi
-
-  if [ -z "$OPEN_PORTS" ]; then
-    OPEN_PORTS=$(nmap $NMAP_BASE -p- -T4 --open --min-rate 1000 "$TARGET" 2>/dev/null | grep -oE '^[0-9]+/tcp' | cut -d/ -f1 | sort -n | tr '\n' ',' | sed 's/,$//')
-  fi
+  [ "$_scan_is_temp" -eq 1 ] && rm -f "$_scan_file"
 
   if [ -z "$OPEN_PORTS" ]; then
     warn "No open TCP ports found"
@@ -307,7 +325,14 @@ phase_ports() {
   # Step 2: version + scripts on discovered ports
   section "SERVICE DETECTION"
   info "Running version detection + default scripts on: $OPEN_PORTS"
-  nmap $NMAP_BASE -sV -sC -p "$OPEN_PORTS" "$TARGET" 2>/dev/null | stdbuf -oL tee -a "${OUTDIR:+$OUTDIR/nmap_services.txt}" /dev/null | while IFS= read -r line; do
+  if [ -n "$OUTDIR" ]; then
+    SERVICES_FILE="$OUTDIR/nmap_services.txt"
+  else
+    SERVICES_FILE=$(mktemp 2>/dev/null || echo "/tmp/.slrecon_services_$$")
+    SERVICES_FILE_TEMP=1
+  fi
+  : > "$SERVICES_FILE"
+  nmap $NMAP_BASE -sV -sC -p "$OPEN_PORTS" --stats-every 10s "$TARGET" 2>&1 | _save_stream "$SERVICES_FILE" | while IFS= read -r line; do
     emit "$line"
   done
 
@@ -337,7 +362,7 @@ phase_ports() {
     esac
     if [ -n "$_nse_scripts" ]; then
       info "NSE scripts for port $_p: $_nse_scripts"
-      nmap $NMAP_BASE --script "$_nse_scripts" -p "$_p" "$TARGET" 2>/dev/null | stdbuf -oL tee -a "${OUTDIR:+$OUTDIR/nmap_nse_${_p}.txt}" /dev/null | while IFS= read -r line; do
+      nmap $NMAP_BASE --script "$_nse_scripts" -p "$_p" --stats-every 10s "$TARGET" 2>&1 | _save_stream "${OUTDIR:+$OUTDIR/nmap_nse_${_p}.txt}" | while IFS= read -r line; do
         emit "$line"
       done
       _nse_scripts=""
@@ -346,11 +371,16 @@ phase_ports() {
 
   # Step 3: UDP top ports
   if [ "$FAST" -eq 0 ]; then
-    section "UDP SCAN (top 50)"
-    info "Scanning top 50 UDP ports..."
-    nmap $NMAP_BASE -sU --top-ports 50 -T4 "$TARGET" 2>/dev/null | stdbuf -oL tee -a "${OUTDIR:+$OUTDIR/nmap_udp.txt}" /dev/null | while IFS= read -r line; do
-      emit "$line"
-    done
+    if [ "$(id -u)" -ne 0 ]; then
+      warn "UDP scan skipped — raw UDP scanning requires root"
+      _rec "[WARN] UDP scan skipped (run recon as root to enable it)"
+    else
+      section "UDP SCAN (top 50)"
+      info "Scanning top 50 UDP ports..."
+      nmap $NMAP_BASE -sU --top-ports 50 -T4 --stats-every 10s "$TARGET" 2>&1 | _save_stream "${OUTDIR:+$OUTDIR/nmap_udp.txt}" | while IFS= read -r line; do
+        emit "$line"
+      done
+    fi
   fi
 
   info "Port scan completed ($(_elapsed))"
@@ -364,7 +394,9 @@ phase_web() {
 
   # Determine HTTP ports from scan results or common ones
   _http_ports=""
-  if [ -n "$OUTDIR" ] && [ -f "$OUTDIR/nmap_services.txt" ]; then
+  if [ -n "$SERVICES_FILE" ] && [ -f "$SERVICES_FILE" ]; then
+    _http_ports=$(grep -iE 'http|ssl/http|https' "$SERVICES_FILE" 2>/dev/null | grep -oE '^[0-9]+' | sort -u | tr '\n' ' ')
+  elif [ -n "$OUTDIR" ] && [ -f "$OUTDIR/nmap_services.txt" ]; then
     _http_ports=$(grep -iE 'http|ssl/http|https' "$OUTDIR/nmap_services.txt" 2>/dev/null | grep -oE '^[0-9]+' | sort -u | tr '\n' ' ')
   fi
   if [ -z "$_http_ports" ]; then
@@ -392,7 +424,7 @@ phase_web() {
     # ── WAF detection ──
     if _has wafw00f; then
       info "WAF detection..."
-      _waf=$(wafw00f "$_base" 2>/dev/null) || true
+      _waf=$(timeout 20 wafw00f "$_base" 2>/dev/null) || true
       if echo "$_waf" | grep -qi "is behind"; then
         _waf_name=$(echo "$_waf" | grep -i "is behind" | head -1)
         hi "WAF detected: $_waf_name"
@@ -404,7 +436,7 @@ phase_web() {
 
     # ── Headers + tech ──
     emit_raw "\n${W}--- Headers ---${N}"
-    _headers=$(curl -skI -m 5 "$_base/" 2>/dev/null) || true
+    _headers=$(curl -skI -m 5 "$_base/" 2>/dev/null | tr -d '\r') || true
     if [ -n "$_headers" ]; then
       emit "$_headers"
       [ -n "$OUTDIR" ] && echo "$_headers" > "$OUTDIR/headers_${_hp}.txt"
@@ -470,7 +502,7 @@ phase_web() {
         WordPress)
           if [ "$MEDIUM" -eq 0 ] && _has wpscan; then
             info "Running wpscan..."
-            timeout 60 wpscan --url "$_base" --enumerate vp,vt,u --no-banner 2>/dev/null | stdbuf -oL tee -a "${OUTDIR:+$OUTDIR/wpscan_${_hp}.txt}" /dev/null | while IFS= read -r line; do
+            timeout 60 wpscan --url "$_base" --enumerate vp,vt,u --no-banner 2>/dev/null | _save_stream "${OUTDIR:+$OUTDIR/wpscan_${_hp}.txt}" | while IFS= read -r line; do
               emit "$line"
             done
           elif [ "$MEDIUM" -eq 1 ]; then
@@ -663,7 +695,7 @@ phase_wordlists() {
       if _has wpscan; then
         section "WPSCAN — :$_hp"
         info "Running wpscan..."
-        timeout 60 wpscan --url "$_base" --enumerate vp,vt,u --no-banner 2>/dev/null | stdbuf -oL tee -a "${OUTDIR:+$OUTDIR/wpscan_${_hp}.txt}" /dev/null | while IFS= read -r line; do
+        timeout 60 wpscan --url "$_base" --enumerate vp,vt,u --no-banner 2>/dev/null | _save_stream "${OUTDIR:+$OUTDIR/wpscan_${_hp}.txt}" | while IFS= read -r line; do
           emit "$line"
         done &
         _wait_scan "$!" "wpscan"
@@ -775,10 +807,12 @@ phase_services() {
   phase_hdr "SERVICE ENUMERATION"
 
   # Read open ports
-  _ports=""
-  if [ -f "$OUTDIR/open_ports.txt" ]; then
+  _ports="${OPEN_PORTS:-}"
+  if [ -z "$_ports" ] && [ -n "$OUTDIR" ] && [ -f "$OUTDIR/open_ports.txt" ]; then
     _ports=$(cat "$OUTDIR/open_ports.txt")
-  elif [ -f "$OUTDIR/nmap_services.txt" ]; then
+  elif [ -z "$_ports" ] && [ -n "$SERVICES_FILE" ] && [ -f "$SERVICES_FILE" ]; then
+    _ports=$(grep -oE '^[0-9]+/tcp' "$SERVICES_FILE" | cut -d/ -f1 | tr '\n' ',' | sed 's/,$//')
+  elif [ -z "$_ports" ] && [ -n "$OUTDIR" ] && [ -f "$OUTDIR/nmap_services.txt" ]; then
     _ports=$(grep -oE '^[0-9]+/tcp' "$OUTDIR/nmap_services.txt" | cut -d/ -f1 | tr '\n' ',' | sed 's/,$//')
   fi
 
@@ -814,7 +848,7 @@ phase_services() {
     section "SSH (22)"
     if _has ssh-audit; then
       info "Running ssh-audit..."
-      ssh-audit "$TARGET" 2>/dev/null | stdbuf -oL tee -a "${OUTDIR:+$OUTDIR/ssh_audit.txt}" /dev/null | grep --line-buffered -iE 'vulner|weak|fail|WARN|CVE' | while IFS= read -r line; do
+      ssh-audit "$TARGET" 2>/dev/null | _save_stream "${OUTDIR:+$OUTDIR/ssh_audit.txt}" | grep --line-buffered -iE 'vulner|weak|fail|WARN|CVE' | while IFS= read -r line; do
         hi "$line"
         _rec "[ENUM] SSH vulnerability: $line"
       done
@@ -900,12 +934,12 @@ phase_services() {
     section "SMB (445)"
     if _has enum4linux-ng; then
       info "Running enum4linux-ng..."
-      enum4linux-ng -A "$TARGET" 2>/dev/null | stdbuf -oL tee -a "${OUTDIR:+$OUTDIR/enum4linux.txt}" /dev/null | grep --line-buffered -iE 'share|user|password|anonymous|null|writable' | while IFS= read -r line; do
+      enum4linux-ng -A "$TARGET" 2>/dev/null | _save_stream "${OUTDIR:+$OUTDIR/enum4linux.txt}" | grep --line-buffered -iE 'share|user|password|anonymous|null|writable' | while IFS= read -r line; do
         emit "$line"
       done
     elif _has enum4linux; then
       info "Running enum4linux..."
-      enum4linux -a "$TARGET" 2>/dev/null | stdbuf -oL tee -a "${OUTDIR:+$OUTDIR/enum4linux.txt}" /dev/null | grep --line-buffered -iE 'share|user|password|anonymous|null' | while IFS= read -r line; do
+      enum4linux -a "$TARGET" 2>/dev/null | _save_stream "${OUTDIR:+$OUTDIR/enum4linux.txt}" | grep --line-buffered -iE 'share|user|password|anonymous|null' | while IFS= read -r line; do
         emit "$line"
       done
     fi
@@ -1386,6 +1420,7 @@ if [ "$LOOT" -eq 1 ] && [ -n "$OUTDIR" ] && [ -f "$OUTDIR/report.txt" ]; then
   fi
 fi
 
+[ "$SERVICES_FILE_TEMP" -eq 1 ] && [ -n "$SERVICES_FILE" ] && rm -f "$SERVICES_FILE"
 rm -f "$_RECS_FILE"
 
 if [ "$SILENT" -eq 1 ]; then
