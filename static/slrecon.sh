@@ -27,6 +27,7 @@ SCAN_NAME=""
 START_TIME=$(date +%s)
 SERVICES_FILE=""
 SERVICES_FILE_TEMP=0
+GOBUSTER_WORDLIST="/usr/share/seclists/Discovery/Web-Content/DirBuster-2007_directory-list-2.3-medium.txt"
 
 # ── Colors ───────────────────────────────────────────────────
 R='\033[1;31m'
@@ -199,6 +200,97 @@ _wait_scan() {
     info "$_ws_label finished"
   fi
   return "$_ws_status"
+}
+
+# Run Gobuster without a time limit, stream every stdout/stderr update through
+# the normal output engine, and let an interactive user stop it with Enter.
+_run_gobuster_directory() {
+  _gd_base="$1"
+  _gd_port="$2"
+
+  if ! _has gobuster; then
+    warn "gobuster not installed — skipping directory scan"
+    return
+  fi
+  if [ ! -f "$GOBUSTER_WORDLIST" ]; then
+    warn "Gobuster wordlist not found: $GOBUSTER_WORDLIST"
+    return
+  fi
+
+  _gd_tmp=$(mktemp -d 2>/dev/null || echo "/tmp/.slrecon_gobuster_$$")
+  if [ ! -d "$_gd_tmp" ]; then
+    mkdir "$_gd_tmp" 2>/dev/null || {
+      warn "Could not create Gobuster temporary directory"
+      return
+    }
+  fi
+  _gd_fifo="$_gd_tmp/output"
+  _gd_stopped="$_gd_tmp/stopped"
+  if ! mkfifo "$_gd_fifo" 2>/dev/null; then
+    warn "Could not create Gobuster output pipe"
+    rmdir "$_gd_tmp" 2>/dev/null || true
+    return
+  fi
+
+  _gd_cal_size=$(_calibrate "$_gd_base")
+  set -- gobuster dir -u "$_gd_base" -w "$GOBUSTER_WORDLIST" -t 50
+  if [ -n "$_gd_cal_size" ]; then
+    set -- "$@" --exclude-length "$_gd_cal_size"
+    info "Gobuster directory scan with $(basename "$GOBUSTER_WORDLIST") (auto-filter size: $_gd_cal_size)"
+  else
+    info "Gobuster directory scan with $(basename "$GOBUSTER_WORDLIST")"
+  fi
+  _gd_has_tty=0
+  if [ -t 0 ] && [ -r /dev/tty ]; then
+    _gd_has_tty=1
+    info "No time limit — press ENTER to stop Gobuster"
+  else
+    info "No time limit"
+  fi
+
+  "$@" > "$_gd_fifo" 2>&1 &
+  _gd_tool_pid=$!
+
+  stdbuf -oL tr '\r' '\n' < "$_gd_fifo" | while IFS= read -r _gd_line || [ -n "$_gd_line" ]; do
+    emit "$_gd_line"
+    _gd_path=$(printf "%s\n" "$_gd_line" | sed -n 's/^\([^[:space:]]*\)[[:space:]]*(Status:.*/\1/p')
+    if [ -n "$_gd_path" ]; then
+      _rec "[ENUM] Gobuster found on :$_gd_port → $_gd_path"
+    fi
+  done &
+  _gd_output_pid=$!
+
+  _gd_input_pid=""
+  if [ "$_gd_has_tty" -eq 1 ]; then
+    (
+      if IFS= read -r _gd_key < /dev/tty; then
+        : > "$_gd_stopped"
+        kill -TERM "$_gd_tool_pid" 2>/dev/null || true
+      fi
+    ) &
+    _gd_input_pid=$!
+  else
+    warn "No interactive TTY — Gobuster will run until it completes"
+  fi
+
+  wait "$_gd_tool_pid"
+  _gd_status=$?
+  wait "$_gd_output_pid" 2>/dev/null || true
+  if [ -n "$_gd_input_pid" ]; then
+    kill "$_gd_input_pid" 2>/dev/null || true
+    wait "$_gd_input_pid" 2>/dev/null || true
+  fi
+
+  if [ -f "$_gd_stopped" ]; then
+    warn "Gobuster stopped by user"
+  elif [ "$_gd_status" -eq 0 ]; then
+    info "Gobuster directory scan completed"
+  else
+    warn "Gobuster exited with status $_gd_status"
+  fi
+
+  rm -f "$_gd_fifo" "$_gd_stopped"
+  rmdir "$_gd_tmp" 2>/dev/null || true
 }
 
 # ── Setup output directory ───────────────────────────────────
@@ -528,55 +620,8 @@ phase_web() {
 
     # ── Directory bruteforce ──
     if [ "$MEDIUM" -eq 0 ]; then
-    section "DIRECTORY SCAN — :$_hp"
-
-    _wordlist=""
-    for _wl in /usr/share/seclists/Discovery/Web-Content/common.txt \
-               /usr/share/dirb/wordlists/common.txt \
-               /usr/share/wordlists/dirb/common.txt \
-               /usr/share/seclists/Discovery/Web-Content/directory-list-2.3-small.txt \
-               /usr/share/wordlists/dirbuster/directory-list-2.3-small.txt; do
-      if [ -f "$_wl" ]; then
-        _wordlist="$_wl"
-        break
-      fi
-    done
-
-    if [ -z "$_wordlist" ]; then
-      warn "No wordlist found — skipping directory bruteforce"
-    elif _has ffuf; then
-      _cal_size=$(_calibrate "$_base")
-      _fs_flag=""
-      if [ -n "$_cal_size" ]; then
-        _fs_flag="-fs $_cal_size"
-        info "ffuf directory scan with $(basename "$_wordlist") (auto-filter size: $_cal_size) [max 1m]"
-      else
-        info "ffuf directory scan with $(basename "$_wordlist") [max 1m]"
-      fi
-      timeout -k 5s 60s ffuf -u "$_base/FUZZ" -w "$_wordlist" -mc 200,204,301,302,307,401,403,405 $_fs_flag -t 50 -c -s 2>/dev/null | while IFS= read -r line; do
-        [ -n "$line" ] && emit "$line"
-      done
-      [ -n "$OUTDIR" ] && [ -f "$OUTDIR/ffuf_dirs_${_hp}.json" ] || true
-    elif _has gobuster; then
-      _cal_size=$(_calibrate "$_base")
-      _el_flag=""
-      if [ -n "$_cal_size" ]; then
-        _el_flag="--exclude-length $_cal_size"
-        info "gobuster directory scan with $(basename "$_wordlist") (auto-filter size: $_cal_size) [max 1m]"
-      else
-        info "gobuster directory scan with $(basename "$_wordlist") [max 1m]"
-      fi
-      timeout -k 5s 60s gobuster dir -u "$_base" -w "$_wordlist" -t 50 -q --no-error $_el_flag 2>/dev/null | while IFS= read -r line; do
-        [ -n "$line" ] && emit "$line"
-      done
-    elif _has dirb; then
-      info "dirb scan... [max 1m]"
-      timeout -k 5s 60s dirb "$_base" "$_wordlist" -S -r 2>/dev/null | grep --line-buffered -E '^==> |CODE:' | while IFS= read -r line; do
-        emit "$line"
-      done
-    else
-      warn "No directory scanner available (ffuf, gobuster, dirb)"
-    fi
+      section "DIRECTORY SCAN — :$_hp"
+      _run_gobuster_directory "$_base" "$_hp"
     fi
 
     # ── VHost discovery ──
@@ -714,53 +759,7 @@ phase_wordlists() {
 
     # ── Directory bruteforce ──
     section "DIRECTORY SCAN — :$_hp"
-    _wordlist=""
-    for _wl in /usr/share/seclists/Discovery/Web-Content/common.txt \
-               /usr/share/dirb/wordlists/common.txt \
-               /usr/share/wordlists/dirb/common.txt \
-               /usr/share/seclists/Discovery/Web-Content/directory-list-2.3-small.txt \
-               /usr/share/wordlists/dirbuster/directory-list-2.3-small.txt; do
-      [ -f "$_wl" ] && _wordlist="$_wl" && break
-    done
-
-    if [ -z "$_wordlist" ]; then
-      warn "No wordlist found — skipping directory bruteforce"
-    elif _has ffuf; then
-      _cal_size=$(_calibrate "$_base")
-      _fs_flag=""
-      if [ -n "$_cal_size" ]; then
-        _fs_flag="-fs $_cal_size"
-        info "ffuf directory scan with $(basename "$_wordlist") (auto-filter size: $_cal_size) [max 1m]"
-      else
-        info "ffuf directory scan with $(basename "$_wordlist") [max 1m]"
-      fi
-      timeout -k 5s 60s ffuf -u "$_base/FUZZ" -w "$_wordlist" -mc 200,204,301,302,307,401,403,405 $_fs_flag -t 50 -c -s 2>/dev/null | while IFS= read -r line; do
-        [ -n "$line" ] && emit "$line"
-      done &
-      _wait_scan "$!" "ffuf directory scan" 60
-      [ -n "$OUTDIR" ] && [ -f "$OUTDIR/ffuf_dirs_${_hp}.json" ] || true
-    elif _has gobuster; then
-      _cal_size=$(_calibrate "$_base")
-      _el_flag=""
-      if [ -n "$_cal_size" ]; then
-        _el_flag="--exclude-length $_cal_size"
-        info "gobuster directory scan with $(basename "$_wordlist") (auto-filter size: $_cal_size) [max 1m]"
-      else
-        info "gobuster directory scan with $(basename "$_wordlist") [max 1m]"
-      fi
-      timeout -k 5s 60s gobuster dir -u "$_base" -w "$_wordlist" -t 50 -q --no-error $_el_flag 2>/dev/null | while IFS= read -r line; do
-        [ -n "$line" ] && emit "$line"
-      done &
-      _wait_scan "$!" "gobuster directory scan" 60
-    elif _has dirb; then
-      info "dirb scan... [max 1m]"
-      timeout -k 5s 60s dirb "$_base" "$_wordlist" -S -r 2>/dev/null | grep --line-buffered -E '^==> |CODE:' | while IFS= read -r line; do
-        emit "$line"
-      done &
-      _wait_scan "$!" "dirb directory scan" 60
-    else
-      warn "No directory scanner available (ffuf, gobuster, dirb)"
-    fi
+    _run_gobuster_directory "$_base" "$_hp"
 
     # ── VHost discovery ──
     section "VHOST SCAN — :$_hp"
