@@ -174,11 +174,17 @@ _elapsed() {
 _wait_scan() {
   _ws_pid="$1"
   _ws_label="$2"
+  _ws_limit="${3:-0}"
+  _ws_hard_limit=$((_ws_limit + 5))
   _ws_elapsed=0
   while kill -0 "$_ws_pid" 2>/dev/null; do
     sleep 1
     if kill -0 "$_ws_pid" 2>/dev/null; then
       _ws_elapsed=$((_ws_elapsed + 1))
+      if [ "$_ws_limit" -gt 0 ] && [ "$_ws_elapsed" -ge "$_ws_hard_limit" ]; then
+        kill -KILL "$_ws_pid" 2>/dev/null || true
+        break
+      fi
       if [ $((_ws_elapsed % 10)) -eq 0 ]; then
         info "$_ws_label still running (${_ws_elapsed}s elapsed)..."
       fi
@@ -187,7 +193,11 @@ _wait_scan() {
 
   wait "$_ws_pid"
   _ws_status=$?
-  info "$_ws_label finished"
+  if [ "$_ws_limit" -gt 0 ] && [ "$_ws_elapsed" -ge "$_ws_limit" ]; then
+    warn "$_ws_label stopped at the ${_ws_limit}s time limit"
+  else
+    info "$_ws_label finished"
+  fi
   return "$_ws_status"
 }
 
@@ -424,7 +434,7 @@ phase_web() {
     # ── WAF detection ──
     if _has wafw00f; then
       info "WAF detection..."
-      _waf=$(timeout 20 wafw00f "$_base" 2>/dev/null) || true
+      _waf=$(timeout -k 5s 20s wafw00f "$_base" 2>/dev/null) || true
       if echo "$_waf" | grep -qi "is behind"; then
         _waf_name=$(echo "$_waf" | grep -i "is behind" | head -1)
         hi "WAF detected: $_waf_name"
@@ -502,7 +512,7 @@ phase_web() {
         WordPress)
           if [ "$MEDIUM" -eq 0 ] && _has wpscan; then
             info "Running wpscan..."
-            timeout 60 wpscan --url "$_base" --enumerate vp,vt,u --no-banner 2>/dev/null | _save_stream "${OUTDIR:+$OUTDIR/wpscan_${_hp}.txt}" | while IFS= read -r line; do
+            timeout -k 5s 60s wpscan --url "$_base" --enumerate vp,vt,u --no-banner 2>/dev/null | _save_stream "${OUTDIR:+$OUTDIR/wpscan_${_hp}.txt}" | while IFS= read -r line; do
               emit "$line"
             done
           elif [ "$MEDIUM" -eq 1 ]; then
@@ -543,7 +553,7 @@ phase_web() {
       else
         info "ffuf directory scan with $(basename "$_wordlist") [max 1m]"
       fi
-      timeout 60 ffuf -u "$_base/FUZZ" -w "$_wordlist" -mc 200,204,301,302,307,401,403,405 $_fs_flag -t 50 -c -s 2>/dev/null | while IFS= read -r line; do
+      timeout -k 5s 60s ffuf -u "$_base/FUZZ" -w "$_wordlist" -mc 200,204,301,302,307,401,403,405 $_fs_flag -t 50 -c -s 2>/dev/null | while IFS= read -r line; do
         [ -n "$line" ] && emit "$line"
       done
       [ -n "$OUTDIR" ] && [ -f "$OUTDIR/ffuf_dirs_${_hp}.json" ] || true
@@ -556,12 +566,12 @@ phase_web() {
       else
         info "gobuster directory scan with $(basename "$_wordlist") [max 1m]"
       fi
-      timeout 60 gobuster dir -u "$_base" -w "$_wordlist" -t 50 -q --no-error $_el_flag 2>/dev/null | while IFS= read -r line; do
+      timeout -k 5s 60s gobuster dir -u "$_base" -w "$_wordlist" -t 50 -q --no-error $_el_flag 2>/dev/null | while IFS= read -r line; do
         [ -n "$line" ] && emit "$line"
       done
     elif _has dirb; then
       info "dirb scan... [max 1m]"
-      timeout 60 dirb "$_base" "$_wordlist" -S -r 2>/dev/null | grep --line-buffered -E '^==> |CODE:' | while IFS= read -r line; do
+      timeout -k 5s 60s dirb "$_base" "$_wordlist" -S -r 2>/dev/null | grep --line-buffered -E '^==> |CODE:' | while IFS= read -r line; do
         emit "$line"
       done
     else
@@ -588,7 +598,7 @@ phase_web() {
     elif _has ffuf; then
       _baseline_size=$(curl -sk -m 5 -H "Host: nonexistent.xyz" "$_base/" 2>/dev/null | wc -c)
       info "VHost fuzzing (filtering size: $_baseline_size)"
-      timeout 60 ffuf -u "$_base/" -H "Host: FUZZ.$TARGET" -w "$_vhost_wl" -fs "$_baseline_size" -mc 200,302,301,401,403 -t 50 -c -s 2>/dev/null | while IFS= read -r line; do
+      timeout -k 5s 60s ffuf -u "$_base/" -H "Host: FUZZ.$TARGET" -w "$_vhost_wl" -fs "$_baseline_size" -mc 200,302,301,401,403 -t 50 -c -s 2>/dev/null | while IFS= read -r line; do
         [ -n "$line" ] && emit "$line"
         _rec "[ENUM] VHost found on :$_hp — check: $line"
       done
@@ -639,7 +649,7 @@ phase_web() {
     if _has arjun && [ "$FAST" -eq 0 ] && [ "$MEDIUM" -eq 0 ]; then
       emit_raw "\n${W}--- Parameter discovery ---${N}"
       info "Running arjun on $_base..."
-      timeout 30 arjun -u "$_base/" -q -t 10 2>/dev/null | while IFS= read -r line; do
+      timeout -k 5s 30s arjun -u "$_base/" -q -t 10 2>/dev/null | while IFS= read -r line; do
         emit "$line"
       done
     fi
@@ -648,7 +658,7 @@ phase_web() {
     if _has nikto && [ "$FAST" -eq 0 ] && [ "$MEDIUM" -eq 0 ]; then
       section "NIKTO — :$_hp"
       info "Running nikto (max 1 min)..."
-      timeout 60 nikto -h "$_base" -nointeractive -maxtime 60s -Tuning 123bde 2>/dev/null | grep --line-buffered -vE '^$|^\+ Target|^\+ Server:|^- Nikto|^No CGI Dir|anti-clickjacking|X-Content-Type|X-Frame-Options' | while IFS= read -r line; do
+      timeout -k 5s 60s nikto -h "$_base" -nointeractive -maxtime 60s -Tuning 123bde 2>/dev/null | grep --line-buffered -vE '^$|^\+ Target|^\+ Server:|^- Nikto|^No CGI Dir|anti-clickjacking|X-Content-Type|X-Frame-Options' | while IFS= read -r line; do
         emit "$line"
       done
     fi
@@ -695,10 +705,10 @@ phase_wordlists() {
       if _has wpscan; then
         section "WPSCAN — :$_hp"
         info "Running wpscan..."
-        timeout 60 wpscan --url "$_base" --enumerate vp,vt,u --no-banner 2>/dev/null | _save_stream "${OUTDIR:+$OUTDIR/wpscan_${_hp}.txt}" | while IFS= read -r line; do
+        timeout -k 5s 60s wpscan --url "$_base" --enumerate vp,vt,u --no-banner 2>/dev/null | _save_stream "${OUTDIR:+$OUTDIR/wpscan_${_hp}.txt}" | while IFS= read -r line; do
           emit "$line"
         done &
-        _wait_scan "$!" "wpscan"
+        _wait_scan "$!" "wpscan" 60
       fi
     fi
 
@@ -724,10 +734,10 @@ phase_wordlists() {
       else
         info "ffuf directory scan with $(basename "$_wordlist") [max 1m]"
       fi
-      timeout 60 ffuf -u "$_base/FUZZ" -w "$_wordlist" -mc 200,204,301,302,307,401,403,405 $_fs_flag -t 50 -c -s 2>/dev/null | while IFS= read -r line; do
+      timeout -k 5s 60s ffuf -u "$_base/FUZZ" -w "$_wordlist" -mc 200,204,301,302,307,401,403,405 $_fs_flag -t 50 -c -s 2>/dev/null | while IFS= read -r line; do
         [ -n "$line" ] && emit "$line"
       done &
-      _wait_scan "$!" "ffuf directory scan"
+      _wait_scan "$!" "ffuf directory scan" 60
       [ -n "$OUTDIR" ] && [ -f "$OUTDIR/ffuf_dirs_${_hp}.json" ] || true
     elif _has gobuster; then
       _cal_size=$(_calibrate "$_base")
@@ -738,16 +748,16 @@ phase_wordlists() {
       else
         info "gobuster directory scan with $(basename "$_wordlist") [max 1m]"
       fi
-      timeout 60 gobuster dir -u "$_base" -w "$_wordlist" -t 50 -q --no-error $_el_flag 2>/dev/null | while IFS= read -r line; do
+      timeout -k 5s 60s gobuster dir -u "$_base" -w "$_wordlist" -t 50 -q --no-error $_el_flag 2>/dev/null | while IFS= read -r line; do
         [ -n "$line" ] && emit "$line"
       done &
-      _wait_scan "$!" "gobuster directory scan"
+      _wait_scan "$!" "gobuster directory scan" 60
     elif _has dirb; then
       info "dirb scan... [max 1m]"
-      timeout 60 dirb "$_base" "$_wordlist" -S -r 2>/dev/null | grep --line-buffered -E '^==> |CODE:' | while IFS= read -r line; do
+      timeout -k 5s 60s dirb "$_base" "$_wordlist" -S -r 2>/dev/null | grep --line-buffered -E '^==> |CODE:' | while IFS= read -r line; do
         emit "$line"
       done &
-      _wait_scan "$!" "dirb directory scan"
+      _wait_scan "$!" "dirb directory scan" 60
     else
       warn "No directory scanner available (ffuf, gobuster, dirb)"
     fi
@@ -766,11 +776,11 @@ phase_wordlists() {
     elif _has ffuf; then
       _baseline_size=$(curl -sk -m 5 -H "Host: nonexistent.xyz" "$_base/" 2>/dev/null | wc -c)
       info "VHost fuzzing (filtering size: $_baseline_size)"
-      timeout 60 ffuf -u "$_base/" -H "Host: FUZZ.$TARGET" -w "$_vhost_wl" -fs "$_baseline_size" -mc 200,302,301,401,403 -t 50 -c -s 2>/dev/null | while IFS= read -r line; do
+      timeout -k 5s 60s ffuf -u "$_base/" -H "Host: FUZZ.$TARGET" -w "$_vhost_wl" -fs "$_baseline_size" -mc 200,302,301,401,403 -t 50 -c -s 2>/dev/null | while IFS= read -r line; do
         [ -n "$line" ] && emit "$line"
         _rec "[ENUM] VHost found on :$_hp — check: $line"
       done &
-      _wait_scan "$!" "ffuf VHost scan"
+      _wait_scan "$!" "ffuf VHost scan" 60
     else
       warn "ffuf not installed — skipping VHost scan"
     fi
@@ -779,20 +789,20 @@ phase_wordlists() {
     if _has arjun; then
       section "PARAMETER DISCOVERY — :$_hp"
       info "Running arjun on $_base..."
-      timeout 30 arjun -u "$_base/" -q -t 10 2>/dev/null | while IFS= read -r line; do
+      timeout -k 5s 30s arjun -u "$_base/" -q -t 10 2>/dev/null | while IFS= read -r line; do
         emit "$line"
       done &
-      _wait_scan "$!" "arjun parameter scan"
+      _wait_scan "$!" "arjun parameter scan" 30
     fi
 
     # ── Nikto ──
     if _has nikto; then
       section "NIKTO — :$_hp"
       info "Running nikto (max 1 min)..."
-      timeout 60 nikto -h "$_base" -nointeractive -maxtime 60s -Tuning 123bde 2>/dev/null | grep --line-buffered -vE '^$|^\+ Target|^\+ Server:|^- Nikto|^No CGI Dir|anti-clickjacking|X-Content-Type|X-Frame-Options' | while IFS= read -r line; do
+      timeout -k 5s 60s nikto -h "$_base" -nointeractive -maxtime 60s -Tuning 123bde 2>/dev/null | grep --line-buffered -vE '^$|^\+ Target|^\+ Server:|^- Nikto|^No CGI Dir|anti-clickjacking|X-Content-Type|X-Frame-Options' | while IFS= read -r line; do
         emit "$line"
       done &
-      _wait_scan "$!" "nikto scan"
+      _wait_scan "$!" "nikto scan" 60
     fi
 
   done
