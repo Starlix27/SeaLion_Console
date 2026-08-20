@@ -2136,7 +2136,7 @@ def _build_dir_result(target: dict, tech_key: str, tech_exts: list[str], intensi
     commands.append(("gobuster", f"gobuster dir -u {url} -w {_wl_path(main_wl)} -x {ext_str} -t 50"))
     commands.append(("ffuf", f"ffuf -u {url}/FUZZ -w {_wl_path(main_wl)} -e {ext_dot} -t 50 -c"))
     commands.append(("dirb", f"dirb {url} {_wl_path(main_wl)} -X {ext_dot}"))
-    commands.append(("feroxbuster", f"feroxbuster -u {url} -w {_wl_path(main_wl)} -x {ext_str} -t 50"))
+    commands.append(("feroxbuster", f"feroxbuster -u {url} -w {_wl_path(main_wl)} -x {ext_str} -t 50 -C 404"))
     commands.append(("wfuzz", f"wfuzz -u {url}/FUZZ -w {_wl_path(main_wl)} --hc 404 -t 50"))
     commands.append(("dirsearch", f"dirsearch -u {url} -w {_wl_path(main_wl)} -e {ext_str} -t 50"))
 
@@ -2275,7 +2275,7 @@ def _build_api_result(target: dict, api_type: str, intensity: str) -> dict:
     commands.append(("ffuf", f"ffuf -u {url}/FUZZ -w {_wl_path(main_wl)} -t 50 -c -mc all -fc 404"))
     commands.append(("gobuster", f"gobuster dir -u {url} -w {_wl_path(main_wl)} -t 50"))
     commands.append(("wfuzz", f"wfuzz -u {url}/FUZZ -w {_wl_path(main_wl)} --hc 404 -t 50"))
-    commands.append(("feroxbuster", f"feroxbuster -u {url} -w {_wl_path(main_wl)} -t 50 --no-recursion"))
+    commands.append(("feroxbuster", f"feroxbuster -u {url} -w {_wl_path(main_wl)} -t 50 --no-recursion -C 404"))
 
     if api_type == "graphql":
         commands.append(("graphql introspection", f'curl -s -X POST {url} -H "Content-Type: application/json" -d \'{{"query":"{{__schema{{types{{name}}}}}}"}}\' | python3 -m json.tool'))
@@ -3493,6 +3493,13 @@ def _print_recon_info(profile: str, target: str | None, phase: str | None = None
 
     groups: list[tuple[str, list[str]]] = []
 
+    if selected_phase == "all" and profile in {"medium", "full"}:
+        groups.append(("AVVIO IMMEDIATO / SHELL SEPARATA", [
+            f"recon {shown_target} --wordlists                 # parte prima di sudo e Nmap",
+            "  ↳ gira in parallelo all'intera recon; INVIO ferma tutti gli scanner wordlist",
+            "  ↳ il report finale aspetta il worker e ne allega l'output",
+        ]))
+
     if selected_phase in {"all", "ports"} and profile != "wordlists":
         if profile == "fast":
             discovery = f"nmap [-Pn] -T4 --open --stats-every 10s {shown_target}"
@@ -3533,11 +3540,6 @@ def _print_recon_info(profile: str, target: str | None, phase: str | None = None
 
     if selected_phase in {"all", "web", "wordlists"}:
         web_commands: list[str] = []
-        if selected_phase == "all" and profile in {"medium", "full"}:
-            web_commands.extend([
-                f"recon {shown_target} --wordlists                 # avviato automaticamente in una shell separata",
-                "  ↳ gli scanner partono insieme; INVIO li ferma tutti; output allegato al report finale",
-            ])
         if selected_phase == "wordlists" or profile == "wordlists":
             web_commands.extend([
                 f"nc -z -w 2 {shown_target} <80|443|8080|8443|8000|3000|8888>",
@@ -3581,20 +3583,20 @@ def _print_recon_info(profile: str, target: str | None, phase: str | None = None
                 nikto_limit = 60
                 web_commands.extend([
                     f"timeout -k 5s 60s wpscan --url <base> --enumerate {wp_enum} --no-banner  # se WordPress",
-                    f"feroxbuster -u <base> -w {directory_wordlist} -t 50 -d 2 -k --auto-tune",
-                    "  ↳ preferito; ricorsivo; nessun limite globale",
-                    f"gobuster dir -u <base> -w {directory_wordlist} -t 50 [--exclude-length <size>]  # fallback",
-                    f"ffuf -u <base>/ -H 'Host: FUZZ.{shown_target}' -w {vhost_wordlist} -ac -mc 200,302,301,401,403 -t 50 -c -s",
-                    "  ↳ auto-calibration; nessun limite globale",
+                    f"feroxbuster -u <base> -w {directory_wordlist} -t 15 -d 2 -k --auto-tune -C 404 [--filter-size <size>]",
+                    "  ↳ preferito; ricorsivo; auto-calibra dimensione errore",
+                    f"gobuster dir -u <base> -w {directory_wordlist} -t 15 [--exclude-length <size>]  # fallback",
+                    f"ffuf -u <base>/ -H 'Host: FUZZ.{shown_target}' -w {vhost_wordlist} -ac -mc 200,302,301,401,403 -t 15 -c -s",
+                    "  ↳ auto-calibration; thread ridotti per concorrenza",
                     f"timeout -k 5s {arjun_limit}s arjun -u <base>/ -q -t 10",
                     f"timeout -k 5s {nikto_limit}s nikto -h <base> -nointeractive -maxtime {nikto_limit}s -Tuning 123bde",
-                    "  ↳ tutti i comandi disponibili partono contemporaneamente; output live [tool:porta]",
+                    "  ↳ se tmux disponibile: output in pane separati; altrimenti [tool:porta]",
                     "  ↳ INVIO ferma l'intero gruppo e continua la recon",
                 ])
             else:
                 web_commands.extend([
                     f"timeout -k 5s 60s wpscan --url <base> --enumerate {wp_enum} --no-banner  # se WordPress",
-                    "curl -sk -o /dev/null -w '%{size_download}' -m 2 <base>/slr_cal_<casuale>  # calibrazione Gobuster",
+                    "curl -sk -o /dev/null -w '%{size_download}' -m 2 <base>/slr_cal_<casuale>  # calibrazione",
                     f"gobuster dir -u <base> -w {directory_wordlist} -t 50 [--exclude-length <size>]",
                     "  ↳ nessun limite globale; output live; INVIO ferma e continua",
                     "curl -sk -m 5 -H 'Host: nonexistent.xyz' <base>/  # baseline VHost",

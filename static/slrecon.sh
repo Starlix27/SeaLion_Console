@@ -1080,6 +1080,179 @@ phase_web() {
 }
 
 # ══════════════════════════════════════════════════════════════
+#      TMUX LAYOUT — parallel wordlist panes
+# ══════════════════════════════════════════════════════════════
+
+_TMUX_WL_SESSION=""
+_TMUX_WL_PANE_COUNT=0
+
+_init_tmux_wordlists() {
+  _TMUX_WL_SESSION="slrecon_wl_$$"
+  _TMUX_WL_PANE_COUNT=0
+  tmux kill-session -t "$_TMUX_WL_SESSION" 2>/dev/null || true
+}
+
+_start_tmux_wordlist_job() {
+  _twj_key="$1"
+  _twj_label="$2"
+  _twj_port="$3"
+  _twj_capture="$4"
+  shift 4
+
+  _twj_script="$_PW_TMP/${_twj_key}_run.sh"
+  _twj_status_file="$_PW_TMP/${_twj_key}.status"
+  _twj_internal_capture="$_PW_TMP/${_twj_key}_capture.txt"
+  printf "%s\n" "$_twj_label" > "$_PW_TMP/${_twj_key}.label"
+  : > "$_twj_internal_capture"
+
+  # Build the command line with proper escaping
+  _twj_cmdline=""
+  for _twj_arg in "$@"; do
+    case "$_twj_arg" in
+      *[\ \'\"\\\$\`\*\?]*) _twj_cmdline="$_twj_cmdline '$(echo "$_twj_arg" | sed "s/'/'\\\\''/g")'" ;;
+      *) _twj_cmdline="$_twj_cmdline $_twj_arg" ;;
+    esac
+  done
+
+  # Build tee target: always capture internally, optionally to OUTDIR
+  _twj_tee_target="$_twj_internal_capture"
+  [ -n "$_twj_capture" ] && _twj_tee_target="$_twj_internal_capture $_twj_capture"
+
+  cat > "$_twj_script" <<TWJEOF
+#!/bin/sh
+printf '\033[1;36m── $_twj_label ──\033[0m\n\n'
+$_twj_cmdline 2>&1 | tee $_twj_tee_target
+_rc=\$?
+printf "%s\n" "\$_rc" > "$_twj_status_file"
+if [ "\$_rc" -eq 0 ]; then
+  printf '\n\033[1;32m[done] $_twj_label completato\033[0m\n'
+elif [ "\$_rc" -eq 124 ] || [ "\$_rc" -eq 137 ]; then
+  printf '\n\033[1;33m[!] $_twj_label timeout\033[0m\n'
+else
+  printf '\n\033[1;31m[x] $_twj_label fallito (exit %s)\033[0m\n' "\$_rc"
+fi
+sleep 8
+TWJEOF
+  chmod +x "$_twj_script"
+
+  if [ "$_TMUX_WL_PANE_COUNT" -eq 0 ]; then
+    tmux new-session -d -s "$_TMUX_WL_SESSION" \
+      -x "$(tput cols 2>/dev/null || echo 120)" \
+      -y "$(tput lines 2>/dev/null || echo 40)" \
+      "sh '$_twj_script'"
+    tmux set-option -t "$_TMUX_WL_SESSION" pane-border-status top 2>/dev/null || true
+    tmux set-option -t "$_TMUX_WL_SESSION" pane-border-format " #{pane_title} " 2>/dev/null || true
+    tmux select-pane -t "$_TMUX_WL_SESSION" -T "$_twj_label"
+  else
+    tmux split-window -t "$_TMUX_WL_SESSION" "sh '$_twj_script'"
+    tmux select-pane -t "$_TMUX_WL_SESSION" -T "$_twj_label"
+    tmux select-layout -t "$_TMUX_WL_SESSION" tiled 2>/dev/null || true
+  fi
+
+  _TMUX_WL_PANE_COUNT=$((_TMUX_WL_PANE_COUNT + 1))
+  _PW_KEYS="$_PW_KEYS $_twj_key"
+  _PW_COUNT=$((_PW_COUNT + 1))
+  return 0
+}
+
+_wait_tmux_wordlist_jobs() {
+  if [ "$_TMUX_WL_PANE_COUNT" -eq 0 ]; then
+    return
+  fi
+
+  tmux select-layout -t "$_TMUX_WL_SESSION" tiled 2>/dev/null || true
+
+  if [ -n "$TMUX" ]; then
+    info "Wordlist scans in sessione tmux '$_TMUX_WL_SESSION'"
+    info "Apri con: \033[1mCtrl+b w\033[0m → seleziona '$_TMUX_WL_SESSION'"
+    info "Oppure: \033[1mCtrl+b :\033[0m → switch-client -t $_TMUX_WL_SESSION"
+  else
+    info "Wordlist scans in sessione tmux '$_TMUX_WL_SESSION'"
+    info "Per vedere l'output live in un altro terminale:"
+    info "  \033[1mtmux attach -t $_TMUX_WL_SESSION\033[0m"
+  fi
+
+  _tw_has_tty=0
+  if [ -t 0 ] && [ -t 1 ]; then
+    _tw_has_tty=1
+    info "$_PW_COUNT scans in pane tmux — premi INVIO per fermare tutto"
+  else
+    info "$_PW_COUNT scans in pane tmux (attesa completamento)"
+  fi
+
+  _tw_elapsed=0
+  while :; do
+    _tw_active=0
+    for _tw_key in $_PW_KEYS; do
+      [ -f "$_PW_TMP/${_tw_key}.status" ] || _tw_active=$((_tw_active + 1))
+    done
+    [ "$_tw_active" -eq 0 ] && break
+
+    _tw_enter=1
+    if [ "$_tw_has_tty" -eq 1 ]; then
+      if _has python3; then
+        python3 -c 'import os,select,sys
+fd=os.open("/dev/tty", os.O_RDONLY | os.O_NONBLOCK)
+ready=select.select([fd], [], [], 1)[0]
+sys.exit(0 if ready and os.read(fd, 1) else 1)'
+        _tw_enter=$?
+      else
+        timeout --foreground 1s sh -c 'IFS= read -r _tw_key < /dev/tty'
+        _tw_enter=$?
+      fi
+    fi
+    if [ "$_tw_has_tty" -eq 1 ] && [ "$_tw_enter" -eq 0 ]; then
+      tmux kill-session -t "$_TMUX_WL_SESSION" 2>/dev/null || true
+      : > "$_PW_TMP/stopped"
+      break
+    else
+      [ "$_tw_has_tty" -eq 1 ] || sleep 1
+    fi
+    _tw_elapsed=$((_tw_elapsed + 1))
+    if [ $((_tw_elapsed % 15)) -eq 0 ]; then
+      if [ "$_tw_has_tty" -eq 1 ]; then
+        info "Wordlist scans attivi (${_tw_elapsed}s, $_tw_active in corso) — INVIO per fermare"
+      else
+        info "Wordlist scans attivi (${_tw_elapsed}s, $_tw_active in corso)"
+      fi
+    fi
+  done
+
+  tmux kill-session -t "$_TMUX_WL_SESSION" 2>/dev/null || true
+
+  # Parse captured output for findings
+  for _tw_key in $_PW_KEYS; do
+    _tw_label=$(cat "$_PW_TMP/${_tw_key}.label" 2>/dev/null || echo "$_tw_key")
+    _tw_capture="$_PW_TMP/${_tw_key}_capture.txt"
+    if [ -f "$_tw_capture" ]; then
+      while IFS= read -r _tw_line || [ -n "$_tw_line" ]; do
+        [ -n "$_tw_line" ] || continue
+        _tw_clean=$(printf "%s\n" "$_tw_line" | _strip_colors)
+        case "$_tw_label" in
+          ferox:*|gobuster:*)
+            _tw_port=$(echo "$_tw_label" | cut -d: -f2)
+            if echo "$_tw_clean" | grep -qE 'https?://|\(Status:[[:space:]]*[0-9]+'; then
+              _rec "[ENUM] Directory finding on :$_tw_port → $_tw_clean"
+            fi
+            ;;
+          vhost:*)
+            _tw_port=$(echo "$_tw_label" | cut -d: -f2)
+            case "$_tw_clean" in
+              Terminated|Killed) : ;;
+              *)
+                if echo "$_tw_clean" | grep -qE 'Status:[[:space:]]*[0-9]+|^[A-Za-z0-9][A-Za-z0-9._-]*$'; then
+                  _rec "[ENUM] VHost finding on :$_tw_port → $_tw_clean"
+                fi
+                ;;
+            esac
+            ;;
+        esac
+      done < "$_tw_capture"
+    fi
+  done
+}
+
+# ══════════════════════════════════════════════════════════════
 #              PHASE — WORDLISTS ONLY
 # ══════════════════════════════════════════════════════════════
 phase_wordlists() {
@@ -1119,6 +1292,22 @@ phase_wordlists() {
   _PW_COUNT=0
   _PW_STOPPED="$_PW_TMP/stopped"
 
+  # Detect tmux for pane-based layout
+  _USE_TMUX_WL=0
+  if _has tmux && [ -t 0 ] && [ -t 1 ]; then
+    _USE_TMUX_WL=1
+    _init_tmux_wordlists
+    info "tmux rilevato — gli scanner gireranno in pane separati"
+  fi
+
+  _start_wl_job() {
+    if [ "$_USE_TMUX_WL" -eq 1 ]; then
+      _start_tmux_wordlist_job "$@"
+    else
+      _start_parallel_wordlist_job "$@"
+    fi
+  }
+
   for _hp in $_http_ports; do
     _proto="http"
     case "$_hp" in 443|8443|*43) _proto="https" ;; esac
@@ -1132,7 +1321,7 @@ phase_wordlists() {
     if echo "$_body" | grep -qi 'wp-content\|wp-includes\|wordpress'; then
       if _has wpscan; then
         info "Queueing WPScan on :$_hp"
-        _start_parallel_wordlist_job "wpscan_${_hp}" "wpscan:${_hp}" "$_hp" \
+        _start_wl_job "wpscan_${_hp}" "wpscan:${_hp}" "$_hp" \
           "${OUTDIR:+$OUTDIR/wpscan_${_hp}.txt}" \
           timeout -k 5s 60s wpscan --url "$_base" --enumerate vp,vt,u --no-banner
       else
@@ -1150,21 +1339,29 @@ phase_wordlists() {
       _rec "[WARN] Directory scan skipped on :$_hp (wordlist missing)"
     elif _has feroxbuster; then
       info "Queueing Feroxbuster recursive scan on :$_hp (no time limit)"
-      _start_parallel_wordlist_job "ferox_${_hp}" "ferox:${_hp}" "$_hp" \
+      _fb_cal_size=$(_calibrate "$_base")
+      _fb_extra=""
+      if [ -n "$_fb_cal_size" ] && [ "$_fb_cal_size" -gt 0 ] 2>/dev/null; then
+        _fb_extra="--filter-size $_fb_cal_size"
+        info "Feroxbuster auto-filter: status 404, response size $_fb_cal_size"
+      else
+        info "Feroxbuster auto-filter: status 404"
+      fi
+      _start_wl_job "ferox_${_hp}" "ferox:${_hp}" "$_hp" \
         "${OUTDIR:+$OUTDIR/ferox_${_hp}.txt}" \
-        feroxbuster -u "$_base" -w "$GOBUSTER_WORDLIST" -t 50 -d 2 -k --auto-tune
+        feroxbuster -u "$_base" -w "$GOBUSTER_WORDLIST" -t 15 -d 2 -k --auto-tune -C 404 $_fb_extra
     elif _has gobuster; then
       warn "feroxbuster not installed — using Gobuster fallback"
       _rec "[INFO] Feroxbuster missing on :$_hp — Gobuster fallback used"
       _gb_cal_size=$(_calibrate "$_base")
       if [ -n "$_gb_cal_size" ]; then
-        _start_parallel_wordlist_job "gobuster_${_hp}" "gobuster:${_hp}" "$_hp" \
+        _start_wl_job "gobuster_${_hp}" "gobuster:${_hp}" "$_hp" \
           "${OUTDIR:+$OUTDIR/gobuster_${_hp}.txt}" \
-          gobuster dir -u "$_base" -w "$GOBUSTER_WORDLIST" -t 50 --exclude-length "$_gb_cal_size"
+          gobuster dir -u "$_base" -w "$GOBUSTER_WORDLIST" -t 15 --exclude-length "$_gb_cal_size"
       else
-        _start_parallel_wordlist_job "gobuster_${_hp}" "gobuster:${_hp}" "$_hp" \
+        _start_wl_job "gobuster_${_hp}" "gobuster:${_hp}" "$_hp" \
           "${OUTDIR:+$OUTDIR/gobuster_${_hp}.txt}" \
-          gobuster dir -u "$_base" -w "$GOBUSTER_WORDLIST" -t 50
+          gobuster dir -u "$_base" -w "$GOBUSTER_WORDLIST" -t 15
       fi
     else
       warn "feroxbuster and gobuster are missing — directory scan skipped"
@@ -1187,10 +1384,10 @@ phase_wordlists() {
       _rec "[WARN] VHost scan skipped on :$_hp (subdomain wordlist missing)"
     elif _has ffuf; then
       info "Queueing ffuf VHost scan on :$_hp with auto-calibration (no time limit)"
-      _start_parallel_wordlist_job "vhost_${_hp}" "vhost:${_hp}" "$_hp" \
+      _start_wl_job "vhost_${_hp}" "vhost:${_hp}" "$_hp" \
         "${OUTDIR:+$OUTDIR/ffuf_vhost_${_hp}.txt}" \
         ffuf -u "$_base/" -H "Host: FUZZ.$TARGET" -w "$_vhost_wl" \
-          -ac -mc 200,302,301,401,403 -t 50 -c -s
+          -ac -mc 200,302,301,401,403 -t 15 -c -s
     else
       warn "ffuf not installed — VHost scan skipped"
       _rec "[WARN] VHost scan skipped on :$_hp (ffuf missing)"
@@ -1198,7 +1395,7 @@ phase_wordlists() {
 
     if _has arjun; then
       info "Queueing Arjun parameter scan on :$_hp (max 30s)"
-      _start_parallel_wordlist_job "arjun_${_hp}" "arjun:${_hp}" "$_hp" \
+      _start_wl_job "arjun_${_hp}" "arjun:${_hp}" "$_hp" \
         "${OUTDIR:+$OUTDIR/arjun_${_hp}.txt}" \
         timeout -k 5s 30s arjun -u "$_base/" -q -t 10
     else
@@ -1208,7 +1405,7 @@ phase_wordlists() {
 
     if _has nikto; then
       info "Queueing Nikto on :$_hp (max 60s)"
-      _start_parallel_wordlist_job "nikto_${_hp}" "nikto:${_hp}" "$_hp" \
+      _start_wl_job "nikto_${_hp}" "nikto:${_hp}" "$_hp" \
         "${OUTDIR:+$OUTDIR/nikto_${_hp}.txt}" \
         timeout -k 5s 60s nikto -h "$_base" -nointeractive -maxtime 60s -Tuning 123bde
     else
@@ -1226,63 +1423,68 @@ phase_wordlists() {
     return
   fi
 
-  _pw_has_tty=0
-  if [ -t 0 ] && [ -t 1 ]; then
-    _pw_has_tty=1
-    info "$_PW_COUNT scans running concurrently — press ENTER to stop all and continue recon"
+  if [ "$_USE_TMUX_WL" -eq 1 ]; then
+    # ── tmux pane mode: wait and parse ──
+    _wait_tmux_wordlist_jobs
   else
-    info "$_PW_COUNT scans running concurrently (no interactive TTY; waiting for completion)"
-  fi
+    # ── FIFO pipe mode (original) ──
+    _pw_has_tty=0
+    if [ -t 0 ] && [ -t 1 ]; then
+      _pw_has_tty=1
+      info "$_PW_COUNT scans running concurrently — press ENTER to stop all and continue recon"
+    else
+      info "$_PW_COUNT scans running concurrently (no interactive TTY; waiting for completion)"
+    fi
 
-  _pw_elapsed=0
-  while :; do
-    _pw_active=0
-    for _pw_key in $_PW_KEYS; do
-      [ -f "$_PW_TMP/${_pw_key}.status" ] || _pw_active=$((_pw_active + 1))
-    done
-    [ "$_pw_active" -eq 0 ] && break
+    _pw_elapsed=0
+    while :; do
+      _pw_active=0
+      for _pw_key in $_PW_KEYS; do
+        [ -f "$_PW_TMP/${_pw_key}.status" ] || _pw_active=$((_pw_active + 1))
+      done
+      [ "$_pw_active" -eq 0 ] && break
 
-    # Poll ENTER from the foreground process. A background reader can receive
-    # SIGTTIN under terminal job control and silently fail to see the key.
-    _pw_enter=1
-    if [ "$_pw_has_tty" -eq 1 ]; then
-      if _has python3; then
-        python3 -c 'import os,select,sys
+      _pw_enter=1
+      if [ "$_pw_has_tty" -eq 1 ]; then
+        if _has python3; then
+          python3 -c 'import os,select,sys
 fd=os.open("/dev/tty", os.O_RDONLY | os.O_NONBLOCK)
 ready=select.select([fd], [], [], 1)[0]
 sys.exit(0 if ready and os.read(fd, 1) else 1)'
-        _pw_enter=$?
-      else
-        timeout --foreground 1s sh -c 'IFS= read -r _pw_key < /dev/tty'
-        _pw_enter=$?
+          _pw_enter=$?
+        else
+          timeout --foreground 1s sh -c 'IFS= read -r _pw_key < /dev/tty'
+          _pw_enter=$?
+        fi
       fi
-    fi
-    if [ "$_pw_has_tty" -eq 1 ] && [ "$_pw_enter" -eq 0 ]; then
-      : > "$_PW_STOPPED"
-      for _pw_pid in $_PW_WORKERS; do
-        kill -TERM "$_pw_pid" 2>/dev/null || true
-      done
-    else
-      [ "$_pw_has_tty" -eq 1 ] || sleep 1
-    fi
-    _pw_elapsed=$((_pw_elapsed + 1))
-    if [ $((_pw_elapsed % 10)) -eq 0 ]; then
-      if [ "$_pw_has_tty" -eq 1 ]; then
-        info "Parallel wordlist scans running (${_pw_elapsed}s, $_pw_active active) — press ENTER to stop all"
+      if [ "$_pw_has_tty" -eq 1 ] && [ "$_pw_enter" -eq 0 ]; then
+        : > "$_PW_STOPPED"
+        for _pw_pid in $_PW_WORKERS; do
+          kill -TERM "$_pw_pid" 2>/dev/null || true
+        done
       else
-        info "Parallel wordlist scans running (${_pw_elapsed}s, $_pw_active active)"
+        [ "$_pw_has_tty" -eq 1 ] || sleep 1
       fi
+      _pw_elapsed=$((_pw_elapsed + 1))
+      if [ $((_pw_elapsed % 10)) -eq 0 ]; then
+        if [ "$_pw_has_tty" -eq 1 ]; then
+          info "Parallel wordlist scans running (${_pw_elapsed}s, $_pw_active active) — press ENTER to stop all"
+        else
+          info "Parallel wordlist scans running (${_pw_elapsed}s, $_pw_active active)"
+        fi
+      fi
+    done
+
+    for _pw_pid in $_PW_WORKERS; do wait "$_pw_pid" 2>/dev/null || true; done
+    for _pw_pid in $_PW_READERS; do wait "$_pw_pid" 2>/dev/null || true; done
+
+    if [ -f "$_PW_STOPPED" ]; then
+      warn "Parallel wordlist group stopped by user — continuing recon"
+      _rec "[WARN] Parallel wordlist scans stopped by user before completion"
     fi
-  done
-
-  for _pw_pid in $_PW_WORKERS; do wait "$_pw_pid" 2>/dev/null || true; done
-  for _pw_pid in $_PW_READERS; do wait "$_pw_pid" 2>/dev/null || true; done
-
-  if [ -f "$_PW_STOPPED" ]; then
-    warn "Parallel wordlist group stopped by user — continuing recon"
-    _rec "[WARN] Parallel wordlist scans stopped by user before completion"
   fi
 
+  # ── Status summary (both modes) ──
   for _pw_key in $_PW_KEYS; do
     _pw_label=$(cat "$_PW_TMP/${_pw_key}.label" 2>/dev/null || echo "$_pw_key")
     _pw_status=$(cat "$_PW_TMP/${_pw_key}.status" 2>/dev/null || echo 1)
@@ -1300,7 +1502,7 @@ sys.exit(0 if ready and os.read(fd, 1) else 1)'
     fi
   done
 
-  rm -f "$_PW_TMP"/*.fifo "$_PW_TMP"/*.status "$_PW_TMP"/*.label "$_PW_STOPPED" 2>/dev/null || true
+  rm -f "$_PW_TMP"/*.fifo "$_PW_TMP"/*.status "$_PW_TMP"/*.label "$_PW_TMP"/*_run.sh "$_PW_TMP"/*_capture.txt "$_PW_STOPPED" 2>/dev/null || true
   rmdir "$_PW_TMP" 2>/dev/null || true
 
   info "Wordlist scans completed ($(_elapsed))"
@@ -2371,11 +2573,11 @@ if [ -n "$PHASE" ]; then
   esac
   phase_report
 else
-  _prepare_privileges
-  phase_ports
   if [ "$FAST" -eq 0 ]; then
     _start_wordlist_companion || true
   fi
+  _prepare_privileges
+  phase_ports
   phase_web
   [ "$FAST" -eq 0 ] && phase_services
   [ "$FAST" -eq 0 ] && _finish_wordlist_companion
