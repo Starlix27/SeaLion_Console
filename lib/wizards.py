@@ -498,44 +498,23 @@ def _wf_ask_multi(prompt: str, options: list[tuple]) -> list[int]:
         print(f"  Inserisci numeri da 1 a {len(options)} separati da spazi.")
 
 
-def _print_wordfind_full_result(url: str, sections: list[tuple[str, dict]]) -> list[tuple[str, str]]:
-    print(f"\n  \033[92m┌─ wordfind --full ──────────────────────────┐\033[0m")
-    print(f"\n  Target: \033[94m{url}\033[0m\n")
 
-    all_commands: list[tuple[str, str]] = []
-    cmd_num = 0
-    for scope_label, result in sections:
-        print(f"  \033[93;1m══ {scope_label} ══\033[0m")
-        if result.get("wordlists"):
-            for key in result["wordlists"]:
-                print(f"    \033[90m↳ {_wl_label(key)}\033[0m")
-            print()
-        if result.get("commands"):
-            for tool_name, cmd in result["commands"]:
-                cmd_num += 1
-                all_commands.append((f"{scope_label} · {tool_name}", cmd))
-                print(f"    \033[96m# [{cmd_num}] {tool_name}\033[0m")
-                if len(cmd) > 90:
-                    parts = cmd.split(" -", 1)
-                    if len(parts) == 2:
-                        print(f"    {parts[0]} \\")
-                        flags = (" -" + parts[1]).split(" -")
-                        for j, flag in enumerate(flags):
-                            flag = flag.strip()
-                            if flag:
-                                suffix = " \\" if j < len(flags) - 1 else ""
-                                print(f"      -{flag}{suffix}")
-                    else:
-                        print(f"    {cmd}")
-                else:
-                    print(f"    {cmd}")
-                print()
+
+def _print_cmd(cmd: str) -> None:
+    if len(cmd) > 90:
+        parts = cmd.split(" -", 1)
+        if len(parts) == 2:
+            print(f"    {parts[0]} \\")
+            flags = (" -" + parts[1]).split(" -")
+            for j, flag in enumerate(flags):
+                flag = flag.strip()
+                if flag:
+                    suffix = " \\" if j < len(flags) - 1 else ""
+                    print(f"      -{flag}{suffix}")
         else:
-            print()
-
-    print(f"  \033[1m{cmd_num} comandi\033[0m generati per \033[1m{len(sections)}\033[0m categorie")
-    print(f"\n  \033[92m└────────────────────────────────────────────┘\033[0m")
-    return all_commands
+            print(f"    {cmd}")
+    else:
+        print(f"    {cmd}")
 
 
 def _launch_commands(commands: list[tuple[str, str]]) -> None:
@@ -624,7 +603,10 @@ def cmd_wordfind_full(args: argparse.Namespace) -> int:
 
     target = _parse_target(url)
 
-    choices = _wf_ask_multi("Quali scan vuoi lanciare?", _SCOPE_MENU)
+    print(f"\n  \033[92m┌─ wordfind --full ──────────────────────────┐\033[0m")
+    print(f"\n  Target: \033[94m{url}\033[0m")
+
+    choices = _wf_ask_multi("Quali scan vuoi includere?", _SCOPE_MENU)
     if not choices:
         return 0
 
@@ -634,10 +616,8 @@ def cmd_wordfind_full(args: argparse.Namespace) -> int:
     intensity = _INTENSITY_GENERIC[int_choice - 1][0]
 
     sections: list[tuple[str, dict]] = []
-
     for idx in choices:
         scope_key, scope_label = _SCOPE_MENU[idx - 1]
-
         if scope_key == "dir":
             result = _build_dir_result(target, "generic", [], intensity)
         elif scope_key == "sub":
@@ -658,36 +638,62 @@ def cmd_wordfind_full(args: argparse.Namespace) -> int:
             result = _build_api_result(target, "rest", intensity)
         else:
             continue
+        sections.append((scope_label, result))
 
-        sections.append((f"[{idx}] {scope_label}", result))
+    to_launch: list[tuple[str, str]] = []
 
-    all_commands = _print_wordfind_full_result(url, sections)
+    for scope_label, result in sections:
+        cmds = result.get("commands", [])
+        if not cmds:
+            continue
 
-    if not all_commands:
+        print(f"\n  \033[93;1m══ {scope_label} ══\033[0m\n")
+        for i, (tool_name, cmd) in enumerate(cmds, 1):
+            print(f"    [{i}] \033[96m{tool_name}\033[0m")
+            _print_cmd(cmd)
+            print()
+
+        print(f"    [0] Salta questa categoria\n")
+        while True:
+            try:
+                raw = input(f"  Quale tool per {scope_label}? [1]: ").strip()
+            except (EOFError, KeyboardInterrupt):
+                print()
+                return 0
+            if not raw:
+                raw = "1"
+            if raw == "0":
+                break
+            if raw.isdigit() and 1 <= int(raw) <= len(cmds):
+                pick = int(raw) - 1
+                tool_name, cmd = cmds[pick]
+                to_launch.append((f"{scope_label} · {tool_name}", cmd))
+                print(f"  \033[92m✓\033[0m {tool_name}")
+                break
+            print(f"  Inserisci un numero da 0 a {len(cmds)}.")
+
+    if not to_launch:
+        print("\n  Nessun comando selezionato.")
         return 0
 
-    print(f"\n  Quali comandi vuoi lanciare in shell separate?")
-    print(f"  Scrivi i numeri (es. 1 3 7), * per tutti, q per nessuno\n")
-    while True:
-        try:
-            raw = input("  Lancia: ").strip()
-        except (EOFError, KeyboardInterrupt):
-            print()
-            return 0
-        if raw.lower() in {"q", "quit", "exit", "n", "no", ""}:
-            return 0
-        if raw in {"*", "all", "tutto"}:
-            to_launch = list(range(len(all_commands)))
-            break
-        parts = raw.replace(",", " ").split()
-        if all(p.isdigit() and 1 <= int(p) <= len(all_commands) for p in parts) and parts:
-            to_launch = [int(p) - 1 for p in parts]
-            break
-        print(f"  Inserisci numeri da 1 a {len(all_commands)} separati da spazi.")
+    print(f"\n  \033[1mRiepilogo — {len(to_launch)} comandi da lanciare:\033[0m\n")
+    for i, (label, cmd) in enumerate(to_launch, 1):
+        print(f"    \033[96m{i}. {label}\033[0m")
+        _print_cmd(cmd)
+        print()
 
-    selected = [all_commands[i] for i in to_launch]
+    print(f"  \033[92m└────────────────────────────────────────────┘\033[0m\n")
+
+    try:
+        raw = input("  Avvia le shell? [S/n]: ").strip().lower()
+    except (EOFError, KeyboardInterrupt):
+        print()
+        return 0
+    if raw in {"n", "no"}:
+        return 0
+
     print()
-    _launch_commands(selected)
+    _launch_commands(to_launch)
     return 0
 
 
