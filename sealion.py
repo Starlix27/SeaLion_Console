@@ -3912,7 +3912,7 @@ def _pet_help() -> None:
     pet annoy            Infastidisci (-5 felicità, GRRRRRRR)
     pet spin             Barrel roll in GIF (come Ctrl+C)
     pet say <testo>      Fai dire qualcosa al sealion
-    pet game             Minigiochi (indovina, morra cinese, testa o croce)
+    pet game             Minigiochi (blackjack, indovina, wordle, 8ball)
     pet name <nome>      Rinomina il sealion
 
   Le statistiche partono al 50% e scendono piano ogni giorno, ma mai
@@ -4043,77 +4043,207 @@ def _pet_spin_action(pet: dict) -> None:
     print(f"\n  \033[92m✓\033[0m {random.choice(_PET_HAPPY_LINES)}  (\033[95m+6 felicità\033[0m)")
 
 
-def _pet_game_guess(pet: dict) -> bool | str | None:
-    secret = random.randint(1, 10)
-    print("\n  \033[96mIndovina il numero\033[0m (1-10). Il sealion ha già scelto...")
-    try:
-        raw = input("  Il tuo numero [q per uscire]: ").strip().lower()
-    except (EOFError, KeyboardInterrupt):
-        print()
-        return None
-    if raw in {"q", "quit", "exit"}:
-        return None
-    if not raw.isdigit() or not 1 <= int(raw) <= 10:
-        print("  \033[93mNumero non valido.\033[0m")
+def _pet_game_blackjack(pet: dict) -> bool | str | None:
+    def card_value(card: str) -> int:
+        if card in ("J", "Q", "K"):
+            return 10
+        if card == "A":
+            return 11
+        return int(card)
+
+    def hand_total(hand: list[str]) -> int:
+        total = sum(card_value(c) for c in hand)
+        aces = hand.count("A")
+        while total > 21 and aces:
+            total -= 10
+            aces -= 1
+        return total
+
+    def show_hand(label: str, hand: list[str], hide_second: bool = False) -> None:
+        if hide_second and len(hand) >= 2:
+            cards = f"\033[1m{hand[0]}\033[0m  \033[90m[?]\033[0m"
+            print(f"  {label}: {cards}")
+        else:
+            cards = "  ".join(f"\033[1m{c}\033[0m" for c in hand)
+            print(f"  {label}: {cards}  ({hand_total(hand)})")
+
+    deck = ["A", "2", "3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K"] * 4
+    random.shuffle(deck)
+    player = [deck.pop(), deck.pop()]
+    dealer = [deck.pop(), deck.pop()]
+
+    print("\n  \033[96mBlackjack\033[0m contro il sealion!\n")
+    show_hand("Tu     ", player)
+    show_hand("Dealer ", dealer, hide_second=True)
+
+    while hand_total(player) < 21:
+        try:
+            raw = input("\n  [h]it o [s]tand [q esci]: ").strip().lower()
+        except (EOFError, KeyboardInterrupt):
+            print()
+            return None
+        if raw in {"q", "quit", "exit"}:
+            return None
+        if raw in {"h", "hit"}:
+            player.append(deck.pop())
+            show_hand("Tu     ", player)
+            show_hand("Dealer ", dealer, hide_second=True)
+        elif raw in {"s", "stand"}:
+            break
+        else:
+            print("  \033[93mScrivi h (hit) o s (stand).\033[0m")
+
+    pt = hand_total(player)
+    if pt > 21:
+        show_hand("\n  Dealer ", dealer)
+        print("  \033[91mSballato! Hai perso.\033[0m")
         return False
-    if int(raw) == secret:
-        print(f"  \033[92mEsatto! Era {secret}!\033[0m")
+
+    print()
+    show_hand("Tu     ", player)
+    while hand_total(dealer) < 17:
+        dealer.append(deck.pop())
+    show_hand("Dealer ", dealer)
+    dt = hand_total(dealer)
+
+    if dt > 21:
+        print("  \033[92mDealer sballato! Hai vinto!\033[0m")
         return True
-    print(f"  \033[91mSbagliato! Era {secret}.\033[0m")
-    return False
-
-
-def _pet_game_rps(pet: dict) -> bool | str | None:
-    options = {"s": "sasso", "c": "carta", "f": "forbici"}
-    print("\n  \033[96mMorra cinese\033[0m contro il sealion. [s]asso [c]arta [f]orbici")
-    try:
-        raw = input("  La tua mossa [q per uscire]: ").strip().lower()
-    except (EOFError, KeyboardInterrupt):
-        print()
-        return None
-    if raw in {"q", "quit", "exit"}:
-        return None
-    if raw not in options:
-        print("  \033[93mMossa non valida.\033[0m")
-        return False
-    seal = random.choice(list(options))
-    print(f"  Tu: \033[1m{options[raw]}\033[0m   Sealione: \033[1m{options[seal]}\033[0m")
-    if raw == seal:
-        print("  \033[93mPareggio!\033[0m")
-        return "draw"
-    win = (raw == "s" and seal == "f") or (raw == "f" and seal == "c") or (raw == "c" and seal == "s")
-    if win:
+    if pt > dt:
         print("  \033[92mHai vinto!\033[0m")
         return True
-    print("  \033[91mHa vinto il sealione!\033[0m")
+    if pt == dt:
+        print("  \033[93mPareggio!\033[0m")
+        return "draw"
+    print("  \033[91mHa vinto il dealer!\033[0m")
     return False
 
 
-def _pet_game_coin(pet: dict) -> bool | str | None:
-    print("\n  \033[96mTesta o croce\033[0m. Il sealion lancia la moneta.")
+def _pet_game_guess(pet: dict) -> bool | str | None:
+    secret = random.randint(1, 100)
+    max_tries = 7
+    print(f"\n  \033[96mIndovina il numero\033[0m (1-100). Hai {max_tries} tentativi!")
+    for attempt in range(1, max_tries + 1):
+        try:
+            raw = input(f"  [{attempt}/{max_tries}] Il tuo numero [q esci]: ").strip().lower()
+        except (EOFError, KeyboardInterrupt):
+            print()
+            return None
+        if raw in {"q", "quit", "exit"}:
+            return None
+        if not raw.isdigit() or not 1 <= int(raw) <= 100:
+            print("  \033[93mInserisci un numero da 1 a 100.\033[0m")
+            continue
+        guess = int(raw)
+        if guess == secret:
+            print(f"  \033[92mEsatto! Era {secret}! Indovinato al tentativo {attempt}!\033[0m")
+            return True
+        if guess < secret:
+            print(f"  \033[93mTroppo basso!\033[0m")
+        else:
+            print(f"  \033[93mTroppo alto!\033[0m")
+    print(f"  \033[91mFiniti i tentativi! Il numero era {secret}.\033[0m")
+    return False
+
+
+_WORDLE_WORDS = [
+    "amico", "bravo", "campo", "dente", "fuoco", "gatto", "hotel", "jolly",
+    "karma", "lampo", "mango", "notte", "omega", "panda", "quasi", "rosso",
+    "salto", "torre", "ultra", "vento", "yacht", "zaino", "album", "banca",
+    "carne", "dolce", "freno", "globo", "igloo", "jumbo", "linea", "mondo",
+    "nuoto", "osare", "piano", "quota", "ritmo", "sedia", "treno", "umore",
+    "verde", "birra", "cielo", "dieta", "fango", "gonna", "input", "jeans",
+    "lento", "media", "nervo", "opera", "perla", "radio", "spada", "tango",
+    "volpe", "zebra", "acido", "buono", "corsa", "etnia", "fibra", "gente",
+    "humus", "joker", "ladro", "miele", "onice", "porta", "razza", "sogno",
+    "turbo", "usura", "vigna", "cover", "drago", "falco", "laser", "metro",
+    "ninja", "olive", "pixel", "robot", "scala", "tigre", "virus", "ballo",
+    "corda", "disco", "fonte", "gioco", "hobby", "isola", "libro", "mappa",
+    "pizza", "sport", "tempo", "umido", "video", "bomba", "torta", "scudo",
+    "menta", "fiore", "gusto", "nonna", "punto", "legno", "fuori", "vetro",
+    "sonno", "barba", "carta", "ferro", "ruota", "volto", "morso", "polso",
+    "serpe", "trama", "croce", "lungo", "mosca", "piuma", "ragno", "sfera",
+    "notte", "brace", "acqua", "avena", "canto", "fosso", "grido", "lembo",
+]
+
+def _pet_game_wordle(pet: dict) -> bool | str | None:
+    word = random.choice(_WORDLE_WORDS).lower()
+    wlen = len(word)
+    max_tries = 6
+    print(f"\n  \033[96mWoordle\033[0m — Indovina la parola di {wlen} lettere! ({max_tries} tentativi)")
+    print(f"  \033[92m█\033[0m = lettera giusta al posto giusto")
+    print(f"  \033[93m█\033[0m = lettera giusta, posto sbagliato")
+    print(f"  \033[90m█\033[0m = lettera non presente\n")
+
+    for attempt in range(1, max_tries + 1):
+        try:
+            raw = input(f"  [{attempt}/{max_tries}] Parola ({wlen} lettere) [q esci]: ").strip().lower()
+        except (EOFError, KeyboardInterrupt):
+            print()
+            return None
+        if raw in {"q", "quit", "exit"}:
+            return None
+        if len(raw) != wlen:
+            print(f"  \033[93mLa parola deve essere di {wlen} lettere.\033[0m")
+            continue
+
+        result = []
+        remaining = list(word)
+        colors = [None] * wlen
+        for i in range(wlen):
+            if raw[i] == word[i]:
+                colors[i] = "\033[92m"
+                remaining[i] = None
+        for i in range(wlen):
+            if colors[i]:
+                continue
+            if raw[i] in remaining:
+                colors[i] = "\033[93m"
+                remaining[remaining.index(raw[i])] = None
+            else:
+                colors[i] = "\033[90m"
+        display = "  "
+        for i in range(wlen):
+            display += f" {colors[i]}{raw[i].upper()}\033[0m"
+        print(display)
+
+        if raw == word:
+            print(f"\n  \033[92mBravo! Indovinata in {attempt} tentativi!\033[0m")
+            return True
+
+    print(f"\n  \033[91mFiniti i tentativi! La parola era: \033[1m{word.upper()}\033[0m")
+    return False
+
+
+_8BALL_ANSWERS = [
+    "Sicuramente sì!", "Senza dubbio.", "Molto probabile.",
+    "Il sealion dice sì.", "Assolutamente!", "Le stelle dicono sì.",
+    "Puoi contarci.", "È certo.", "Il destino sorride.",
+    "Forse...", "Chiedi di nuovo.", "Non è chiaro.",
+    "Il sealion sta pensando...", "Concentrati e richiedi.",
+    "Non contarci.", "Il sealion dice no.", "Molto improbabile.",
+    "Le stelle dicono di no.", "Assolutamente no.", "Non ci sperare.",
+]
+
+def _pet_game_8ball(pet: dict) -> bool | str | None:
+    print("\n  \033[96m8Ball\033[0m — Fai una domanda al sealion e lui vedrà il futuro!")
     try:
-        raw = input("  [t]esta o [c]roce [q per uscire]: ").strip().lower()
+        raw = input("  La tua domanda [q esci]: ").strip()
     except (EOFError, KeyboardInterrupt):
         print()
         return None
-    if raw in {"q", "quit", "exit"}:
+    if raw.lower() in {"q", "quit", "exit"} or not raw:
         return None
-    if raw not in {"t", "c"}:
-        print("  \033[93mScelta non valida.\033[0m")
-        return False
-    flip = random.choice(["t", "c"])
-    print(f"  È uscita: \033[1m{'testa' if flip == 't' else 'croce'}\033[0m")
-    if raw == flip:
-        print("  \033[92mHai indovinato!\033[0m")
-        return True
-    print("  \033[91mNon era quella.\033[0m")
-    return False
+    answer = random.choice(_8BALL_ANSWERS)
+    print(f"\n  \033[95m🎱 {answer}\033[0m")
+    return "draw"
 
 
 _PET_GAMES = {
-    "1": ("Indovina il numero", _pet_game_guess),
-    "2": ("Morra cinese", _pet_game_rps),
-    "3": ("Testa o croce", _pet_game_coin),
+    "1": ("Blackjack", _pet_game_blackjack),
+    "2": ("Indovina il numero", _pet_game_guess),
+    "3": ("Wordle", _pet_game_wordle),
+    "4": ("8Ball", _pet_game_8ball),
 }
 
 
