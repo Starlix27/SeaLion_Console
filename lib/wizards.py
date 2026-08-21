@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import argparse
 import os
+import shlex
+import subprocess
 import sys
 
 
@@ -496,10 +498,11 @@ def _wf_ask_multi(prompt: str, options: list[tuple]) -> list[int]:
         print(f"  Inserisci numeri da 1 a {len(options)} separati da spazi.")
 
 
-def _print_wordfind_full_result(url: str, sections: list[tuple[str, dict]]) -> None:
+def _print_wordfind_full_result(url: str, sections: list[tuple[str, dict]]) -> list[tuple[str, str]]:
     print(f"\n  \033[92m┌─ wordfind --full ──────────────────────────┐\033[0m")
     print(f"\n  Target: \033[94m{url}\033[0m\n")
 
+    all_commands: list[tuple[str, str]] = []
     cmd_num = 0
     for scope_label, result in sections:
         print(f"  \033[93;1m══ {scope_label} ══\033[0m")
@@ -510,6 +513,7 @@ def _print_wordfind_full_result(url: str, sections: list[tuple[str, dict]]) -> N
         if result.get("commands"):
             for tool_name, cmd in result["commands"]:
                 cmd_num += 1
+                all_commands.append((f"{scope_label} · {tool_name}", cmd))
                 print(f"    \033[96m# [{cmd_num}] {tool_name}\033[0m")
                 if len(cmd) > 90:
                     parts = cmd.split(" -", 1)
@@ -531,6 +535,77 @@ def _print_wordfind_full_result(url: str, sections: list[tuple[str, dict]]) -> N
 
     print(f"  \033[1m{cmd_num} comandi\033[0m generati per \033[1m{len(sections)}\033[0m categorie")
     print(f"\n  \033[92m└────────────────────────────────────────────┘\033[0m")
+    return all_commands
+
+
+def _launch_commands(commands: list[tuple[str, str]]) -> None:
+    in_tmux = bool(os.environ.get("TMUX"))
+    if in_tmux:
+        for i, (label, cmd) in enumerate(commands):
+            if i == 0:
+                subprocess.run(
+                    ["tmux", "send-keys", cmd, "Enter"],
+                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                )
+            else:
+                subprocess.run(
+                    ["tmux", "split-window", "-v", "-l", "30%", cmd],
+                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                )
+            print(f"    \033[92m✓\033[0m {label}")
+        subprocess.run(
+            ["tmux", "select-layout", "tiled"],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        )
+        print(f"\n  Avviati \033[1m{len(commands)}\033[0m comandi in pane tmux")
+    else:
+        from shutil import which
+        launched = False
+        is_wsl = bool(os.environ.get("WSL_DISTRO_NAME") or os.path.exists("/proc/sys/fs/binfmt_misc/WSLInterop"))
+        wt_path = which("wt.exe") if is_wsl else None
+        if wt_path:
+            for label, cmd in commands:
+                shell_cmd = cmd + '; echo; echo "\\033[92m[✓] Completato. INVIO per chiudere.\\033[0m"; read _'
+                subprocess.Popen(
+                    [wt_path, "new-tab", "--title", label, "wsl.exe", "-e", "sh", "-c", shell_cmd],
+                    start_new_session=True,
+                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                )
+                print(f"    \033[92m✓\033[0m {label}")
+            launched = True
+        if not launched:
+            for term in ("x-terminal-emulator", "gnome-terminal", "konsole", "xfce4-terminal", "xterm"):
+                term_path = which(term)
+                if not term_path:
+                    continue
+                for label, cmd in commands:
+                    shell_cmd = cmd + '; echo; echo "\\033[92m[✓] Completato. INVIO per chiudere.\\033[0m"; read _'
+                    if term == "gnome-terminal":
+                        subprocess.Popen(
+                            [term_path, "--title", label, "--", "sh", "-c", shell_cmd],
+                            start_new_session=True,
+                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                        )
+                    elif term == "konsole":
+                        subprocess.Popen(
+                            [term_path, "--title", label, "-e", "sh", "-c", shell_cmd],
+                            start_new_session=True,
+                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                        )
+                    else:
+                        subprocess.Popen(
+                            [term_path, "-e", "sh", "-c", shell_cmd],
+                            start_new_session=True,
+                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                        )
+                    print(f"    \033[92m✓\033[0m {label}")
+                launched = True
+                break
+        if launched:
+            print(f"\n  Avviati \033[1m{len(commands)}\033[0m comandi in finestre separate")
+        else:
+            print("\n  \033[91mNessun terminale trovato (tmux, wt.exe, gnome-terminal, ...).\033[0m")
+            print("  Copia i comandi manualmente dall'elenco sopra.")
 
 
 def cmd_wordfind_full(args: argparse.Namespace) -> int:
@@ -586,7 +661,33 @@ def cmd_wordfind_full(args: argparse.Namespace) -> int:
 
         sections.append((f"[{idx}] {scope_label}", result))
 
-    _print_wordfind_full_result(url, sections)
+    all_commands = _print_wordfind_full_result(url, sections)
+
+    if not all_commands:
+        return 0
+
+    print(f"\n  Quali comandi vuoi lanciare in shell separate?")
+    print(f"  Scrivi i numeri (es. 1 3 7), * per tutti, q per nessuno\n")
+    while True:
+        try:
+            raw = input("  Lancia: ").strip()
+        except (EOFError, KeyboardInterrupt):
+            print()
+            return 0
+        if raw.lower() in {"q", "quit", "exit", "n", "no", ""}:
+            return 0
+        if raw in {"*", "all", "tutto"}:
+            to_launch = list(range(len(all_commands)))
+            break
+        parts = raw.replace(",", " ").split()
+        if all(p.isdigit() and 1 <= int(p) <= len(all_commands) for p in parts) and parts:
+            to_launch = [int(p) - 1 for p in parts]
+            break
+        print(f"  Inserisci numeri da 1 a {len(all_commands)} separati da spazi.")
+
+    selected = [all_commands[i] for i in to_launch]
+    print()
+    _launch_commands(selected)
     return 0
 
 
@@ -595,6 +696,41 @@ def cmd_wordfind(args: argparse.Namespace, state=None) -> int:
         return cmd_wordfind_full(args)
 
     url = getattr(args, "url", None) or ""
+
+    if url in {"help", "-h", "--help", "h"}:
+        print("""
+  \033[95mwordfind\033[0m — Wizard wordlist per fuzzing e bruteforce
+
+    wordfind [url]           Wizard guidato: scegli scope, tecnologia,
+                             intensità e ottieni comandi pronti
+
+    wordfind --full [url]    Seleziona più scope insieme (es. 1 2 4 5),
+                             scegli l'intensità una volta, vedi i comandi
+                             e lancia quelli che vuoi in shell separate
+
+  \033[1mScope disponibili:\033[0m
+
+    [1] Directory / file     gobuster, ffuf, dirb, feroxbuster, wfuzz, dirsearch
+    [2] Sottodomini          gobuster dns, ffuf vhost, amass, dnsenum
+    [3] Virtual host         gobuster vhost, ffuf Host header, wfuzz
+    [4] Parametri GET/POST   ffuf, wfuzz, arjun
+    [5] Username             wordlist username (top, names, xato)
+    [6] Password             hydra, ffuf, medusa, hashcat, john
+    [7] API endpoint         ffuf, gobuster, wfuzz, feroxbuster
+
+  \033[1mIntensità:\033[0m
+
+    fast      ⚡  Wordlist piccole (~5k), scan veloce
+    medium    ⚖️   Wordlist medie (~20k), buon compromesso
+    full      🔍  Wordlist grandi (~220k), esaustivo
+
+  \033[1mEsempi:\033[0m
+
+    wordfind 10.10.11.42          Wizard singolo scope
+    wordfind --full 10.10.11.42   Multi-scope (scrivi "1 2 3" o "*")
+""")
+        return 0
+
     if not url:
         try:
             url = input("\n  Target URL: ").strip()
