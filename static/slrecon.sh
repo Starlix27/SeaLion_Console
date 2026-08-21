@@ -1292,9 +1292,9 @@ phase_wordlists() {
   _PW_COUNT=0
   _PW_STOPPED="$_PW_TMP/stopped"
 
-  # Detect tmux for pane-based layout
+  # Detect tmux for pane-based layout (detached session, no TTY needed)
   _USE_TMUX_WL=0
-  if _has tmux && [ -t 0 ] && [ -t 1 ]; then
+  if _has tmux; then
     _USE_TMUX_WL=1
     _init_tmux_wordlists
     info "tmux rilevato — gli scanner gireranno in pane separati"
