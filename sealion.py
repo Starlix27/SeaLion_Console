@@ -12,6 +12,9 @@ import textwrap
 import subprocess
 import sys
 import shlex
+import json
+import time
+from datetime import date
 from dataclasses import dataclass, field
 from pathlib import Path
 from shutil import get_terminal_size, which
@@ -52,6 +55,7 @@ NOTES_ROOT = PROJECT_ROOT / "notes"
 INSTALL_ROOT = Path.home() / ".sealionconsole" / "tools"
 USER_BIN = Path.home() / ".local" / "bin"
 GIF_FILE = PROJECT_ROOT / "assets" / "spinning.gif"
+PET_FILE = Path.home() / ".sealionconsole" / "pet.json"
 
 
 @dataclass
@@ -352,6 +356,7 @@ def print_help_text() -> None:
     print()
     print("  \033[92;1m— Terminale\033[0m")
     print("  sealsay [testo]    Stampa un messaggio in stile cowsay")
+    print("  pet [azione]       Il tuo sealion virtuale (pet help)")
     print("  back               Torna alla console principale")
     print("  help               Mostra questo aiuto")
     print()
@@ -520,6 +525,9 @@ def build_parser() -> argparse.ArgumentParser:
     recon_p.add_argument("--wordlists", action="store_true", default=False)
     recon_p.add_argument("--phase", default=None)
     recon_p.add_argument("--no-ping", action="store_true", default=False)
+    pet_p = subparsers.add_parser("pet", add_help=False)
+    pet_p.add_argument("action", nargs="?", default=None)
+    pet_p.add_argument("message", nargs="*", default=[])
     return parser
 
 
@@ -535,7 +543,7 @@ def setup_readline() -> None:
 
 
 _COMPLETABLE = sorted(["sealsay", "list", "install", "use", "search", "vuln",
-                        "notes", "find", "back", "help", "serve", "loot", "wordfind", "passfind", "wordgen", "tunnel", "recon", "exit"])
+                        "notes", "find", "back", "help", "serve", "loot", "wordfind", "passfind", "wordgen", "tunnel", "recon", "pet", "exit"])
 _input_history: list[str] = []
 
 
@@ -793,6 +801,7 @@ def run_command(argv: list[str], state: ConsoleState | None = None) -> int:
         "wordgen": cmd_wordgen,
         "tunnel": cmd_tunnel,
         "recon": cmd_recon,
+        "pet": cmd_pet,
     }
     handler = handlers.get(args.command)
     if handler is None:
@@ -909,7 +918,7 @@ def run_console() -> int:
                     state.last_vuln_tools = _extract_vuln_tools(text)
                 continue
 
-        known_commands = {"sealsay", "list", "install", "use", "search", "vuln", "notes", "find", "back", "help", "?", "--version", "-h", "--help", "serve", "loot", "wordfind", "passfind", "wordgen", "tunnel", "recon"}
+        known_commands = {"sealsay", "list", "install", "use", "search", "vuln", "notes", "find", "back", "help", "?", "--version", "-h", "--help", "serve", "loot", "wordfind", "passfind", "wordgen", "tunnel", "recon", "pet"}
         if argv[0] not in known_commands:
             print("Comando non riconosciuto. Digita 'help' per i comandi.")
             continue
@@ -3850,6 +3859,339 @@ def cmd_recon(args: argparse.Namespace, state: ConsoleState | None = None) -> in
         return completed.returncode
 
     return 0
+
+
+# ── Pet ──────────────────────────────────────────────────────────────────────
+
+_PET_SAD_LINE = "Very Sad Sealion :("
+_PET_HAPPY_LINES = ["Auh! Auh!", "*batte le pinne contento*", "*piroetta*", "Ouh! Ouh!"]
+_PET_ANNOY_LINES = [
+    "GRRRRRRR",
+    "AAAAAAAAAAAAAAAA",
+    "Gli hai rubato la coda... {name} non è felice",
+    "{name} ti fissa male...",
+    "*scappa sotto la console*",
+    "Auh! Auh! AUH!",
+]
+
+_PET_SPIN_FRAMES = [
+    [
+        "   .--.",
+        "  ( o  \\__",
+        "   \\      \\",
+        "    '--'-'",
+    ],
+    [
+        "    .-.",
+        "   ( o \\",
+        "    \\__ \\",
+        "     '-\\'",
+    ],
+    [
+        "   .--.",
+        " __/  o )",
+        "/      /",
+        "'-.__.-'",
+    ],
+    [
+        "    .-.",
+        "   / o )",
+        "  / __/",
+        " .'-/",
+    ],
+]
+
+
+def _pet_help() -> None:
+    print("""
+  \033[95mpet\033[0m — il tuo sealion virtuale (non muore mai)
+
+    pet                  Stato del sealion
+    pet feed             Nutrisci (1 volta al giorno: AAAAAA)
+    pet play             Gioca con lui (+felicità)
+    pet annoy            Infastidisci (-5 felicità, GRRRRRRR)
+    pet spin             Barrel roll in GIF (come Ctrl+C)
+    pet say <testo>      Fai dire qualcosa al sealion
+    pet game             Minigiochi (indovina, morra cinese, testa o croce)
+    pet name <nome>      Rinomina il sealion
+
+  Le statistiche partono al 50% e scendono piano ogni giorno, ma mai
+  sotto lo 0%: peggio di così diventa solo un Very Sad Sealion :(
+""")
+
+
+def _pet_default() -> dict:
+    return {"name": "SeaLion", "happiness": 50, "fullness": 50, "last_fed": "", "updated": 0.0}
+
+
+def _pet_load() -> dict:
+    pet = _pet_default()
+    try:
+        if PET_FILE.exists():
+            data = json.loads(PET_FILE.read_text(encoding="utf-8"))
+            if isinstance(data, dict):
+                for key in list(pet):
+                    if key in data:
+                        pet[key] = data[key]
+    except Exception:
+        pass
+    try:
+        updated = float(pet.get("updated") or 0.0)
+        days = int(max(0.0, time.time() - updated) // 86400) if updated > 0 else 0
+    except Exception:
+        days = 0
+    if days > 0:
+        pet["happiness"] = int(pet["happiness"]) - days * 5
+        pet["fullness"] = int(pet["fullness"]) - days * 10
+    pet["happiness"] = min(100, max(0, int(pet["happiness"])))
+    pet["fullness"] = min(100, max(0, int(pet["fullness"])))
+    return pet
+
+
+def _pet_save(pet: dict) -> None:
+    pet["updated"] = time.time()
+    try:
+        PET_FILE.parent.mkdir(parents=True, exist_ok=True)
+        PET_FILE.write_text(json.dumps(pet, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    except Exception:
+        pass
+
+
+def _pet_add(pet: dict, key: str, delta: int) -> None:
+    pet[key] = min(100, max(0, int(pet[key]) + delta))
+
+
+def _pet_bar(value: int, width: int = 22) -> str:
+    filled = round(value / 100 * width)
+    color = "\033[92m" if value >= 60 else "\033[93m" if value >= 30 else "\033[91m"
+    return f"{color}{'█' * filled}\033[90m{'░' * (width - filled)}\033[0m"
+
+
+def _pet_mood(pet: dict) -> str:
+    h = int(pet["happiness"])
+    if h >= 80:
+        return "Estasiato"
+    if h >= 60:
+        return "Contento"
+    if h >= 40:
+        return "Ok"
+    if h > 0:
+        return "Triste"
+    return _PET_SAD_LINE
+
+
+def _pet_show(pet: dict) -> None:
+    fed = str(pet.get("last_fed") or "mai")
+    fed_today = fed == date.today().isoformat()
+    print()
+    print_sealsay(str(pet["name"]))
+    print()
+    print("  \033[95m┌─ SeaLion Pet ─────────────────────────────┐\033[0m")
+    print(f"  Nome:         \033[1m{pet['name']}\033[0m")
+    print(f"  Felicità      {_pet_bar(int(pet['happiness']))} {int(pet['happiness'])}%")
+    print(f"  Sazietà       {_pet_bar(int(pet['fullness']))} {int(pet['fullness'])}%")
+    print(f"  Umore:        \033[1m{_pet_mood(pet)}\033[0m")
+    print(f"  Ultimo pasto: {fed}" + ("  \033[92m✓ oggi\033[0m" if fed_today else ""))
+    print("  \033[95m└───────────────────────────────────────────┘\033[0m")
+    if int(pet["happiness"]) == 0:
+        print_sealsay(_PET_SAD_LINE)
+
+
+def _pet_feed(pet: dict) -> None:
+    today = date.today().isoformat()
+    if pet.get("last_fed") != today:
+        pet["last_fed"] = today
+        _pet_add(pet, "fullness", 35)
+        _pet_add(pet, "happiness", 15)
+        _pet_save(pet)
+        print_sealsay("AAAAAA")
+        print("\n  \033[92m✓\033[0m Pasto giornaliero! (+35 sazietà, +15 felicità)")
+    else:
+        _pet_add(pet, "fullness", 5)
+        _pet_save(pet)
+        print_sealsay("*burp* ... hai già mangiato oggi!")
+        print("\n  \033[92m✓\033[0m Spuntino extra (+5 sazietà)")
+
+
+def _pet_play(pet: dict) -> None:
+    _pet_add(pet, "happiness", 12)
+    _pet_add(pet, "fullness", -6)
+    _pet_save(pet)
+    reaction = _PET_SAD_LINE if int(pet["happiness"]) == 0 else random.choice(_PET_HAPPY_LINES)
+    print_sealsay(reaction)
+    print(f"\n  \033[92m✓\033[0m Giocato con {pet['name']} (+12 felicità, -6 sazietà)")
+
+
+def _pet_annoy(pet: dict) -> None:
+    _pet_add(pet, "happiness", -5)
+    _pet_save(pet)
+    phrase = random.choice(_PET_ANNOY_LINES).format(name=pet["name"])
+    print_sealsay(phrase)
+    mood = f" · {pet['name']}: \033[1m{_pet_mood(pet)}\033[0m" if int(pet["happiness"]) > 0 else ""
+    print(f"\n  \033[91m✗\033[0m Che noia! (-5 felicità{mood})")
+
+
+def _pet_spin_action(pet: dict) -> None:
+    if sys.stdin.isatty():
+        _play_ctrlc_gif()
+    else:
+        for line in _PET_SPIN_FRAMES[0]:
+            print(line)
+        print("~ barrel roll ~")
+    _pet_add(pet, "happiness", 6)
+    _pet_save(pet)
+    print(f"\n  \033[92m✓\033[0m {random.choice(_PET_HAPPY_LINES)}  (\033[95m+6 felicità\033[0m)")
+
+
+def _pet_game_guess(pet: dict) -> bool | str | None:
+    secret = random.randint(1, 10)
+    print("\n  \033[96mIndovina il numero\033[0m (1-10). Il sealion ha già scelto...")
+    try:
+        raw = input("  Il tuo numero [q per uscire]: ").strip().lower()
+    except (EOFError, KeyboardInterrupt):
+        print()
+        return None
+    if raw in {"q", "quit", "exit"}:
+        return None
+    if not raw.isdigit() or not 1 <= int(raw) <= 10:
+        print("  \033[93mNumero non valido.\033[0m")
+        return False
+    if int(raw) == secret:
+        print(f"  \033[92mEsatto! Era {secret}!\033[0m")
+        return True
+    print(f"  \033[91mSbagliato! Era {secret}.\033[0m")
+    return False
+
+
+def _pet_game_rps(pet: dict) -> bool | str | None:
+    options = {"s": "sasso", "c": "carta", "f": "forbici"}
+    print("\n  \033[96mMorra cinese\033[0m contro il sealion. [s]asso [c]arta [f]orbici")
+    try:
+        raw = input("  La tua mossa [q per uscire]: ").strip().lower()
+    except (EOFError, KeyboardInterrupt):
+        print()
+        return None
+    if raw in {"q", "quit", "exit"}:
+        return None
+    if raw not in options:
+        print("  \033[93mMossa non valida.\033[0m")
+        return False
+    seal = random.choice(list(options))
+    print(f"  Tu: \033[1m{options[raw]}\033[0m   Sealione: \033[1m{options[seal]}\033[0m")
+    if raw == seal:
+        print("  \033[93mPareggio!\033[0m")
+        return "draw"
+    win = (raw == "s" and seal == "f") or (raw == "f" and seal == "c") or (raw == "c" and seal == "s")
+    if win:
+        print("  \033[92mHai vinto!\033[0m")
+        return True
+    print("  \033[91mHa vinto il sealione!\033[0m")
+    return False
+
+
+def _pet_game_coin(pet: dict) -> bool | str | None:
+    print("\n  \033[96mTesta o croce\033[0m. Il sealion lancia la moneta.")
+    try:
+        raw = input("  [t]esta o [c]roce [q per uscire]: ").strip().lower()
+    except (EOFError, KeyboardInterrupt):
+        print()
+        return None
+    if raw in {"q", "quit", "exit"}:
+        return None
+    if raw not in {"t", "c"}:
+        print("  \033[93mScelta non valida.\033[0m")
+        return False
+    flip = random.choice(["t", "c"])
+    print(f"  È uscita: \033[1m{'testa' if flip == 't' else 'croce'}\033[0m")
+    if raw == flip:
+        print("  \033[92mHai indovinato!\033[0m")
+        return True
+    print("  \033[91mNon era quella.\033[0m")
+    return False
+
+
+_PET_GAMES = {
+    "1": ("Indovina il numero", _pet_game_guess),
+    "2": ("Morra cinese", _pet_game_rps),
+    "3": ("Testa o croce", _pet_game_coin),
+}
+
+
+def _pet_games(pet: dict) -> None:
+    while True:
+        print("\n  \033[95mMinigiochi del SeaLion:\033[0m")
+        for key, (label, _) in _PET_GAMES.items():
+            print(f"    [{key}] {label}")
+        print("    [q] Torna alla console")
+        try:
+            choice = input("  Scelta: ").strip().lower()
+        except (EOFError, KeyboardInterrupt):
+            print()
+            break
+        if choice in {"q", "quit", "exit", ""}:
+            break
+        if choice not in _PET_GAMES:
+            print("  \033[93mScelta non valida.\033[0m")
+            continue
+        _, game = _PET_GAMES[choice]
+        outcome = game(pet)
+        if outcome is None:
+            break
+        if outcome is True:
+            delta, note = 18, "+18 felicità"
+        elif outcome == "draw":
+            delta, note = 8, "+8 felicità"
+        else:
+            delta, note = 4, "+4 felicità"
+        _pet_add(pet, "happiness", delta)
+        _pet_save(pet)
+        print(f"  \033[92m✓\033[0m {note} · felicità {int(pet['happiness'])}% · umore: {_pet_mood(pet)}")
+        if int(pet["happiness"]) == 0:
+            print_sealsay(_PET_SAD_LINE)
+
+
+def cmd_pet(args: argparse.Namespace, state: ConsoleState | None = None) -> int:
+    action = getattr(args, "action", None)
+    message = " ".join(getattr(args, "message", []) or []).strip()
+    pet = _pet_load()
+
+    if action in {"help", "-h", "--help"}:
+        _pet_help()
+        return 0
+    if action in (None, "status"):
+        _pet_show(pet)
+        if action is None:
+            print("\n  Azioni: \033[94mfeed\033[0m · \033[94mplay\033[0m · \033[94mannoy\033[0m · \033[94mspin\033[0m · \033[94msay <testo>\033[0m · \033[94mgame\033[0m · \033[94mname <nome>\033[0m · \033[94mhelp\033[0m")
+        return 0
+    if action == "feed":
+        _pet_feed(pet)
+        return 0
+    if action == "play":
+        _pet_play(pet)
+        return 0
+    if action == "annoy":
+        _pet_annoy(pet)
+        return 0
+    if action == "spin":
+        _pet_spin_action(pet)
+        return 0
+    if action == "say":
+        print_sealsay(message or f"Auh! Sono {pet['name']}!")
+        return 0
+    if action == "game":
+        _pet_games(pet)
+        return 0
+    if action == "name":
+        if not message:
+            print("Uso: pet name <nuovo nome>")
+            return 1
+        old = pet["name"]
+        pet["name"] = message[:24]
+        _pet_save(pet)
+        print(f"  \033[92m✓\033[0m {old} si chiama ora \033[1m{pet['name']}\033[0m")
+        return 0
+    print(f"Azione pet sconosciuta: '{action}'. Vedi 'pet help'.")
+    return 1
 
 
 def main(argv: list[str] | None = None) -> int:

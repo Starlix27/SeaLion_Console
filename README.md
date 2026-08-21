@@ -90,6 +90,7 @@ slconsole> loot                   # Elenca file ricevuti dalla vulnbox
 slconsole> loot read <nome|num>   # Mostra contenuto di un file loot
 slconsole> wordfind http://target # Wizard wordlist per fuzzing/bruteforce
 slconsole> passfind               # Wizard password cracking
+slconsole> pet                    # Il tuo sealion virtuale
 slconsole> back                   # Torna alla console principale
 ```
 
@@ -317,6 +318,26 @@ Dalla CLI, ogni volta che si apre un file `.md` (con `vuln`, `notes` o `tool`), 
 ### Rendering Markdown
 
 I contenuti `.md` vengono renderizzati in stile Notion con syntax highlighting per i blocchi di codice, tabelle formattate e navigazione breadcrumb.
+
+---
+
+## Pet — Il tuo SeaLion virtuale (`pet`)
+
+Mascotte virtuale che vive nella console. **Non muore mai**: le statistiche partono al 50% e scendono lentamente ogni giorno, ma il minimo è 0% — peggio di così diventa solo un *Very Sad Sealion :(*.
+
+```
+slconsole> pet                  # Stato (felicità, sazietà, umore)
+slconsole> pet feed             # Nutrisci — 1 volta al giorno dice AAAAAA
+slconsole> pet play             # Gioca con lui (+felicità)
+slconsole> pet annoy            # Infastidisci (-5 felicità, GRRRRRRR)
+slconsole> pet spin             # Barrel roll in GIF (come Ctrl+C)
+slconsole> pet say <testo>      # Fai dire qualcosa al sealion
+slconsole> pet game             # Minigiochi: indovina il numero, morra cinese, testa o croce
+slconsole> pet name <nome>      # Rinomina il sealion
+slconsole> pet help             # Documentazione
+```
+
+Le statistiche sono salvate in un singolo file: `~/.sealionconsole/pet.json`.
 
 ---
 
