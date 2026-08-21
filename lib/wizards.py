@@ -276,12 +276,12 @@ def _build_dir_result(target: dict, tech_key: str, tech_exts: list[str], intensi
     url = target["base_path"]
 
     commands = []
-    commands.append(("gobuster", f"gobuster dir -u {url} -w {_wl_path(main_wl)} -x {ext_str} -t 50"))
-    commands.append(("ffuf", f"ffuf -u {url}/FUZZ -w {_wl_path(main_wl)} -e {ext_dot} -t 50 -c"))
+    commands.append(("gobuster", f"gobuster dir -u {url} -w {_wl_path(main_wl)} -x {ext_str} -t 50 --no-error"))
+    commands.append(("ffuf", f"ffuf -u {url}/FUZZ -w {_wl_path(main_wl)} -e {ext_dot} -t 50 -c -ac"))
     commands.append(("dirb", f"dirb {url} {_wl_path(main_wl)} -X {ext_dot}"))
-    commands.append(("feroxbuster", f"feroxbuster -u {url} -w {_wl_path(main_wl)} -x {ext_str} -t 50 -C 404"))
+    commands.append(("feroxbuster", f"feroxbuster -u {url} -w {_wl_path(main_wl)} -x {ext_str} -t 50 -C 404 --auto-tune"))
     commands.append(("wfuzz", f"wfuzz -u {url}/FUZZ -w {_wl_path(main_wl)} --hc 404 -t 50"))
-    commands.append(("dirsearch", f"dirsearch -u {url} -w {_wl_path(main_wl)} -e {ext_str} -t 50"))
+    commands.append(("dirsearch", f"dirsearch -u {url} -w {_wl_path(main_wl)} -e {ext_str} -t 50 --exclude-status 404"))
 
     return {"wordlists": wordlists + extras, "extensions": ext_dot, "commands": commands}
 
@@ -300,7 +300,7 @@ def _build_sub_result(target: dict, intensity: str) -> dict:
     main_wl = wordlists[0]
     commands = []
     commands.append(("gobuster", f"gobuster dns -d {domain} -w {_wl_path(main_wl)} -t 50"))
-    commands.append(("ffuf", f"ffuf -u http://FUZZ.{domain} -w {_wl_path(main_wl)} -c"))
+    commands.append(("ffuf", f"ffuf -u http://FUZZ.{domain} -w {_wl_path(main_wl)} -c -ac"))
     commands.append(("wfuzz", f"wfuzz -u http://FUZZ.{domain} -w {_wl_path(main_wl)} --hc 404 -t 50"))
     commands.append(("amass", f"amass enum -d {domain} -w {_wl_path(main_wl)}"))
     commands.append(("dnsenum", f"dnsenum --dnsserver 8.8.8.8 -f {_wl_path(main_wl)} {domain}"))
@@ -323,7 +323,7 @@ def _build_vhost_result(target: dict, intensity: str) -> dict:
     main_wl = wordlists[0]
     commands = []
     commands.append(("gobuster", f"gobuster vhost -u {base} -w {_wl_path(main_wl)} --append-domain -t 50"))
-    commands.append(("ffuf", f'ffuf -u {base} -H "Host: FUZZ.{domain}" -w {_wl_path(main_wl)} -c -fs 0'))
+    commands.append(("ffuf", f'ffuf -u {base} -H "Host: FUZZ.{domain}" -w {_wl_path(main_wl)} -c -ac'))
     commands.append(("wfuzz", f'wfuzz -u {base} -H "Host: FUZZ.{domain}" -w {_wl_path(main_wl)} --hc 404 -t 50'))
 
     return {"wordlists": wordlists, "commands": commands}
@@ -335,8 +335,8 @@ def _build_param_result(target: dict, intensity: str) -> dict:
 
     main_wl = wordlists[0]
     commands = []
-    commands.append(("ffuf GET", f'ffuf -u "{url}?FUZZ=test" -w {_wl_path(main_wl)} -c -fs 0'))
-    commands.append(("ffuf POST", f'ffuf -u {url} -X POST -d "FUZZ=test" -w {_wl_path(main_wl)} -c -fs 0'))
+    commands.append(("ffuf GET", f'ffuf -u "{url}?FUZZ=test" -w {_wl_path(main_wl)} -c -ac'))
+    commands.append(("ffuf POST", f'ffuf -u {url} -X POST -d "FUZZ=test" -w {_wl_path(main_wl)} -c -ac'))
     commands.append(("wfuzz GET", f'wfuzz -u "{url}?FUZZ=test" -w {_wl_path(main_wl)} --hc 404 -t 50'))
     commands.append(("arjun", f"arjun -u {url} -w {_wl_path(main_wl)}"))
 
@@ -415,10 +415,10 @@ def _build_api_result(target: dict, api_type: str, intensity: str) -> dict:
 
     main_wl = wordlists[0]
     commands = []
-    commands.append(("ffuf", f"ffuf -u {url}/FUZZ -w {_wl_path(main_wl)} -t 50 -c -mc all -fc 404"))
-    commands.append(("gobuster", f"gobuster dir -u {url} -w {_wl_path(main_wl)} -t 50"))
+    commands.append(("ffuf", f"ffuf -u {url}/FUZZ -w {_wl_path(main_wl)} -t 50 -c -ac"))
+    commands.append(("gobuster", f"gobuster dir -u {url} -w {_wl_path(main_wl)} -t 50 --no-error"))
     commands.append(("wfuzz", f"wfuzz -u {url}/FUZZ -w {_wl_path(main_wl)} --hc 404 -t 50"))
-    commands.append(("feroxbuster", f"feroxbuster -u {url} -w {_wl_path(main_wl)} -t 50 --no-recursion -C 404"))
+    commands.append(("feroxbuster", f"feroxbuster -u {url} -w {_wl_path(main_wl)} -t 50 --no-recursion -C 404 --auto-tune"))
 
     if api_type == "graphql":
         commands.append(("graphql introspection", f'curl -s -X POST {url} -H "Content-Type: application/json" -d \'{{"query":"{{__schema{{types{{name}}}}}}"}}\' | python3 -m json.tool'))

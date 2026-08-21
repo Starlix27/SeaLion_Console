@@ -816,6 +816,8 @@ def run_command(argv: list[str], state: ConsoleState | None = None) -> int:
 
 def run_console() -> int:
     state = ConsoleState()
+    sys.stdout.write("\033]0;SLConsole\007")
+    sys.stdout.flush()
     from lib.serve import _autostart_server
     _autostart_server()
     print_banner()
