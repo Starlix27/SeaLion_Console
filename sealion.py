@@ -3590,7 +3590,7 @@ def _print_recon_info(profile: str, target: str | None, phase: str | None = None
                     "  ↳ auto-calibration; thread ridotti per concorrenza",
                     f"timeout -k 5s {arjun_limit}s arjun -u <base>/ -q -t 10",
                     f"timeout -k 5s {nikto_limit}s nikto -h <base> -nointeractive -maxtime {nikto_limit}s -Tuning 123bde",
-                    "  ↳ se tmux disponibile: output in pane separati; altrimenti [tool:porta]",
+                    "  ↳ output con prefisso [tool:porta]",
                     "  ↳ INVIO ferma l'intero gruppo e continua la recon",
                 ])
             else:
