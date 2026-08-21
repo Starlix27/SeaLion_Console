@@ -500,6 +500,7 @@ def build_parser() -> argparse.ArgumentParser:
     loot_p.add_argument("target", nargs="?", default=None)
     wordfind_p = subparsers.add_parser("wordfind", add_help=False)
     wordfind_p.add_argument("url", nargs="?", default=None)
+    wordfind_p.add_argument("--full", action="store_true", default=False)
     subparsers.add_parser("passfind", add_help=False)
     subparsers.add_parser("wordgen", add_help=False)
     tunnel_p = subparsers.add_parser("tunnel", add_help=False)

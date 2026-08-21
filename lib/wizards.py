@@ -467,7 +467,133 @@ def _print_wordfind_result(result: dict) -> None:
     print(f"  \033[92m└────────────────────────────────────────────┘\033[0m")
 
 
+def _wf_ask_multi(prompt: str, options: list[tuple]) -> list[int]:
+    print(f"\n  \033[1m{prompt}\033[0m\n")
+    for i, opt in enumerate(options, 1):
+        label = opt[1] if len(opt) >= 2 else opt[0]
+        print(f"    [{i}] {label}")
+    print(f"\n  Scrivi i numeri separati da spazi (es. 1 2 4), * per tutti, q per uscire\n")
+    while True:
+        try:
+            raw = input("  Scelta: ").strip()
+        except (EOFError, KeyboardInterrupt):
+            print()
+            return []
+        if raw.lower() in {"q", "quit", "exit"}:
+            return []
+        if raw in {"*", "all", "tutto"}:
+            return list(range(1, len(options) + 1))
+        parts = raw.replace(",", " ").split()
+        if all(p.isdigit() and 1 <= int(p) <= len(options) for p in parts) and parts:
+            seen = set()
+            result = []
+            for p in parts:
+                n = int(p)
+                if n not in seen:
+                    seen.add(n)
+                    result.append(n)
+            return result
+        print(f"  Inserisci numeri da 1 a {len(options)} separati da spazi.")
+
+
+def _print_wordfind_full_result(url: str, sections: list[tuple[str, dict]]) -> None:
+    print(f"\n  \033[92m┌─ wordfind --full ──────────────────────────┐\033[0m")
+    print(f"\n  Target: \033[94m{url}\033[0m\n")
+
+    cmd_num = 0
+    for scope_label, result in sections:
+        print(f"  \033[93;1m══ {scope_label} ══\033[0m")
+        if result.get("wordlists"):
+            for key in result["wordlists"]:
+                print(f"    \033[90m↳ {_wl_label(key)}\033[0m")
+            print()
+        if result.get("commands"):
+            for tool_name, cmd in result["commands"]:
+                cmd_num += 1
+                print(f"    \033[96m# [{cmd_num}] {tool_name}\033[0m")
+                if len(cmd) > 90:
+                    parts = cmd.split(" -", 1)
+                    if len(parts) == 2:
+                        print(f"    {parts[0]} \\")
+                        flags = (" -" + parts[1]).split(" -")
+                        for j, flag in enumerate(flags):
+                            flag = flag.strip()
+                            if flag:
+                                suffix = " \\" if j < len(flags) - 1 else ""
+                                print(f"      -{flag}{suffix}")
+                    else:
+                        print(f"    {cmd}")
+                else:
+                    print(f"    {cmd}")
+                print()
+        else:
+            print()
+
+    print(f"  \033[1m{cmd_num} comandi\033[0m generati per \033[1m{len(sections)}\033[0m categorie")
+    print(f"\n  \033[92m└────────────────────────────────────────────┘\033[0m")
+
+
+def cmd_wordfind_full(args: argparse.Namespace) -> int:
+    url = getattr(args, "url", None) or ""
+    if not url:
+        try:
+            url = input("\n  Target URL: ").strip()
+        except (EOFError, KeyboardInterrupt):
+            print()
+            return 0
+    if not url:
+        print("Specifica un URL target.", file=sys.stderr)
+        return 1
+    if not url.startswith("http://") and not url.startswith("https://"):
+        url = "http://" + url
+
+    target = _parse_target(url)
+
+    choices = _wf_ask_multi("Quali scan vuoi lanciare?", _SCOPE_MENU)
+    if not choices:
+        return 0
+
+    int_choice = _wf_ask("Intensità?", _INTENSITY_GENERIC, default=2)
+    if int_choice == -1:
+        return 0
+    intensity = _INTENSITY_GENERIC[int_choice - 1][0]
+
+    sections: list[tuple[str, dict]] = []
+
+    for idx in choices:
+        scope_key, scope_label = _SCOPE_MENU[idx - 1]
+
+        if scope_key == "dir":
+            result = _build_dir_result(target, "generic", [], intensity)
+        elif scope_key == "sub":
+            result = _build_sub_result(target, intensity)
+        elif scope_key == "vhost":
+            result = _build_vhost_result(target, intensity)
+        elif scope_key == "param":
+            result = _build_param_result(target, intensity)
+        elif scope_key == "user":
+            result = _build_user_result(target, intensity)
+        elif scope_key == "pass":
+            ctx_choice = _wf_ask("Contesto password?", _PASS_CONTEXT_MENU)
+            if ctx_choice == -1:
+                return 0
+            context = _PASS_CONTEXT_MENU[ctx_choice - 1][0]
+            result = _build_pass_result(target, context, "en", "admin", intensity)
+        elif scope_key == "api":
+            result = _build_api_result(target, "rest", intensity)
+        else:
+            continue
+
+        sections.append((f"[{idx}] {scope_label}", result))
+
+    _print_wordfind_full_result(url, sections)
+    return 0
+
+
 def cmd_wordfind(args: argparse.Namespace, state=None) -> int:
+    if getattr(args, "full", False):
+        return cmd_wordfind_full(args)
+
     url = getattr(args, "url", None) or ""
     if not url:
         try:
