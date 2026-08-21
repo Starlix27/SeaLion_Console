@@ -17,4 +17,5 @@ slconsole = "sealion:main"
 sealsay = "sealion:sealsay_main"
 
 [tool.setuptools]
-py-modules = ["sealion"]
+packages = ["lib"]
+py-modules = ["sealion", "http_server"]
