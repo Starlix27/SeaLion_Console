@@ -521,16 +521,21 @@ def _launch_commands(commands: list[tuple[str, str]]) -> None:
     in_tmux = bool(os.environ.get("TMUX"))
     if in_tmux:
         for i, (label, cmd) in enumerate(commands):
+            titled_cmd = f"printf '\\033]0;{label}\\007'; {cmd}"
             if i == 0:
                 subprocess.run(
-                    ["tmux", "send-keys", cmd, "Enter"],
+                    ["tmux", "send-keys", titled_cmd, "Enter"],
                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                 )
             else:
                 subprocess.run(
-                    ["tmux", "split-window", "-v", "-l", "30%", cmd],
+                    ["tmux", "split-window", "-v", "-l", "30%", titled_cmd],
                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                 )
+            subprocess.run(
+                ["tmux", "select-pane", "-T", label],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            )
             print(f"    \033[92m✓\033[0m {label}")
         subprocess.run(
             ["tmux", "select-layout", "tiled"],
@@ -544,7 +549,7 @@ def _launch_commands(commands: list[tuple[str, str]]) -> None:
         wt_path = which("wt.exe") if is_wsl else None
         if wt_path:
             for label, cmd in commands:
-                shell_cmd = cmd + '; echo; echo "\\033[92m[✓] Completato. INVIO per chiudere.\\033[0m"; read _'
+                shell_cmd = "printf '\033]0;" + label + "\007'; " + cmd + '; echo; echo "\\033[92m[✓] Completato. INVIO per chiudere.\\033[0m"; read _'
                 subprocess.Popen(
                     [wt_path, "new-tab", "--title", label, "wsl.exe", "-e", "sh", "-c", shell_cmd],
                     start_new_session=True,
@@ -558,7 +563,7 @@ def _launch_commands(commands: list[tuple[str, str]]) -> None:
                 if not term_path:
                     continue
                 for label, cmd in commands:
-                    shell_cmd = cmd + '; echo; echo "\\033[92m[✓] Completato. INVIO per chiudere.\\033[0m"; read _'
+                    shell_cmd = "printf '\033]0;" + label + "\007'; " + cmd + '; echo; echo "\\033[92m[✓] Completato. INVIO per chiudere.\\033[0m"; read _'
                     if term == "gnome-terminal":
                         subprocess.Popen(
                             [term_path, "--title", label, "--", "sh", "-c", shell_cmd],
