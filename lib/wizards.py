@@ -299,7 +299,7 @@ def _build_sub_result(target: dict, intensity: str) -> dict:
 
     main_wl = wordlists[0]
     commands = []
-    commands.append(("gobuster", f"gobuster dns -d {domain} -w {_wl_path(main_wl)} -t 50"))
+    commands.append(("gobuster", f"gobuster dns --domain {domain} -w {_wl_path(main_wl)} -t 50 --no-error"))
     commands.append(("ffuf", f"ffuf -u http://FUZZ.{domain} -w {_wl_path(main_wl)} -c -ac"))
     commands.append(("wfuzz", f"wfuzz -u http://FUZZ.{domain} -w {_wl_path(main_wl)} --hc 404 -t 50"))
     commands.append(("amass", f"amass enum -d {domain} -w {_wl_path(main_wl)}"))
