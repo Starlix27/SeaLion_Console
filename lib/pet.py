@@ -84,12 +84,13 @@ def _pet_load() -> dict:
         pass
     try:
         updated = float(pet.get("updated") or 0.0)
-        days = int(max(0.0, time.time() - updated) // 86400) if updated > 0 else 0
+        elapsed = max(0.0, time.time() - updated) if updated > 0 else 0.0
+        ticks = int(elapsed // 600)
     except Exception:
-        days = 0
-    if days > 0:
-        pet["happiness"] = int(pet["happiness"]) - days * 5
-        pet["fullness"] = int(pet["fullness"]) - days * 10
+        ticks = 0
+    if ticks > 0:
+        pet["happiness"] = int(pet["happiness"]) - ticks
+        pet["fullness"] = int(pet["fullness"]) - ticks
     pet["happiness"] = min(100, max(0, int(pet["happiness"])))
     pet["fullness"] = min(100, max(0, int(pet["fullness"])))
     return pet
@@ -125,6 +126,26 @@ def _pet_mood(pet: dict) -> str:
     if h > 0:
         return "Triste"
     return _PET_SAD_LINE
+
+
+def _pet_check_needs(pet: dict) -> list[str]:
+    msgs: list[str] = []
+    name = pet.get("name", "SeaLion")
+    f = int(pet.get("fullness", 50))
+    h = int(pet.get("happiness", 50))
+    if f <= 0:
+        msgs.append(f"{name} sta morendo di fame! → pet feed")
+    elif f <= 10:
+        msgs.append(f"{name} ha molta fame...")
+    elif f <= 30:
+        msgs.append(f"{name} ha fame.")
+    if h <= 0:
+        msgs.append(f"{name} è tristissimo! → pet play")
+    elif h <= 10:
+        msgs.append(f"{name} è molto triste...")
+    elif h <= 30:
+        msgs.append(f"{name} si annoia.")
+    return msgs
 
 
 def _pet_show(pet: dict) -> None:

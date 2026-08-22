@@ -586,6 +586,39 @@ def _play_ctrlc_gif() -> None:
         sys.stdout.flush()
 
 
+_pet_notified: dict[str, int | None] = {"fullness": None, "happiness": None}
+
+
+def _pet_threshold(value: int) -> int | None:
+    if value <= 0:
+        return 0
+    if value <= 10:
+        return 10
+    if value <= 30:
+        return 30
+    return None
+
+
+def _pet_notify_check() -> list[str]:
+    try:
+        from lib.pet import _pet_load, _pet_check_needs
+        pet = _pet_load()
+        needs = _pet_check_needs(pet)
+    except Exception:
+        return []
+    changed = False
+    for key in ("fullness", "happiness"):
+        th = _pet_threshold(int(pet.get(key, 50)))
+        prev = _pet_notified.get(key)
+        if th is None:
+            if prev is not None:
+                _pet_notified[key] = None
+        elif prev is None or th < prev:
+            _pet_notified[key] = th
+            changed = True
+    return needs if changed else []
+
+
 def _smart_input(prompt: str) -> str | None:
     """Input interattivo: ESC=esci, Ctrl+C=GIF. Ritorna None su ESC."""
     if not sys.stdin.isatty():
@@ -617,6 +650,15 @@ def _smart_input(prompt: str) -> str | None:
     try:
         tty.setraw(fd)
         while True:
+            ready = select.select([sys.stdin], [], [], 60.0)[0]
+            if not ready:
+                msgs = _pet_notify_check()
+                if msgs:
+                    sys.stdout.write("\r\033[K")
+                    for m in msgs:
+                        sys.stdout.write(f"\033[93m  {m}\033[0m\r\n")
+                    refresh()
+                continue
             ch = sys.stdin.read(1)
 
             if ch == "\x1b":
@@ -825,6 +867,12 @@ def run_console() -> int:
     if url:
         print(f"  \033[96mSLWeb:\033[0m {url}")
     print("Digita 'help' per i comandi, \033[1mESC\033[0m per uscire.")
+    try:
+        from lib.pet import _pet_load, _pet_check_needs
+        for msg in _pet_check_needs(_pet_load()):
+            print(f"  \033[93m{msg}\033[0m")
+    except Exception:
+        pass
     while True:
         prompt = f"\033[94mConsole({state.current_tool.name})> \033[0m" if state.current_tool else f"\033[94mslconsole({state.current_vuln})> \033[0m" if state.current_vuln else "\033[94mslconsole> \033[0m"
         try:

@@ -5,6 +5,7 @@ import os
 import shlex
 import subprocess
 import sys
+from shutil import which
 
 from sealion import PROJECT_ROOT
 from http_server import get_web_url as _serve_get_url
