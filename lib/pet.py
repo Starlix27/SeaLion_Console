@@ -48,6 +48,118 @@ _PET_SPIN_FRAMES = [
     ],
 ]
 
+_WAG_FRAMES = {
+    -2: [
+        "   _----_",
+        "  /⁻ _    \\                      _-⁻⁻⁻⁻⁻-_",
+        "  |\\/__/    \\                   /     o  ---",
+        "       \\    \\                  /--'         )*",
+        "       \\    \\                 /       ⁻^^^-⁻",
+        "       |     |               /       /  ^^^",
+        "      /     \"---         ---\"        /   '''",
+        "      \\        \"⁻⁻⁻⁻⁻⁻⁻⁻\"            )",
+        "      \\                              |",
+        "      \\                              /",
+        "       \\          __/      _/       /",
+        "        ⁻⁻⁻---__ /         /___---⁻⁻",
+        "              _/         /",
+        "             / ______--⁻",
+    ],
+    -1: [
+        "  |\\   /\\",
+        "  |  \\/  /                       _-⁻⁻⁻⁻⁻-_",
+        "   \\     /                      /     o  ---",
+        "    \\    |                     /--'         )*",
+        "      \\   \\                   /       ⁻^^^-⁻",
+        "      \\    \\                 /       /  ^^^",
+        "     /      \"---         ---\"        /   '''",
+        "     \\         \"⁻⁻⁻⁻⁻⁻⁻⁻\"            )",
+        "      \\                              |",
+        "      \\                              /",
+        "       \\          __/      _/       /",
+        "        ⁻⁻⁻---__ /         /___---⁻⁻",
+        "              _/         /",
+        "             / ______--⁻",
+    ],
+    0: [
+        "     |\\   /\\",
+        "     \\  \\/  /                    _-⁻⁻⁻⁻⁻-_",
+        "     \\     /                    /     o  ---",
+        "      \\    /                   /--'         )*",
+        "      \\    \\                  /       ⁻^^^-⁻",
+        "      \\     \\                /       /  ^^^",
+        "      /     \"---         ---\"        /   '''",
+        "      \\        \"⁻⁻⁻⁻⁻⁻⁻⁻\"            )",
+        "      \\                              |",
+        "      \\                              /",
+        "       \\          __/      _/       /",
+        "        ⁻⁻⁻---__ /         /___---⁻⁻",
+        "              _/         /",
+        "             / ______--⁻",
+    ],
+    1: [
+        "        |\\   /\\",
+        "        \\  \\/  /                 _-⁻⁻⁻⁻⁻-_",
+        "        \\     /                 /     o  ---",
+        "        /    /                 /--'         )*",
+        "       |    \\                 /       ⁻^^^-⁻",
+        "      /     \\                /       /  ^^^",
+        "      /     \"---         ---\"        /   '''",
+        "      \\        \"⁻⁻⁻⁻⁻⁻⁻⁻\"            )",
+        "      \\                              |",
+        "      \\                              /",
+        "       \\          __/      _/       /",
+        "        ⁻⁻⁻---__ /         /___---⁻⁻",
+        "              _/         /",
+        "             / ______--⁻",
+    ],
+    2: [
+        "          _----_",
+        "         /⁻   _ \\                _-⁻⁻⁻⁻⁻-_",
+        "        /    __\\/|              /     o  ---",
+        "        |    /                 /--'         )*",
+        "       /    |                 /       ⁻^^^-⁻",
+        "       /    \\                /       /  ^^^",
+        "      /     \"---         ---\"        /   '''",
+        "      \\        \"⁻⁻⁻⁻⁻⁻⁻⁻\"            )",
+        "      \\                              |",
+        "      \\                              /",
+        "       \\          __/      _/       /",
+        "        ⁻⁻⁻---__ /         /___---⁻⁻",
+        "              _/         /",
+        "             / ______--⁻",
+    ],
+}
+
+_WAG_SEQUENCE = [0, 1, 2, 1, 0, -1, -2, -1]
+
+
+def _pet_wag() -> None:
+    if not sys.stdin.isatty():
+        return
+    frame_lines = len(_WAG_FRAMES[0])
+    duration = 2.0
+    interval = 0.15
+    end = time.time() + duration
+    idx = 0
+    sys.stdout.write("\n")
+    sys.stdout.write("\n" * frame_lines)
+    sys.stdout.flush()
+    try:
+        while time.time() < end:
+            key = _WAG_SEQUENCE[idx % len(_WAG_SEQUENCE)]
+            frame = _WAG_FRAMES[key]
+            sys.stdout.write(f"\033[{frame_lines}A")
+            for line in frame:
+                sys.stdout.write(f"\033[K  {line}\n")
+            sys.stdout.flush()
+            time.sleep(interval)
+            idx += 1
+    except KeyboardInterrupt:
+        pass
+    sys.stdout.write("\n")
+    sys.stdout.flush()
+
 
 def _pet_help() -> None:
     print("""
@@ -185,6 +297,7 @@ def _pet_play(pet: dict) -> None:
     _pet_add(pet, "happiness", 12)
     _pet_add(pet, "fullness", -6)
     _pet_save(pet)
+    _pet_wag()
     reaction = _PET_SAD_LINE if int(pet["happiness"]) == 0 else random.choice(_PET_HAPPY_LINES)
     print_sealsay(reaction)
     print(f"\n  \033[92m✓\033[0m Giocato con {pet['name']} (+12 felicità, -6 sazietà)")
