@@ -133,6 +133,24 @@ _WAG_FRAMES = {
 
 _WAG_SEQUENCE = [0, 1, 2, 1, 0, -1, -2, -1]
 
+_FISH = [
+    {"name": "WTH Fish", "value": 5, "art": ["   O<"]},
+    {"name": "WTH Fish", "value": 5, "art": [" ,", "<><", " `"]},
+    {"name": "Smol Fish", "value": 14, "art": ["    ,", "   ()<", "    `"]},
+    {"name": "Smol Fish", "value": 14, "art": ["  /", "/\\/", "\\/\\", "  \\"]},
+    {"name": "Lil one Fish", "value": 20, "art": ["   ,,", "  (')<", "   ``"]},
+    {"name": "27 Fish", "value": 27, "art": ["   ,-,", "  ('_)27<", "   `-`"]},
+    {"name": "Funny Fish", "value": 30, "art": ["   _", "  /_|", " ('_)<|", "  \\_|"]},
+    {"name": "Funny Fish", "value": 30, "art": ["    /", "  ,'`./", "  `.,'\\ ", "    \\"]},
+    {"name": "BAMFFish", "value": 35, "art": ["   /`-._", " _/,.._/", ",'   ,  `-:,.-')", ": o ):';     _  {", " `-.  `' _,.-\\`-.)", "   `\\\\``\\,.-'"]},
+    {"name": "BAMFFish", "value": 35, "art": ["     ,", "    /|", "   /_/ ,", "  /o \\/|", "  \\<_/\\|", "   \\ \\ `", "   \\|", "    `"]},
+    {"name": "Chill Guy Fish", "value": 40, "art": ["    ,-,", "  ,/.(     __", ",-'    `!._/ /", "> @ )<|    _ <", " `-....,,;' \\_\\"]},
+    {"name": "Good Boy Fish", "value": 45, "art": ["  ____", " /    \\", "/----./", "/ o    \\/|", ">        |", "\\ <)   /\\|", " \\----'\\", "  \\____/"]},
+    {"name": "Good Boy Fish", "value": 45, "art": ["      ,", "     /|", "    /_|  ,", "   /o  \\/|", "   \\<__/\\|", "    \\ |  `", "     \\|", "      `"]},
+    {"name": "Doritos Fish", "value": 50, "art": ["    /\\", "  _/./", ",-'    `-:.,-'/", "> O )<)    _  (", " `-._  _.:' `-.\\", "     `` \\;"]},
+    {"name": "Big ahh Fish", "value": 55, "art": ["  /`-._", " /_,.._`:-", ",'  ,   ``-:_,-')", ": o ):';       _  {", " `-._ `'__,.-''\\`-.)", "   `\\\\  \\,.-'``"]},
+]
+
 
 def _pet_wag() -> None:
     if not sys.stdin.isatty():
@@ -277,20 +295,44 @@ def _pet_show(pet: dict) -> None:
         print_sealsay(_PET_SAD_LINE)
 
 
+def _fish_animate(fish: dict) -> None:
+    if not sys.stdin.isatty():
+        return
+    art = fish["art"]
+    art_height = len(art)
+    art_width = max(len(l) for l in art)
+    cols = 60
+    steps = 15
+    interval = 0.1
+    sys.stdout.write("\n" * art_height)
+    sys.stdout.flush()
+    try:
+        for step in range(steps):
+            x = cols - int(step * cols / steps) - art_width
+            if x < 0:
+                x = 0
+            sys.stdout.write(f"\033[{art_height}A")
+            for line in art:
+                sys.stdout.write(f"\033[K{' ' * x}  {line}\n")
+            sys.stdout.flush()
+            time.sleep(interval)
+    except KeyboardInterrupt:
+        pass
+    sys.stdout.write(f"\033[{art_height}A")
+    for _ in art:
+        sys.stdout.write("\033[K\n")
+    sys.stdout.flush()
+
+
 def _pet_feed(pet: dict) -> None:
-    today = date.today().isoformat()
-    if pet.get("last_fed") != today:
-        pet["last_fed"] = today
-        _pet_add(pet, "fullness", 35)
-        _pet_add(pet, "happiness", 15)
-        _pet_save(pet)
-        print_sealsay("AAAAAA")
-        print("\n  \033[92m✓\033[0m Pasto giornaliero! (+35 sazietà, +15 felicità)")
-    else:
-        _pet_add(pet, "fullness", 5)
-        _pet_save(pet)
-        print_sealsay("*burp* ... hai già mangiato oggi!")
-        print("\n  \033[92m✓\033[0m Spuntino extra (+5 sazietà)")
+    fish = random.choice(_FISH)
+    _pet_add(pet, "fullness", fish["value"])
+    _pet_add(pet, "happiness", 5)
+    pet["last_fed"] = date.today().isoformat()
+    _pet_save(pet)
+    _fish_animate(fish)
+    print_sealsay("AAAAAA!")
+    print(f"\n  \033[96m{fish['name']}\033[0m (+{fish['value']}% sazietà, +5% felicità)")
 
 
 def _pet_play(pet: dict) -> None:
