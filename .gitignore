@@ -5,3 +5,4 @@ tools/ReconSpider.zip
 __pycache__/
 *.pyc
 rockyou.txt
+site/
