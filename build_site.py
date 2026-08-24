@@ -522,8 +522,13 @@ def _build_search_index() -> list[dict]:
 # ---------------------------------------------------------------------------
 def _write(path: Path, content: str) -> None:
     if BASE != "/" and path.suffix in (".html",):
+        PH_DQ, PH_SQ = "\x00DQ\x00", "\x00SQ\x00"
+        content = content.replace(f'href="{BASE}', PH_DQ)
+        content = content.replace(f"href='{BASE}", PH_SQ)
         content = content.replace('href="/', f'href="{BASE}')
         content = content.replace("href='/", f"href='{BASE}")
+        content = content.replace(PH_DQ, f'href="{BASE}')
+        content = content.replace(PH_SQ, f"href='{BASE}")
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(content, encoding="utf-8")
 
