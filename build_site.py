@@ -78,6 +78,8 @@ def _base_html_static(title: str, body: str, active: str = "") -> str:
 <title>{html.escape(title)} — SeaLion_Web</title>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/highlight.js@11/styles/github-dark.min.css">
 <style>{_CSS}</style>
+<script src="https://cdn.jsdelivr.net/npm/marked@15/marked.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/highlight.js@11/lib/highlight.min.js"></script>
 </head><body>
 <div class="topbar">
 <div class="topbar-left">
