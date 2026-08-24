@@ -275,13 +275,19 @@ def _build_dir_result(target: dict, tech_key: str, tech_exts: list[str], intensi
     main_wl = wordlists[0]
     url = target["base_path"]
 
+    dirb_wl = {
+        "fast": "/usr/share/dirb/wordlists/common.txt",
+        "medium": "/usr/share/dirb/wordlists/big.txt",
+        "full": "/usr/share/dirb/wordlists/big.txt",
+    }.get(intensity, "/usr/share/dirb/wordlists/common.txt")
+
     commands = []
     commands.append(("gobuster", f"gobuster dir -u {url} -w {_wl_path(main_wl)} -x {ext_str} -t 50 --no-error"))
     commands.append(("ffuf", f"ffuf -u {url}/FUZZ -w {_wl_path(main_wl)} -e {ext_dot} -t 50 -c -ac"))
-    commands.append(("dirb", f"dirb {url} {_wl_path(main_wl)} -X {ext_dot}"))
+    commands.append(("dirb", f"dirb {url} {dirb_wl} -X {ext_dot}"))
     commands.append(("feroxbuster", f"feroxbuster -u {url} -w {_wl_path(main_wl)} -x {ext_str} -t 50 -C 404 --auto-tune"))
     commands.append(("wfuzz", f"wfuzz -u {url}/FUZZ -w {_wl_path(main_wl)} --hc 404 -t 50"))
-    commands.append(("dirsearch", f"dirsearch -u {url} -w {_wl_path(main_wl)} -e {ext_str} -t 50 --exclude-status 404"))
+    commands.append(("dirsearch", f"dirsearch -u {url} -e {ext_str} -t 50 --exclude-status 404"))
 
     return {"wordlists": wordlists + extras, "extensions": ext_dot, "commands": commands}
 

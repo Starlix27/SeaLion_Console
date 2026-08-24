@@ -269,7 +269,7 @@ _preflight_dependencies() {
   for _pf_tool in nmap curl nc timeout; do
     _has "$_pf_tool" || _pf_missing_core="$_pf_missing_core $_pf_tool"
   done
-  for _pf_tool in gobuster feroxbuster ffuf wafw00f nikto arjun wpscan ssh-audit dig dnsenum \
+  for _pf_tool in gobuster feroxbuster ffuf wafw00f nikto arjun wpscan httrack ssh-audit dig dnsenum \
                   showmount enum4linux-ng smbmap smbclient ldapsearch rdp-sec-check \
                   mysql psql mongosh onesixtyone snmpwalk kerbrute smtp-user-enum; do
     _has "$_pf_tool" || _pf_missing_optional="$_pf_missing_optional $_pf_tool"
@@ -1074,6 +1074,19 @@ phase_web() {
       _rec "[WARN] Nikto scan skipped on :$_hp (nikto missing)"
     fi
 
+    # ── HTTrack mirror ──
+    if _has httrack && [ "$FAST" -eq 0 ] && [ "$WORDLIST_COMPANION" -eq 0 ]; then
+      _ht_outdir="${OUTDIR:-loot/recon/$TARGET}/mirror"
+      section "HTTRACK MIRROR — :$_hp"
+      info "Mirroring site to $_ht_outdir ..."
+      _run_logged "HTTrack on :$_hp" "${OUTDIR:+$OUTDIR/httrack_${_hp}.log}" \
+        httrack "$_base" -O "$_ht_outdir" -r4 --quiet -%e0
+      info "Mirror salvato in: $_ht_outdir"
+    elif [ "$FAST" -eq 0 ] && [ "$WORDLIST_COMPANION" -eq 0 ]; then
+      warn "httrack not installed — site mirror skipped"
+      _rec "[WARN] HTTrack mirror skipped on :$_hp (httrack missing)"
+    fi
+
   done
 
   info "Web enumeration completed ($(_elapsed))"
@@ -1223,6 +1236,18 @@ phase_wordlists() {
     else
       warn "nikto not installed — web vulnerability scan skipped"
       _rec "[WARN] Nikto scan skipped on :$_hp (nikto missing)"
+    fi
+
+    # ── HTTrack mirror ──
+    if _has httrack; then
+      _ht_outdir="${OUTDIR:-loot/recon/$TARGET}/mirror"
+      info "Queueing HTTrack mirror on :$_hp → $_ht_outdir"
+      _start_parallel_wordlist_job"httrack_${_hp}" "httrack:${_hp}" "$_hp" \
+        "${OUTDIR:+$OUTDIR/httrack_${_hp}.log}" \
+        httrack "$_base" -O "$_ht_outdir" -r4 --quiet -%e0
+    else
+      warn "httrack not installed — site mirror skipped"
+      _rec "[WARN] HTTrack mirror skipped on :$_hp (httrack missing)"
     fi
 
   done

@@ -130,7 +130,10 @@ def _print_recon_info(profile: str, target: str | None, phase: str | None = None
                     f"timeout -k 5s {nikto_limit}s nikto -h <base> -nointeractive -maxtime {nikto_limit}s -Tuning 123bde",
                     "  ↳ output con prefisso [tool:porta]",
                     "  ↳ INVIO ferma l'intero gruppo e continua la recon",
+                    f"httrack <base> -O loot/recon/{shown_target}/mirror -r4 --quiet -%e0",
+                    "  ↳ mirror del sito per analisi offline (grep password, commenti, path)",
                 ])
+
             else:
                 web_commands.extend([
                     f"timeout -k 5s 60s wpscan --url <base> --enumerate {wp_enum} --no-banner  # se WordPress",

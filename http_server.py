@@ -13,6 +13,7 @@ import io
 import json
 import os
 import random
+import re
 import socket
 import socketserver
 import subprocess
@@ -405,9 +406,9 @@ letter-spacing:.5px;margin-bottom:4px;font-weight:600}
 /* Sealsay — bubble on the right of the art */
 .seal-container{flex:1;display:flex;flex-direction:column;align-items:center;
 justify-content:center}
-.seal-scene{display:flex;align-items:flex-start;gap:0}
+.seal-scene{display:flex;align-items:flex-start;gap:0;position:relative}
 .seal-art{color:var(--text2);font-size:11px;line-height:1.2;white-space:pre;
-flex-shrink:0}
+flex-shrink:0;cursor:pointer;user-select:none;-webkit-user-select:none}
 .seal-bubble-wrap{display:flex;flex-direction:column;justify-content:flex-start;
 padding-top:0}
 .seal-bubble{border:1px solid var(--border);border-radius:4px;padding:12px 16px;
@@ -699,6 +700,33 @@ def _load_seal_art() -> str:
     return ""
 
 
+def _load_wag_frames() -> list[str]:
+    base = _load_seal_art()
+    names = ["SL-2", "SL-1", "SL0", "SL1", "SL2"]
+    frames = []
+    for n in names:
+        fp = PROJECT_ROOT / "assets" / f"{n}.txt"
+        if fp.exists():
+            frames.append(fp.read_text(encoding="utf-8", errors="replace").rstrip())
+        else:
+            frames.append(base)
+    return frames
+
+
+def _parse_fish_art() -> list[str]:
+    fp = PROJECT_ROOT / "assets" / "fish.txt"
+    if not fp.exists():
+        return []
+    content = fp.read_text(encoding="utf-8", errors="replace")
+    chunks = re.split(r"^.*\+\d+%\s*food.*$", content, flags=re.MULTILINE)
+    arts = []
+    for chunk in chunks:
+        art = chunk.strip()
+        if art and len(art) > 2:
+            arts.append(art)
+    return arts
+
+
 def _discover_notes() -> list[tuple[str, str]]:
     if not NOTES_ROOT.is_dir():
         return []
@@ -736,6 +764,7 @@ def _base_html(title: str, body: str, active: str = "") -> str:
         ("/loot/", "Loot", "loot"),
         ("/logs", "Logs", "logs"),
         ("/jwt", "JWT", "jwt"),
+        ("/pet", "Pet", "pet"),
     ]
     nav_html = ""
     for href, label, key in nav_items:
@@ -816,6 +845,9 @@ def _page_home() -> str:
     tip = random.choice(tips)
     seal = html.escape(_load_seal_art())
 
+    wag_frames = _load_wag_frames()
+    wag_json = json.dumps(wag_frames)
+
     n_notes = len(_discover_notes())
     n_vulns = len(_discover_vulns())
     n_tools = len(_discover_tools())
@@ -849,6 +881,11 @@ def _page_home() -> str:
       <li><a href="/logs">Logs</a><span class="cnt">server logs</span></li>
     </ul>
   </div>
+  <div class="info-box" id="pet-widget" style="display:none">
+    <div class="label">SeaLion Pet:</div>
+    <div id="pet-home-name" class="value" style="cursor:pointer;color:var(--accent)" title="Apri Pet Portal"></div>
+    <div id="pet-home-bars" style="margin-top:6px"></div>
+  </div>
 </div>
 <div class="main-area">
   <div class="seal-container">
@@ -880,6 +917,7 @@ def _page_home() -> str:
     {{name:'delivery',label:'Delivery',cnt:'payload & curl',href:'/delivery'}},
     {{name:'logs',label:'Logs',cnt:'server logs',href:'/logs'}},
     {{name:'jwt',label:'JWT',cnt:'encoder/decoder',href:'/jwt'}},
+    {{name:'pet',label:'Pet',cnt:'sealion virtuale',href:'/pet'}},
   ];
   const input=document.getElementById('term-input');
   const box=document.getElementById('suggestions');
@@ -908,7 +946,9 @@ def _page_home() -> str:
     '  <span class="t-accent">tunnel</span>      <span class="t-line">Port forwarding via chisel per accedere a servizi interni</span>\\n'+
     '              <span class="t-line">Mappa porte del target nel browser locale (tunnel help)</span>\\n'+
     '  <span class="t-accent">jwt</span>         <span class="t-line">Apri il JWT Encoder/Decoder nel browser</span>\\n'+
-    '              <span class="t-line">Decodifica, crea e verifica token JWT — tutto client-side</span>\\n\\n'+
+    '              <span class="t-line">Decodifica, crea e verifica token JWT — tutto client-side</span>\\n'+
+    '  <span class="t-accent">pet</span>         <span class="t-line">Pet Portal — nutri, gioca e cura il tuo sealion</span>\\n'+
+    '              <span class="t-line">Feed, play, spin, annoy + mini-games (blackjack, wordle, 8ball)</span>\\n\\n'+
     '  <span class="t-section">— Wordlists</span>\\n'+
     '  <span class="t-accent">wordfind</span>    <span class="t-line">Wizard wordlist — suggerisce liste e comandi per fuzzing/brute-force</span>\\n'+
     '  <span class="t-accent">wordgen</span>     <span class="t-line">Wizard creazione wordlist personalizzate (cewl, crunch, ecc.)</span>\\n'+
@@ -1056,6 +1096,13 @@ def _page_home() -> str:
       '<span class="t-line">  • <span class="t-accent">Servizi di rete</span> — brute-force via hydra/medusa/ncrack</span>\\n\\n'+
       '<span class="t-line">Uso nella console SLConsole:</span>\\n'+
       '<span class="t-accent">  passfind</span>',
+    pet:
+      '<span class="t-head">pet — SeaLion Pet Portal</span>\\\\n\\\\n'+
+      '<span class="t-line">Apre il portale del tuo sealion virtuale.</span>\\\\n'+
+      '<span class="t-line">Nutrilo, gioca, fallo girare e tienilo felice!</span>\\\\n\\\\n'+
+      '<span class="t-line">Funzioni: feed, play, spin, annoy, games (blackjack, wordle, guess, 8ball)</span>\\\\n'+
+      '<span class="t-line">Stato salvato nel browser (localStorage).</span>\\\\n\\\\n'+
+      '<span class="t-line">Digitando <span class="t-accent">pet</span> verrai portato al Pet Portal.</span>',
   }};
 
   function echo(cmd,h){{
@@ -1118,7 +1165,7 @@ def _page_home() -> str:
     }}
     const merged=allNames.filter(n=>n.startsWith(q)).map(n=>{{
       const c=cats.find(x=>x.name===n);if(c)return c;
-      const lb={{help:'Mostra comandi · help <cmd> per dettagli',clear:'Pulisci terminale',version:'Versione',tunnel:'Port forwarding via chisel',jwt:'JWT Encoder/Decoder',wordfind:'Wizard wordlist fuzzing/brute-force',wordgen:'Wizard creazione wordlist',passfind:'Wizard password cracking'}};
+      const lb={{help:'Mostra comandi · help <cmd> per dettagli',clear:'Pulisci terminale',version:'Versione',tunnel:'Port forwarding via chisel',jwt:'JWT Encoder/Decoder',pet:'Pet Portal — sealion virtuale',wordfind:'Wizard wordlist fuzzing/brute-force',wordgen:'Wizard creazione wordlist',passfind:'Wizard password cracking'}};
       return {{name:n,label:n.charAt(0).toUpperCase()+n.slice(1),cnt:lb[n]||'',href:null}};
     }});
     render(merged);
@@ -1145,6 +1192,52 @@ def _page_home() -> str:
     }}
   }});
   document.addEventListener('click',e=>{{if(!e.target.closest('.terminal-input'))box.classList.remove('open');}});
+}})();
+(function(){{
+  var w=document.getElementById('pet-widget');
+  var raw=localStorage.getItem('sl_pet');
+  if(!raw&&!w)return;
+  try{{
+    var pet=raw?JSON.parse(raw):{{name:'SeaLion',happiness:50,fullness:50,updated:0}};
+    var u=parseFloat(pet.updated)||0;
+    var el=u>0?Math.max(0,Date.now()/1000-u):0;
+    var tk=Math.floor(el/600);
+    var h=Math.max(0,Math.min(100,(pet.happiness||50)-tk));
+    var f=Math.max(0,Math.min(100,(pet.fullness||50)-tk));
+    if(!raw)localStorage.setItem('sl_pet',JSON.stringify(pet));
+    var nm=document.getElementById('pet-home-name');
+    nm.textContent=pet.name||'SeaLion';
+    nm.onclick=function(){{location.href='/pet';}};
+    var bar=function(l,v){{
+      var c=v>=60?'var(--green)':v>=30?'var(--yellow)':'var(--red)';
+      return '<div style="display:flex;align-items:center;gap:6px;margin:2px 0">'+
+        '<span style="color:var(--text2);width:55px;font-size:11px">'+l+'</span>'+
+        '<div style="flex:1;height:6px;background:var(--border);border-radius:3px;overflow:hidden">'+
+        '<div style="width:'+v+'%;height:100%;background:'+c+';border-radius:3px;transition:width .3s"></div>'+
+        '</div><span style="font-size:11px;color:var(--text2);width:28px;text-align:right">'+v+'%</span></div>';
+    }};
+    document.getElementById('pet-home-bars').innerHTML=bar('Felicità',h)+bar('Sazietà',f);
+    w.style.display='';
+  }}catch(e){{}}
+}})();
+(function(){{
+  var art=document.querySelector('.seal-art');
+  if(!art)return;
+  var orig=art.textContent;
+  var frames={wag_json};
+  var seq=[2,3,4,3,2,1,0,1];
+  var tid=null,fi=0;
+  function wag(){{art.textContent=frames[seq[fi%seq.length]];fi++;}}
+  function start(e){{e.preventDefault();if(tid)return;fi=0;wag();tid=setInterval(wag,200);}}
+  function stop(){{
+    if(tid){{clearInterval(tid);tid=null;}}
+    art.textContent=orig;
+  }}
+  art.addEventListener('mousedown',start);
+  art.addEventListener('mouseup',stop);
+  art.addEventListener('mouseleave',stop);
+  art.addEventListener('touchstart',start,{{passive:false}});
+  art.addEventListener('touchend',stop);
 }})();
 </script>"""
     return _base_html("Home", body, active="home")
@@ -2000,6 +2093,691 @@ def _page_jwt() -> str:
     return _base_html("JWT", body, active="jwt")
 
 
+def _page_pet() -> str:
+    import json as _json
+    from lib.pet import (
+        _FISH, _PET_SPIN_FRAMES, _PET_HAPPY_LINES, _PET_ANNOY_LINES,
+        _PET_SAD_LINE, _8BALL_ANSWERS, _WORDLE_WORDS, _WAG_FRAMES, _WAG_SEQUENCE,
+    )
+    fish_js = _json.dumps(_FISH, ensure_ascii=False)
+    spin_js = _json.dumps(_PET_SPIN_FRAMES, ensure_ascii=False)
+    happy_js = _json.dumps(_PET_HAPPY_LINES, ensure_ascii=False)
+    annoy_js = _json.dumps(_PET_ANNOY_LINES, ensure_ascii=False)
+    sad_js = _json.dumps(_PET_SAD_LINE, ensure_ascii=False)
+    ball_js = _json.dumps(_8BALL_ANSWERS, ensure_ascii=False)
+    wordle_js = _json.dumps(_WORDLE_WORDS, ensure_ascii=False)
+    wag_js = _json.dumps({str(k): v for k, v in _WAG_FRAMES.items()}, ensure_ascii=False)
+    wag_seq_js = _json.dumps(_WAG_SEQUENCE, ensure_ascii=False)
+    body = f"""\
+<div class="container">
+<div class="breadcrumb"><a href="/">Home</a> <span>/</span> Pet Portal</div>
+<div class="page-title">Pet Portal</div>
+<div class="page-sub">Nutri, gioca e cura il tuo sealion virtuale</div>
+
+<style>
+.pet-layout{{display:grid;grid-template-columns:340px 1fr;gap:24px;margin-top:20px}}
+.pet-left{{display:flex;flex-direction:column;gap:16px}}
+.pet-right{{min-width:0}}
+.pet-card{{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:20px}}
+.pet-art-box{{text-align:center;cursor:pointer;user-select:none;-webkit-user-select:none;position:relative;min-height:260px;display:flex;align-items:center;justify-content:center}}
+.pet-art{{font-family:'Courier New',monospace;font-size:11px;line-height:1.3;color:var(--accent);white-space:pre;display:inline-block;transition:transform .15s}}
+.pet-art-box:active .pet-art,.pet-art.wagging{{animation:petWag .3s ease-in-out 6}}
+@keyframes petWag{{0%,100%{{transform:rotate(0)}}25%{{transform:rotate(-3deg)}}75%{{transform:rotate(3deg)}}}}
+.pet-bubble{{background:var(--bg);border:1px solid var(--border);border-radius:12px;padding:12px 16px;text-align:center;font-style:italic;color:var(--text2);min-height:20px;position:relative;margin-top:8px}}
+.pet-bubble::before{{content:'';position:absolute;top:-8px;left:50%;transform:translateX(-50%);width:0;height:0;border-left:8px solid transparent;border-right:8px solid transparent;border-bottom:8px solid var(--border)}}
+.pet-bubble::after{{content:'';position:absolute;top:-7px;left:50%;transform:translateX(-50%);width:0;height:0;border-left:7px solid transparent;border-right:7px solid transparent;border-bottom:7px solid var(--bg)}}
+.pet-stats{{display:flex;flex-direction:column;gap:8px}}
+.pet-name{{font-size:20px;font-weight:700;color:var(--accent);text-align:center;cursor:pointer;padding:4px 8px;border-radius:6px;transition:background .15s}}
+.pet-name:hover{{background:var(--bg)}}
+.pet-name-input{{background:var(--bg);border:1px solid var(--accent);border-radius:6px;padding:4px 8px;font-size:20px;font-weight:700;color:var(--accent);text-align:center;width:100%;font-family:inherit;outline:none}}
+.stat-row{{display:flex;align-items:center;gap:10px}}
+.stat-label{{color:var(--text2);font-size:13px;width:70px;flex-shrink:0}}
+.stat-bar{{flex:1;height:8px;background:var(--border);border-radius:4px;overflow:hidden}}
+.stat-fill{{height:100%;border-radius:4px;transition:width .4s ease,background .4s ease}}
+.stat-val{{font-size:13px;color:var(--text2);width:35px;text-align:right;flex-shrink:0}}
+.stat-mood{{text-align:center;font-size:14px;color:var(--text);margin-top:4px}}
+
+.pet-tabs{{display:flex;gap:2px;background:var(--surface);border-radius:8px;padding:3px;border:1px solid var(--border);margin-bottom:16px;flex-wrap:wrap}}
+.pet-tab{{background:none;border:none;color:var(--text2);padding:8px 16px;border-radius:6px;cursor:pointer;font-size:13px;font-weight:500;transition:all .15s;min-height:44px;display:flex;align-items:center}}
+.pet-tab.active{{background:var(--accent);color:#fff}}
+.pet-tab:hover:not(.active){{color:var(--text);background:var(--bg)}}
+.tab-content{{display:none}}
+.tab-content.active{{display:block}}
+
+.pet-btn{{background:var(--accent);color:#fff;border:none;border-radius:8px;padding:12px 24px;font-size:15px;font-weight:600;cursor:pointer;transition:all .15s;min-height:44px;font-family:inherit}}
+.pet-btn:hover{{filter:brightness(1.1);transform:translateY(-1px)}}
+.pet-btn:active{{transform:translateY(0)}}
+.pet-btn.danger{{background:var(--red,#e74c3c)}}
+.pet-btn.danger:hover{{filter:brightness(1.1)}}
+.pet-btn:disabled{{opacity:.5;cursor:not-allowed;transform:none}}
+
+.fish-swim{{position:absolute;white-space:pre;font-family:'Courier New',monospace;font-size:10px;color:var(--green,#2ecc71);animation:fishSwim 2s linear forwards;pointer-events:none}}
+@keyframes fishSwim{{0%{{right:-120px;opacity:0}}10%{{opacity:1}}80%{{opacity:1}}100%{{right:calc(100% + 20px);opacity:0}}}}
+.fish-result{{text-align:center;padding:16px;font-size:15px;color:var(--text);min-height:60px}}
+
+.game-grid{{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px}}
+.game-card{{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:20px;text-align:center;cursor:pointer;transition:all .15s;min-height:44px}}
+.game-card:hover{{border-color:var(--accent);transform:translateY(-2px);box-shadow:0 4px 12px rgba(0,0,0,.1)}}
+.game-card .gc-icon{{font-size:28px;margin-bottom:8px}}
+.game-card .gc-name{{font-weight:600;color:var(--text);font-size:14px}}
+.game-card .gc-desc{{color:var(--text2);font-size:12px;margin-top:4px}}
+.game-back{{background:none;border:none;color:var(--accent);cursor:pointer;font-size:13px;margin-bottom:12px;padding:4px 0;font-family:inherit}}
+
+.bj-cards{{display:flex;gap:8px;flex-wrap:wrap;justify-content:center;margin:12px 0}}
+.bj-card{{width:60px;height:84px;background:var(--bg);border:2px solid var(--border);border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:20px;font-weight:700;color:var(--text);position:relative}}
+.bj-card.red{{color:var(--red,#e74c3c)}}
+.bj-card.hidden{{background:var(--surface);color:var(--border)}}
+.bj-total{{text-align:center;font-size:13px;color:var(--text2);margin:4px 0 8px}}
+.bj-actions{{display:flex;gap:8px;justify-content:center;margin:16px 0}}
+.bj-result{{text-align:center;font-size:16px;font-weight:600;padding:12px;border-radius:8px;margin:12px 0}}
+
+.wordle-grid{{display:flex;flex-direction:column;gap:4px;align-items:center;margin:16px 0}}
+.wordle-row{{display:flex;gap:4px}}
+.wordle-cell{{width:48px;height:48px;border:2px solid var(--border);border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:20px;font-weight:700;text-transform:uppercase;color:var(--text);transition:all .3s}}
+.wordle-cell.correct{{background:var(--green,#2ecc71);border-color:var(--green,#2ecc71);color:#fff}}
+.wordle-cell.present{{background:var(--yellow,#f39c12);border-color:var(--yellow,#f39c12);color:#fff}}
+.wordle-cell.absent{{background:var(--text2);border-color:var(--text2);color:#fff;opacity:.6}}
+.wordle-cell.filled{{border-color:var(--text2)}}
+.wordle-kb{{display:flex;flex-direction:column;gap:4px;align-items:center;margin:12px 0}}
+.wordle-kb-row{{display:flex;gap:4px}}
+.wordle-key{{min-width:32px;height:40px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text);font-size:13px;font-weight:600;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0 8px;transition:all .15s;text-transform:uppercase;font-family:inherit}}
+.wordle-key:hover{{background:var(--bg);border-color:var(--text2)}}
+.wordle-key.correct{{background:var(--green,#2ecc71);border-color:var(--green,#2ecc71);color:#fff}}
+.wordle-key.present{{background:var(--yellow,#f39c12);border-color:var(--yellow,#f39c12);color:#fff}}
+.wordle-key.absent{{background:var(--text2);border-color:var(--text2);color:#fff;opacity:.5}}
+.wordle-key.wide{{min-width:56px;font-size:11px}}
+
+.guess-display{{text-align:center;margin:16px 0}}
+.guess-number{{font-size:48px;font-weight:700;color:var(--accent)}}
+.guess-hint{{font-size:14px;color:var(--text2);margin:4px 0}}
+.guess-input-row{{display:flex;gap:8px;justify-content:center;margin:12px 0}}
+.guess-input{{width:100px;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text);font-size:18px;text-align:center;font-family:inherit;outline:none}}
+.guess-input:focus{{border-color:var(--accent)}}
+.guess-history{{display:flex;flex-wrap:wrap;gap:6px;justify-content:center;margin:8px 0}}
+.guess-tag{{padding:4px 10px;border-radius:12px;font-size:12px;background:var(--surface);border:1px solid var(--border);color:var(--text2)}}
+.guess-tag.low{{color:var(--red,#e74c3c)}}
+.guess-tag.high{{color:var(--yellow,#f39c12)}}
+
+.ball-container{{display:flex;flex-direction:column;align-items:center;gap:16px;padding:20px}}
+.ball-circle{{width:140px;height:140px;border-radius:50%;background:linear-gradient(135deg,#1a1a2e,#16213e);border:3px solid var(--accent);display:flex;align-items:center;justify-content:center;transition:transform .3s}}
+.ball-circle.shaking{{animation:ballShake .6s ease-in-out}}
+@keyframes ballShake{{0%,100%{{transform:rotate(0)}}20%{{transform:rotate(-8deg)}}40%{{transform:rotate(8deg)}}60%{{transform:rotate(-5deg)}}80%{{transform:rotate(5deg)}}}}
+.ball-inner{{width:50px;height:50px;border-radius:50%;background:var(--accent);display:flex;align-items:center;justify-content:center;font-size:22px;font-weight:700;color:#fff}}
+.ball-answer{{font-size:16px;font-style:italic;color:var(--accent);text-align:center;min-height:24px;padding:8px 16px}}
+.ball-input{{width:100%;max-width:300px;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text);font-size:14px;text-align:center;font-family:inherit;outline:none}}
+.ball-input:focus{{border-color:var(--accent)}}
+
+.spin-art{{font-family:'Courier New',monospace;font-size:14px;line-height:1.3;color:var(--accent);white-space:pre;text-align:center;min-height:80px;transition:transform .2s}}
+.spin-art.rolling{{animation:barrelRoll .8s ease-in-out}}
+@keyframes barrelRoll{{0%{{transform:rotate(0)}}100%{{transform:rotate(360deg)}}}}
+
+.shake-anim{{animation:shakeIt .5s ease-in-out}}
+@keyframes shakeIt{{0%,100%{{transform:translateX(0)}}20%{{transform:translateX(-6px)}}40%{{transform:translateX(6px)}}60%{{transform:translateX(-4px)}}80%{{transform:translateX(4px)}}}}
+
+@media(max-width:768px){{
+  .pet-layout{{grid-template-columns:1fr;gap:16px}}
+  .pet-art{{font-size:8px !important}}
+  .pet-tabs{{overflow-x:auto;flex-wrap:nowrap;-webkit-overflow-scrolling:touch}}
+  .pet-tab{{white-space:nowrap;flex-shrink:0}}
+  .game-grid{{grid-template-columns:1fr}}
+  .bj-card{{width:48px;height:68px;font-size:16px}}
+  .wordle-cell{{width:40px;height:40px;font-size:16px}}
+  .wordle-key{{min-width:26px;height:36px;font-size:11px;padding:0 5px}}
+  .wordle-key.wide{{min-width:44px}}
+  .guess-input{{width:80px;font-size:16px}}
+}}
+@media(max-width:400px){{
+  .pet-art{{font-size:6px !important}}
+  .wordle-cell{{width:34px;height:34px;font-size:14px}}
+}}
+</style>
+
+<div class="pet-layout">
+<div class="pet-left">
+  <div class="pet-card pet-art-box" id="pet-art-box">
+    <pre class="pet-art" id="pet-art"></pre>
+  </div>
+  <div class="pet-card">
+    <div class="pet-name" id="pet-name-display"></div>
+    <div class="pet-stats" style="margin-top:12px">
+      <div class="stat-row"><span class="stat-label">Felicità</span><div class="stat-bar"><div class="stat-fill" id="bar-happy"></div></div><span class="stat-val" id="val-happy"></span></div>
+      <div class="stat-row"><span class="stat-label">Sazietà</span><div class="stat-bar"><div class="stat-fill" id="bar-full"></div></div><span class="stat-val" id="val-full"></span></div>
+      <div class="stat-mood" id="pet-mood"></div>
+    </div>
+  </div>
+  <div class="pet-bubble" id="pet-bubble">Auh! Auh!</div>
+</div>
+<div class="pet-right">
+  <div class="pet-tabs" id="pet-tabs">
+    <button class="pet-tab active" data-tab="feed">Feed</button>
+    <button class="pet-tab" data-tab="play">Play</button>
+    <button class="pet-tab" data-tab="games">Games</button>
+    <button class="pet-tab" data-tab="spin">Spin</button>
+    <button class="pet-tab" data-tab="annoy">Annoy</button>
+  </div>
+  <div class="pet-card">
+    <div class="tab-content active" id="tc-feed">
+      <h3 style="margin:0 0 12px;color:var(--text)">Nutri il SeaLion</h3>
+      <p style="color:var(--text2);font-size:13px;margin:0 0 16px">Pesca un pesce random e dallo al tuo sealion!</p>
+      <div style="text-align:center"><button class="pet-btn" id="btn-feed" onclick="doFeed()">Pescare!</button></div>
+      <div id="feed-arena" style="position:relative;height:80px;overflow:hidden;margin:16px 0"></div>
+      <div class="fish-result" id="feed-result"></div>
+    </div>
+    <div class="tab-content" id="tc-play">
+      <h3 style="margin:0 0 12px;color:var(--text)">Gioca col SeaLion</h3>
+      <p style="color:var(--text2);font-size:13px;margin:0 0 16px">Il tuo sealion scodinzola e si diverte! (+12 felicità, -6 sazietà)</p>
+      <div style="text-align:center"><button class="pet-btn" id="btn-play" onclick="doPlay()">Gioca!</button></div>
+      <div id="play-result" style="text-align:center;padding:16px;font-size:15px;color:var(--text);min-height:40px"></div>
+    </div>
+    <div class="tab-content" id="tc-games">
+      <div id="games-menu">
+        <h3 style="margin:0 0 16px;color:var(--text)">Minigiochi</h3>
+        <div class="game-grid">
+          <div class="game-card" onclick="openGame('blackjack')"><div class="gc-icon">&#x1f0cf;</div><div class="gc-name">Blackjack</div><div class="gc-desc">Hit o Stand contro il sealion</div></div>
+          <div class="game-card" onclick="openGame('wordle')"><div class="gc-icon">&#x1f520;</div><div class="gc-name">Wordle</div><div class="gc-desc">Indovina la parola in 6 tentativi</div></div>
+          <div class="game-card" onclick="openGame('guess')"><div class="gc-icon">&#x1f522;</div><div class="gc-name">Indovina</div><div class="gc-desc">Numero 1-100 in 7 tentativi</div></div>
+          <div class="game-card" onclick="openGame('ball')"><div class="gc-icon">&#x1f3b1;</div><div class="gc-name">8Ball</div><div class="gc-desc">Chiedi al sealion del futuro</div></div>
+        </div>
+        <div id="game-reward" style="text-align:center;font-size:14px;color:var(--green,#2ecc71);min-height:20px;margin-top:8px"></div>
+      </div>
+      <div id="game-area" style="display:none"></div>
+    </div>
+    <div class="tab-content" id="tc-spin">
+      <h3 style="margin:0 0 12px;color:var(--text)">Barrel Roll!</h3>
+      <p style="color:var(--text2);font-size:13px;margin:0 0 16px">Fai fare una piroetta al sealion! (+6 felicità)</p>
+      <div style="text-align:center"><button class="pet-btn" id="btn-spin" onclick="doSpin()">Spin!</button></div>
+      <div style="text-align:center;margin:20px 0"><pre class="spin-art" id="spin-art"></pre></div>
+      <div id="spin-result" style="text-align:center;font-size:15px;color:var(--text);min-height:20px"></div>
+    </div>
+    <div class="tab-content" id="tc-annoy">
+      <h3 style="margin:0 0 12px;color:var(--text)">Infastidisci il SeaLion</h3>
+      <p style="color:var(--text2);font-size:13px;margin:0 0 16px">Attenzione: il sealion non sarà contento! (-5 felicità)</p>
+      <div style="text-align:center"><button class="pet-btn danger" id="btn-annoy" onclick="doAnnoy()">Annoy!</button></div>
+      <div id="annoy-result" style="text-align:center;padding:16px;font-size:15px;color:var(--text);min-height:40px"></div>
+    </div>
+  </div>
+</div>
+</div>
+</div>
+
+<script>
+(function(){{
+const FISH={fish_js};
+const SPIN_FRAMES={spin_js};
+const HAPPY_LINES={happy_js};
+const ANNOY_LINES={annoy_js};
+const SAD_LINE={sad_js};
+const BALL_ANSWERS={ball_js};
+const WORDLE_WORDS={wordle_js};
+const WAG_FRAMES={wag_js};
+const WAG_SEQ={wag_seq_js};
+
+function loadPet(){{
+  var raw=localStorage.getItem('sl_pet');
+  var pet=raw?JSON.parse(raw):{{name:'SeaLion',happiness:50,fullness:50,last_fed:'',updated:0}};
+  var u=parseFloat(pet.updated)||0;
+  var el=u>0?Math.max(0,Date.now()/1000-u):0;
+  var tk=Math.floor(el/600);
+  if(tk>0){{pet.happiness=Math.max(0,(pet.happiness||50)-tk);pet.fullness=Math.max(0,(pet.fullness||50)-tk);}}
+  pet.happiness=Math.min(100,Math.max(0,pet.happiness||0));
+  pet.fullness=Math.min(100,Math.max(0,pet.fullness||0));
+  return pet;
+}}
+function savePet(pet){{pet.updated=Date.now()/1000;localStorage.setItem('sl_pet',JSON.stringify(pet));}}
+function addStat(pet,key,d){{pet[key]=Math.min(100,Math.max(0,(pet[key]||0)+d));}}
+function getMood(h){{if(h>=80)return'Estasiato';if(h>=60)return'Contento';if(h>=40)return'Ok';if(h>0)return'Triste';return SAD_LINE;}}
+function barColor(v){{return v>=60?'var(--green,#2ecc71)':v>=30?'var(--yellow,#f39c12)':'var(--red,#e74c3c)';}}
+
+var pet=loadPet();
+savePet(pet);
+
+function updateUI(){{
+  var h=pet.happiness,f=pet.fullness;
+  document.getElementById('bar-happy').style.width=h+'%';
+  document.getElementById('bar-happy').style.background=barColor(h);
+  document.getElementById('bar-full').style.width=f+'%';
+  document.getElementById('bar-full').style.background=barColor(f);
+  document.getElementById('val-happy').textContent=h+'%';
+  document.getElementById('val-full').textContent=f+'%';
+  document.getElementById('pet-mood').innerHTML='Umore: <strong>'+getMood(h)+'</strong>';
+}}
+
+var nameEl=document.getElementById('pet-name-display');
+nameEl.textContent=pet.name||'SeaLion';
+nameEl.onclick=function(){{
+  var inp=document.createElement('input');
+  inp.className='pet-name-input';
+  inp.value=pet.name;
+  inp.maxLength=24;
+  nameEl.replaceWith(inp);
+  inp.focus();
+  inp.select();
+  function done(){{
+    var v=inp.value.trim()||'SeaLion';
+    pet.name=v.substring(0,24);
+    savePet(pet);
+    var n=document.createElement('div');
+    n.className='pet-name';
+    n.id='pet-name-display';
+    n.textContent=pet.name;
+    n.onclick=nameEl.onclick;
+    inp.replaceWith(n);
+    nameEl=n;
+    setBubble(pet.name+' ha un nuovo nome!');
+  }}
+  inp.onblur=done;
+  inp.onkeydown=function(e){{if(e.key==='Enter')done();}};
+}};
+
+var artEl=document.getElementById('pet-art');
+var frame0=WAG_FRAMES['0'];
+artEl.textContent=frame0.join('\\n');
+
+var wagTimer=null;
+document.getElementById('pet-art-box').addEventListener('click',function(){{
+  if(wagTimer)return;
+  artEl.classList.add('wagging');
+  var idx=0,steps=WAG_SEQ.length*3;
+  wagTimer=setInterval(function(){{
+    var key=WAG_SEQ[idx%WAG_SEQ.length];
+    artEl.textContent=WAG_FRAMES[String(key)].join('\\n');
+    idx++;
+    if(idx>=steps){{
+      clearInterval(wagTimer);wagTimer=null;
+      artEl.textContent=WAG_FRAMES['0'].join('\\n');
+      artEl.classList.remove('wagging');
+    }}
+  }},120);
+}});
+
+function setBubble(msg){{document.getElementById('pet-bubble').textContent=msg;}}
+
+document.querySelectorAll('.pet-tab').forEach(function(btn){{
+  btn.addEventListener('click',function(){{
+    document.querySelectorAll('.pet-tab').forEach(function(b){{b.classList.remove('active');}});
+    document.querySelectorAll('.tab-content').forEach(function(c){{c.classList.remove('active');}});
+    btn.classList.add('active');
+    document.getElementById('tc-'+btn.dataset.tab).classList.add('active');
+  }});
+}});
+
+updateUI();
+
+/* ---- FEED ---- */
+window.doFeed=function(){{
+  var btn=document.getElementById('btn-feed');
+  btn.disabled=true;
+  var fish=FISH[Math.floor(Math.random()*FISH.length)];
+  var arena=document.getElementById('feed-arena');
+  arena.innerHTML='';
+  var el=document.createElement('pre');
+  el.className='fish-swim';
+  el.textContent=fish.art.join('\\n');
+  arena.appendChild(el);
+  addStat(pet,'fullness',fish.value);
+  addStat(pet,'happiness',5);
+  pet.last_fed=new Date().toISOString().split('T')[0];
+  savePet(pet);
+  updateUI();
+  setBubble('AAAAAA!');
+  setTimeout(function(){{
+    document.getElementById('feed-result').innerHTML='<strong style="color:var(--accent)">'+fish.name+'</strong> — +'+fish.value+'% sazietà, +5% felicità';
+    btn.disabled=false;
+  }},2000);
+}};
+
+/* ---- PLAY ---- */
+window.doPlay=function(){{
+  var btn=document.getElementById('btn-play');
+  btn.disabled=true;
+  addStat(pet,'happiness',12);
+  addStat(pet,'fullness',-6);
+  savePet(pet);
+  updateUI();
+  artEl.classList.add('wagging');
+  var idx=0,steps=WAG_SEQ.length*3;
+  if(wagTimer){{clearInterval(wagTimer);wagTimer=null;}}
+  wagTimer=setInterval(function(){{
+    var key=WAG_SEQ[idx%WAG_SEQ.length];
+    artEl.textContent=WAG_FRAMES[String(key)].join('\\n');
+    idx++;
+    if(idx>=steps){{
+      clearInterval(wagTimer);wagTimer=null;
+      artEl.textContent=WAG_FRAMES['0'].join('\\n');
+      artEl.classList.remove('wagging');
+    }}
+  }},120);
+  var reaction=pet.happiness===0?SAD_LINE:HAPPY_LINES[Math.floor(Math.random()*HAPPY_LINES.length)];
+  setBubble(reaction);
+  document.getElementById('play-result').innerHTML='<span style="color:var(--green,#2ecc71)">&#10003;</span> Giocato con '+pet.name+' (+12 felicità, -6 sazietà)';
+  setTimeout(function(){{btn.disabled=false;}},2000);
+}};
+
+/* ---- SPIN ---- */
+window.doSpin=function(){{
+  var btn=document.getElementById('btn-spin');
+  btn.disabled=true;
+  var spinEl=document.getElementById('spin-art');
+  var i=0,rounds=12;
+  spinEl.classList.add('rolling');
+  var iv=setInterval(function(){{
+    spinEl.textContent=SPIN_FRAMES[i%SPIN_FRAMES.length].join('\\n');
+    i++;
+    if(i>=rounds){{
+      clearInterval(iv);
+      spinEl.classList.remove('rolling');
+      addStat(pet,'happiness',6);
+      savePet(pet);
+      updateUI();
+      var r=HAPPY_LINES[Math.floor(Math.random()*HAPPY_LINES.length)];
+      setBubble(r);
+      document.getElementById('spin-result').innerHTML='<span style="color:var(--green,#2ecc71)">&#10003;</span> '+r+' (+6 felicità)';
+      btn.disabled=false;
+    }}
+  }},150);
+}};
+
+/* ---- ANNOY ---- */
+window.doAnnoy=function(){{
+  addStat(pet,'happiness',-5);
+  savePet(pet);
+  updateUI();
+  var phrase=ANNOY_LINES[Math.floor(Math.random()*ANNOY_LINES.length)].replace('{{name}}',pet.name);
+  setBubble(phrase);
+  var artBox=document.getElementById('pet-art-box');
+  artBox.classList.add('shake-anim');
+  setTimeout(function(){{artBox.classList.remove('shake-anim');}},500);
+  var mood=pet.happiness>0?' · '+pet.name+': <strong>'+getMood(pet.happiness)+'</strong>':'';
+  document.getElementById('annoy-result').innerHTML='<span style="color:var(--red,#e74c3c)">&#10007;</span> Che noia! (-5 felicità'+mood+')';
+}};
+
+/* ---- GAMES ---- */
+function gameReward(won){{
+  var d=won===true?18:won==='draw'?8:4;
+  var note=won===true?'Vittoria! +18':won==='draw'?'Pareggio +8':'Perso, +4';
+  addStat(pet,'happiness',d);
+  savePet(pet);
+  updateUI();
+  setBubble(pet.happiness===0?SAD_LINE:HAPPY_LINES[Math.floor(Math.random()*HAPPY_LINES.length)]);
+  document.getElementById('game-reward').innerHTML='<span style="color:var(--green,#2ecc71)">&#10003;</span> '+note+' felicità · umore: '+getMood(pet.happiness);
+}}
+
+window.openGame=function(g){{
+  document.getElementById('games-menu').style.display='none';
+  var area=document.getElementById('game-area');
+  area.style.display='block';
+  area.innerHTML='';
+  if(g==='blackjack')initBlackjack(area);
+  else if(g==='wordle')initWordle(area);
+  else if(g==='guess')initGuess(area);
+  else if(g==='ball')init8Ball(area);
+}};
+
+function closeGame(){{
+  document.getElementById('game-area').style.display='none';
+  document.getElementById('game-area').innerHTML='';
+  document.getElementById('games-menu').style.display='';
+}}
+
+/* -- BLACKJACK -- */
+function initBlackjack(area){{
+  var suits=['&#9824;','&#9829;','&#9830;','&#9827;'];
+  var ranks=['A','2','3','4','5','6','7','8','9','10','J','Q','K'];
+  var deck=[];
+  for(var s=0;s<suits.length;s++)for(var r=0;r<ranks.length;r++)deck.push({{rank:ranks[r],suit:suits[s],red:s===1||s===2}});
+  for(var i=deck.length-1;i>0;i--){{var j=Math.floor(Math.random()*(i+1));var t=deck[i];deck[i]=deck[j];deck[j]=t;}}
+  var di=0;
+  function draw(){{return deck[di++];}}
+  function cardVal(c){{if('JQK'.indexOf(c.rank)>=0)return 10;if(c.rank==='A')return 11;return parseInt(c.rank);}}
+  function handTotal(h){{var t=0,a=0;for(var i=0;i<h.length;i++){{t+=cardVal(h[i]);if(h[i].rank==='A')a++;}}while(t>21&&a){{t-=10;a--;}}return t;}}
+  function renderCard(c,hidden){{
+    if(hidden)return'<div class="bj-card hidden">?</div>';
+    return'<div class="bj-card'+(c.red?' red':'')+'">'+c.rank+'<span style="font-size:12px;position:absolute;bottom:4px;right:4px">'+c.suit+'</span></div>';
+  }}
+  var player=[draw(),draw()],dealer=[draw(),draw()];
+  var over=false;
+  function render(showDealer){{
+    var html='<button class="game-back" onclick="void(0)" id="bj-back">&larr; Torna ai giochi</button>';
+    html+='<h3 style="margin:0 0 12px;color:var(--text)">Blackjack</h3>';
+    html+='<div style="color:var(--text2);font-size:13px;margin-bottom:8px">Dealer:</div>';
+    html+='<div class="bj-cards">';
+    for(var i=0;i<dealer.length;i++)html+=renderCard(dealer[i],!showDealer&&i===1);
+    html+='</div>';
+    if(showDealer)html+='<div class="bj-total">Totale: '+handTotal(dealer)+'</div>';
+    else html+='<div class="bj-total">&nbsp;</div>';
+    html+='<div style="color:var(--text2);font-size:13px;margin:12px 0 8px">Tu:</div>';
+    html+='<div class="bj-cards">';
+    for(var i=0;i<player.length;i++)html+=renderCard(player[i],false);
+    html+='</div>';
+    html+='<div class="bj-total">Totale: '+handTotal(player)+'</div>';
+    if(!over)html+='<div class="bj-actions"><button class="pet-btn" id="bj-hit" style="padding:8px 20px;font-size:14px">Hit</button><button class="pet-btn" id="bj-stand" style="padding:8px 20px;font-size:14px;background:var(--text2)">Stand</button></div>';
+    html+='<div class="bj-result" id="bj-result"></div>';
+    area.innerHTML=html;
+    document.getElementById('bj-back').onclick=closeGame;
+    if(!over){{
+      document.getElementById('bj-hit').onclick=function(){{
+        player.push(draw());
+        if(handTotal(player)>=21)finish();
+        else render(false);
+      }};
+      document.getElementById('bj-stand').onclick=finish;
+    }}
+  }}
+  function finish(){{
+    over=true;
+    while(handTotal(dealer)<17)dealer.push(draw());
+    render(true);
+    var pt=handTotal(player),dt=handTotal(dealer),res=document.getElementById('bj-result');
+    if(pt>21){{res.innerHTML='<span style="color:var(--red,#e74c3c)">Sballato! Hai perso.</span>';res.style.background='rgba(231,76,60,.1)';gameReward(false);}}
+    else if(dt>21){{res.innerHTML='<span style="color:var(--green,#2ecc71)">Dealer sballato! Hai vinto!</span>';res.style.background='rgba(46,204,113,.1)';gameReward(true);}}
+    else if(pt>dt){{res.innerHTML='<span style="color:var(--green,#2ecc71)">Hai vinto!</span>';res.style.background='rgba(46,204,113,.1)';gameReward(true);}}
+    else if(pt===dt){{res.innerHTML='<span style="color:var(--yellow,#f39c12)">Pareggio!</span>';res.style.background='rgba(243,156,18,.1)';gameReward('draw');}}
+    else{{res.innerHTML='<span style="color:var(--red,#e74c3c)">Ha vinto il dealer!</span>';res.style.background='rgba(231,76,60,.1)';gameReward(false);}}
+  }}
+  render(false);
+  if(handTotal(player)===21)finish();
+}}
+
+/* -- WORDLE -- */
+function initWordle(area){{
+  var word=WORDLE_WORDS[Math.floor(Math.random()*WORDLE_WORDS.length)].toLowerCase();
+  var wlen=word.length,maxTries=6,row=0,col=0;
+  var grid=[];for(var i=0;i<maxTries;i++){{grid.push(new Array(wlen).fill(''));}}
+  var keyStates={{}};
+  var gameOver=false;
+
+  function render(){{
+    var html='<button class="game-back" onclick="void(0)" id="wd-back">&larr; Torna ai giochi</button>';
+    html+='<h3 style="margin:0 0 4px;color:var(--text)">Wordle</h3>';
+    html+='<p style="color:var(--text2);font-size:12px;margin:0 0 12px">Indovina la parola di '+wlen+' lettere</p>';
+    html+='<div class="wordle-grid">';
+    for(var r=0;r<maxTries;r++){{
+      html+='<div class="wordle-row" id="wr-'+r+'">';
+      for(var c=0;c<wlen;c++){{
+        var ch=grid[r][c]||'';
+        var cls='wordle-cell';
+        if(ch)cls+=' filled';
+        html+='<div class="'+cls+'" id="wc-'+r+'-'+c+'">'+ch.toUpperCase()+'</div>';
+      }}
+      html+='</div>';
+    }}
+    html+='</div>';
+    html+='<div class="wordle-kb">';
+    var rows=['qwertyuiop','asdfghjkl','zxcvbnm'];
+    for(var kr=0;kr<rows.length;kr++){{
+      html+='<div class="wordle-kb-row">';
+      if(kr===2)html+='<button class="wordle-key wide" data-key="Enter">Invio</button>';
+      for(var ki=0;ki<rows[kr].length;ki++){{
+        var k=rows[kr][ki];
+        var kc='wordle-key';
+        if(keyStates[k])kc+=' '+keyStates[k];
+        html+='<button class="'+kc+'" data-key="'+k+'">'+k+'</button>';
+      }}
+      if(kr===2)html+='<button class="wordle-key wide" data-key="Backspace">&larr;</button>';
+      html+='</div>';
+    }}
+    html+='</div>';
+    html+='<div id="wd-msg" style="text-align:center;font-size:14px;min-height:20px;margin-top:8px"></div>';
+    area.innerHTML=html;
+    document.getElementById('wd-back').onclick=closeGame;
+    area.querySelectorAll('.wordle-key').forEach(function(b){{b.addEventListener('click',function(){{handleKey(b.dataset.key);}});}});
+  }}
+
+  function handleKey(k){{
+    if(gameOver)return;
+    if(k==='Backspace'){{
+      if(col>0){{col--;grid[row][col]='';render();}}
+      return;
+    }}
+    if(k==='Enter'){{
+      if(col<wlen)return;
+      checkRow();
+      return;
+    }}
+    if(k.length===1&&k>='a'&&k<='z'&&col<wlen){{
+      grid[row][col]=k;
+      col++;
+      render();
+    }}
+  }}
+
+  function checkRow(){{
+    var guess=grid[row].join('');
+    var remaining=word.split('');
+    var colors=new Array(wlen).fill('absent');
+    for(var i=0;i<wlen;i++){{if(guess[i]===word[i]){{colors[i]='correct';remaining[i]=null;}}}}
+    for(var i=0;i<wlen;i++){{
+      if(colors[i]==='correct')continue;
+      var idx=remaining.indexOf(guess[i]);
+      if(idx>=0){{colors[i]='present';remaining[idx]=null;}}
+    }}
+    for(var i=0;i<wlen;i++){{
+      var cell=document.getElementById('wc-'+row+'-'+i);
+      cell.className='wordle-cell '+colors[i];
+      var k=guess[i];
+      if(!keyStates[k]||colors[i]==='correct'||(colors[i]==='present'&&keyStates[k]==='absent'))keyStates[k]=colors[i];
+    }}
+    render();
+    for(var i=0;i<wlen;i++)document.getElementById('wc-'+row+'-'+i).className='wordle-cell '+colors[i];
+    if(guess===word){{
+      gameOver=true;
+      document.getElementById('wd-msg').innerHTML='<span style="color:var(--green,#2ecc71)">Bravo! Indovinata in '+(row+1)+' tentativi!</span>';
+      gameReward(true);
+      return;
+    }}
+    row++;col=0;
+    if(row>=maxTries){{
+      gameOver=true;
+      document.getElementById('wd-msg').innerHTML='<span style="color:var(--red,#e74c3c)">La parola era: <strong>'+word.toUpperCase()+'</strong></span>';
+      gameReward(false);
+    }}
+  }}
+
+  document.addEventListener('keydown',function wdKey(e){{
+    if(!document.getElementById('wd-back')){{document.removeEventListener('keydown',wdKey);return;}}
+    if(e.key==='Backspace'||e.key==='Enter'){{handleKey(e.key);e.preventDefault();}}
+    else if(e.key.length===1&&e.key>='a'&&e.key<='z')handleKey(e.key);
+    else if(e.key.length===1&&e.key>='A'&&e.key<='Z')handleKey(e.key.toLowerCase());
+  }});
+  render();
+}}
+
+/* -- GUESS -- */
+function initGuess(area){{
+  var secret=Math.floor(Math.random()*100)+1;
+  var maxTries=7,attempt=0,history=[];
+  var gameOver=false;
+
+  function render(){{
+    var html='<button class="game-back" onclick="void(0)" id="gs-back">&larr; Torna ai giochi</button>';
+    html+='<h3 style="margin:0 0 4px;color:var(--text)">Indovina il numero</h3>';
+    html+='<p style="color:var(--text2);font-size:12px;margin:0 0 16px">Numero da 1 a 100 — hai '+maxTries+' tentativi</p>';
+    html+='<div class="guess-display"><div class="guess-number">'+(attempt>0?history[history.length-1].val:'?')+'</div>';
+    if(attempt>0&&!gameOver){{
+      var last=history[history.length-1];
+      html+='<div class="guess-hint" style="color:'+(last.dir==='low'?'var(--red,#e74c3c)':'var(--yellow,#f39c12)')+'">Troppo '+(last.dir==='low'?'basso':'alto')+'!</div>';
+    }}
+    html+='</div>';
+    if(!gameOver){{
+      html+='<div class="guess-input-row"><input type="number" class="guess-input" id="gs-inp" min="1" max="100" placeholder="1-100"><button class="pet-btn" id="gs-go" style="padding:10px 20px">Prova</button></div>';
+      html+='<div style="text-align:center;color:var(--text2);font-size:12px">Tentativo '+(attempt+1)+'/'+maxTries+'</div>';
+    }}
+    if(history.length){{
+      html+='<div class="guess-history">';
+      for(var i=0;i<history.length;i++)html+='<span class="guess-tag '+history[i].dir+'">'+history[i].val+'</span>';
+      html+='</div>';
+    }}
+    html+='<div id="gs-msg" style="text-align:center;font-size:15px;margin-top:12px;min-height:24px"></div>';
+    area.innerHTML=html;
+    document.getElementById('gs-back').onclick=closeGame;
+    if(!gameOver){{
+      var inp=document.getElementById('gs-inp');
+      inp.focus();
+      var goFn=function(){{
+        var v=parseInt(inp.value);
+        if(isNaN(v)||v<1||v>100)return;
+        attempt++;
+        if(v===secret){{
+          gameOver=true;
+          history.push({{val:v,dir:'correct'}});
+          render();
+          document.getElementById('gs-msg').innerHTML='<span style="color:var(--green,#2ecc71)">Esatto! Era '+secret+'! Indovinato al tentativo '+attempt+'!</span>';
+          gameReward(true);
+          return;
+        }}
+        history.push({{val:v,dir:v<secret?'low':'high'}});
+        if(attempt>=maxTries){{
+          gameOver=true;
+          render();
+          document.getElementById('gs-msg').innerHTML='<span style="color:var(--red,#e74c3c)">Finiti i tentativi! Il numero era '+secret+'.</span>';
+          gameReward(false);
+          return;
+        }}
+        render();
+      }};
+      document.getElementById('gs-go').onclick=goFn;
+      inp.onkeydown=function(e){{if(e.key==='Enter')goFn();}};
+    }}
+  }}
+  render();
+}}
+
+/* -- 8BALL -- */
+function init8Ball(area){{
+  var html='<button class="game-back" onclick="void(0)" id="bl-back">&larr; Torna ai giochi</button>';
+  html+='<h3 style="margin:0 0 4px;color:var(--text)">8Ball</h3>';
+  html+='<p style="color:var(--text2);font-size:12px;margin:0 0 16px">Fai una domanda al sealion e lui vedrà il futuro!</p>';
+  html+='<div class="ball-container">';
+  html+='<input class="ball-input" id="bl-q" placeholder="Fai una domanda...">';
+  html+='<div class="ball-circle" id="bl-circle"><div class="ball-inner">8</div></div>';
+  html+='<div class="ball-answer" id="bl-answer"></div>';
+  html+='<button class="pet-btn" id="bl-ask">Chiedi!</button>';
+  html+='</div>';
+  area.innerHTML=html;
+  document.getElementById('bl-back').onclick=closeGame;
+  var askFn=function(){{
+    var q=document.getElementById('bl-q').value.trim();
+    if(!q)return;
+    var circle=document.getElementById('bl-circle');
+    circle.classList.add('shaking');
+    document.getElementById('bl-answer').textContent='';
+    setTimeout(function(){{
+      circle.classList.remove('shaking');
+      var ans=BALL_ANSWERS[Math.floor(Math.random()*BALL_ANSWERS.length)];
+      document.getElementById('bl-answer').textContent=ans;
+      gameReward('draw');
+    }},700);
+  }};
+  document.getElementById('bl-ask').onclick=askFn;
+  document.getElementById('bl-q').onkeydown=function(e){{if(e.key==='Enter')askFn();}};
+}}
+
+}})();
+</script>
+"""
+    return _base_html("Pet Portal", body, active="pet")
+
+
 def _page_delivery() -> str:
     if _server is not None:
         port = _server.server_address[1]
@@ -2339,6 +3117,8 @@ class SlRequestHandler(http.server.BaseHTTPRequestHandler):
             self._send_html(_page_loot())
         elif path == "/jwt":
             self._send_html(_page_jwt())
+        elif path == "/pet":
+            self._send_html(_page_pet())
         elif path.startswith("/loot/view/"):
             name = path[11:]
             if ".." in name or "/" in name:
