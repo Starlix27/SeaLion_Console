@@ -82,11 +82,30 @@ smbstatus                                             # Chi è connesso, version
 
 ## Tool consigliati
 
-*Installa con `use <tool>` + `install`*
+*Installa con `use <tool>` + `install` — apri la pagina tool con `use <tool>`*
 
-- **nmap**
-- **enum4linux-ng**
-- **smbmap**
-- **netexec**
-- **hydra**
-- **impacket**
+### Enumerazione
+
+| Tool | A cosa serve |
+|------|-------------|
+| **nmap** | Scan porte 139/445, script SMB (versione, vuln, share, utenti) |
+| **enum4linux-ng** | Enumerazione all-in-one: utenti, gruppi, share, policy password, dialetti SMB |
+| **smbmap** | Mappa permessi READ/WRITE su ogni share, download/upload file |
+| **rpcclient** | Sessione RPC interattiva: enumdomusers, srvinfo, queryuser (già installato) |
+
+### Attacco & Credential Testing
+
+| Tool | A cosa serve |
+|------|-------------|
+| **netexec** | Coltellino svizzero: password spraying, enum share, exec comandi, dump SAM, pass-the-hash. Evoluzione di CrackMapExec, multi-protocollo (SMB/RDP/WinRM/LDAP/SSH/MSSQL) |
+| **hydra** | Brute-force login SMB con wordlist username/password |
+| **medusa** | Brute-force SMB parallelo, alternativa a Hydra |
+| **ncrack** | Brute-force SMB/RDP/SSH ad alta velocità |
+| **crackmapexec** | Predecessore di NetExec — stesso utilizzo, ma non più mantenuto. Usa `nxc` al suo posto |
+
+### Post-Exploitation & Movimento Laterale
+
+| Tool | A cosa serve |
+|------|-------------|
+| **impacket** | Suite Python: `psexec.py` (shell via SMB), `smbclient.py` (client avanzato), `secretsdump.py` (dump hash/credenziali), `samrdump.py` (enum utenti RPC), `wmiexec.py` (exec via WMI) |
+| **smbclient** | Client SMB nativo Linux: accesso share, download/upload file, esecuzione comandi locali con `!` (già installato) |
