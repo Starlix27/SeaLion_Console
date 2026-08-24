@@ -1249,7 +1249,7 @@ def _page_list(title: str, section: str, items: list[tuple[str, str]], descripti
         desc = ""
         if descriptions and key in descriptions:
             desc = f'<span class="item-desc">&mdash; {html.escape(descriptions[key])}</span>'
-        lis += f'<li><a href="/{section}/{key}"><span class="item-name">{html.escape(name)}</span>{desc}</a></li>\n'
+        lis += f'<li><a href="/{section}/{key}/"><span class="item-name">{html.escape(name)}</span>{desc}</a></li>\n'
 
     body = f"""<div class="container">
 <div class="breadcrumb"><a href="/">Home</a> <span>/</span> {html.escape(title)}</div>
@@ -1502,7 +1502,7 @@ def _search_all(query: str) -> list[dict]:
         if q in text.lower() or q in stem.lower():
             ctx = _extract_search_context(text, q)
             results.append({"section": "notes", "name": display, "key": stem,
-                            "href": f"/notes/{stem}", "context": ctx})
+                            "href": f"/notes/{stem}/", "context": ctx})
 
     for stem, display in _discover_vulns():
         md_file = VULN_ROOT / f"{stem}.md"
@@ -1512,7 +1512,7 @@ def _search_all(query: str) -> list[dict]:
         if q in text.lower() or q in stem.lower():
             ctx = _extract_search_context(text, q)
             results.append({"section": "vuln", "name": display, "key": stem,
-                            "href": f"/vuln/{stem}", "context": ctx})
+                            "href": f"/vuln/{stem}/", "context": ctx})
 
     for tname, display in _discover_tools():
         tool_dir = TOOL_ROOT / tname
@@ -1525,7 +1525,7 @@ def _search_all(query: str) -> list[dict]:
         if q in text.lower() or q in tname.lower():
             ctx = _extract_search_context(text, q)
             results.append({"section": "tools", "name": display, "key": tname,
-                            "href": f"/tools/{tname}", "context": ctx})
+                            "href": f"/tools/{tname}/", "context": ctx})
 
     return results
 
