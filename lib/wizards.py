@@ -250,25 +250,25 @@ def _build_dir_result(target: dict, tech_key: str, tech_exts: list[str], intensi
 
     if tech_key == "php":
         extras.append("php_fuzz")
-        tech_exts = [".php", ".phtml", ".txt", ".bak", ".php.bak"]
+        tech_exts = [".php", ".phtml", ".txt", ".bak", ".php.bak", ".zip", ".tar.gz"]
     elif tech_key == "asp":
         extras.append("asp_fuzz")
-        tech_exts = [".asp", ".aspx", ".txt", ".bak", ".config"]
+        tech_exts = [".asp", ".aspx", ".txt", ".bak", ".config", ".zip", ".tar.gz"]
     elif tech_key == "java":
         extras.append("java_fuzz")
-        tech_exts = [".jsp", ".do", ".action", ".xml", ".txt"]
+        tech_exts = [".jsp", ".do", ".action", ".xml", ".txt", ".zip", ".tar.gz"]
     elif tech_key == "python":
-        tech_exts = [".py", ".txt", ".json", ".yaml"]
+        tech_exts = [".py", ".txt", ".json", ".yaml", ".zip", ".tar.gz"]
     elif tech_key == "node":
-        tech_exts = [".js", ".json", ".txt", ".map"]
+        tech_exts = [".js", ".json", ".txt", ".map", ".zip", ".tar.gz"]
     elif tech_key == "wp":
         extras.extend(["wp_content", "wp_plugins", "wp_themes"])
-        tech_exts = [".php", ".txt", ".bak"]
+        tech_exts = [".php", ".txt", ".bak", ".zip", ".tar.gz"]
     elif tech_key == "joomla":
         extras.append("joomla_fuzz")
-        tech_exts = [".php", ".txt", ".bak"]
+        tech_exts = [".php", ".txt", ".bak", ".zip", ".tar.gz"]
     else:
-        tech_exts = [".txt", ".bak", ".html"]
+        tech_exts = [".txt", ".bak", ".html", ".zip", ".tar.gz"]
 
     ext_str = ",".join(e.lstrip(".") for e in tech_exts)
     ext_dot = ",".join(tech_exts)
