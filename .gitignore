@@ -6,3 +6,19 @@ __pycache__/
 *.pyc
 rockyou.txt
 site/
+
+# Binari scaricati da serve fetch / pivot fetch / tunnel fetch
+static/linpeas.sh
+static/linpeas_linux_amd64
+static/winPEASx64.exe
+static/winPEASx86.exe
+static/pspy32
+static/pspy64
+static/linenum.sh
+static/linux-exploit-suggester.sh
+static/chisel
+static/chisel.gz
+static/ligolo-proxy
+static/ligolo-agent
+static/ligolo-ng_*.tar.gz
+loot/
