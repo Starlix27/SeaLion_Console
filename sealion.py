@@ -353,6 +353,7 @@ def print_help_text() -> None:
     print("  wordfind [url]     Wizard wordlist per fuzzing/bruteforce")
     print("  passfind           Wizard password cracking (hash, file, archivi, servizi)")
     print("  wordgen            Wizard creazione wordlist personalizzate")
+    print("  burp               BURP — Profiler password avanzato (sostituisce CUPP)")
     print()
     print("  \033[92;1m— Terminale\033[0m")
     print("  sealsay [testo]    Stampa un messaggio in stile cowsay")
@@ -505,6 +506,11 @@ def build_parser() -> argparse.ArgumentParser:
     wordfind_p.add_argument("--full", action="store_true", default=False)
     subparsers.add_parser("passfind", add_help=False)
     subparsers.add_parser("wordgen", add_help=False)
+    burp_p = subparsers.add_parser("burp", add_help=False)
+    burp_p.add_argument("--fast", action="store_true", default=False)
+    burp_p.add_argument("--full", action="store_true", default=False)
+    burp_p.add_argument("--profile", default=None)
+    burp_p.add_argument("-o", "--output", default=None)
     tunnel_p = subparsers.add_parser("tunnel", add_help=False)
     tunnel_p.add_argument("action", nargs="?", default="status")
     tunnel_p.add_argument("port", nargs="?", type=int, default=None)
@@ -553,7 +559,7 @@ def setup_readline() -> None:
 
 
 _COMPLETABLE = sorted(["sealsay", "list", "install", "use", "search", "vuln",
-                        "notes", "find", "back", "help", "serve", "loot", "wordfind", "passfind", "wordgen", "tunnel", "pivot", "reconfind", "recon", "pet", "exit"])
+                        "notes", "find", "back", "help", "serve", "loot", "wordfind", "passfind", "wordgen", "tunnel", "pivot", "reconfind", "recon", "pet", "burp", "exit"])
 _input_history: list[str] = []
 
 
@@ -841,6 +847,7 @@ def run_command(argv: list[str], state: ConsoleState | None = None) -> int:
     from lib.serve import cmd_serve, cmd_loot, cmd_tunnel, cmd_pivot
     from lib.recon import cmd_recon
     from lib.reconfind import cmd_reconfind
+    from lib.burp import cmd_burp
 
     handlers = {
         "sealsay": cmd_sealsay,
@@ -862,6 +869,7 @@ def run_command(argv: list[str], state: ConsoleState | None = None) -> int:
         "reconfind": cmd_reconfind,
         "recon": cmd_recon,
         "pet": cmd_pet,
+        "burp": cmd_burp,
     }
     handler = handlers.get(args.command)
     if handler is None:
@@ -954,7 +962,7 @@ def run_console() -> int:
                     state.last_vuln_tools = _extract_vuln_tools(text)
                 continue
 
-        known_commands = {"sealsay", "list", "install", "use", "search", "vuln", "notes", "find", "back", "help", "?", "--version", "-h", "--help", "serve", "loot", "wordfind", "passfind", "wordgen", "tunnel", "pivot", "reconfind", "recon", "pet"}
+        known_commands = {"sealsay", "list", "install", "use", "search", "vuln", "notes", "find", "back", "help", "?", "--version", "-h", "--help", "serve", "loot", "wordfind", "passfind", "wordgen", "tunnel", "pivot", "reconfind", "recon", "pet", "burp"}
         if argv[0] not in known_commands:
             print("Comando non riconosciuto. Digita 'help' per i comandi.")
             continue

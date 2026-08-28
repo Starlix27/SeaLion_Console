@@ -47,6 +47,7 @@ from http_server import (
     _page_md,
     _page_jwt,
     _page_pet,
+    _page_burp,
     _sl_version_hash,
 )
 
@@ -62,6 +63,7 @@ _STATIC_NAV = [
     ("tools/", "Tools", "tools"),
     ("jwt", "JWT", "jwt"),
     ("pet", "Pet", "pet"),
+    ("burp", "BURP", "burp"),
 ]
 
 
@@ -182,6 +184,7 @@ def _page_home_static() -> str:
       <li><a href="{BASE}tools/">Tools</a><span class="cnt">{n_tools} tool</span></li>
       <li><a href="{BASE}jwt">JWT</a><span class="cnt">encoder/decoder</span></li>
       <li><a href="{BASE}pet">Pet</a><span class="cnt">sealion virtuale</span></li>
+      <li><a href="{BASE}burp">BURP</a><span class="cnt">password profiler</span></li>
     </ul>
   </div>
   <div class="info-box" id="pet-widget" style="display:none">
@@ -218,6 +221,7 @@ def _page_home_static() -> str:
     {{name:'tools',label:'Tools',cnt:'{n_tools} tool',href:B+'tools/'}},
     {{name:'jwt',label:'JWT',cnt:'encoder/decoder',href:B+'jwt'}},
     {{name:'pet',label:'Pet',cnt:'sealion virtuale',href:B+'pet'}},
+    {{name:'burp',label:'BURP',cnt:'password profiler',href:B+'burp'}},
   ];
   const input=document.getElementById('term-input');
   const box=document.getElementById('suggestions');
@@ -238,7 +242,9 @@ def _page_home_static() -> str:
     '  <span class="t-accent">jwt</span>         <span class="t-line">Apri il JWT Encoder/Decoder nel browser</span>\\n'+
     '              <span class="t-line">Decodifica, crea e verifica token JWT — tutto client-side</span>\\n'+
     '  <span class="t-accent">pet</span>         <span class="t-line">Pet Portal — nutri, gioca e cura il tuo sealion</span>\\n'+
-    '              <span class="t-line">Feed, play, spin, annoy + mini-games (blackjack, wordle, 8ball)</span>\\n\\n'+
+    '              <span class="t-line">Feed, play, spin, annoy + mini-games (blackjack, wordle, 8ball)</span>\\n'+
+    '  <span class="t-accent">burp</span>        <span class="t-line">BURP — Profiler password avanzato (sostituisce CUPP)</span>\\n'+
+    '              <span class="t-line">Genera wordlist personalizzate basate sul profilo della vittima</span>\\n\\n'+
     '  <span class="t-section">— Terminale</span>\\n'+
     '  <span class="t-accent">help</span>        <span class="t-line">Mostra questo messaggio</span>\\n'+
     '  <span class="t-accent">help</span> <span class="t-line">&lt;cmd&gt;</span>  <span class="t-line">Dettagli su un comando (es. <span class="t-accent">help vuln</span>)</span>\\n'+
@@ -269,6 +275,12 @@ def _page_home_static() -> str:
       '<span class="t-line">Apre il portale del tuo sealion virtuale.</span>\\n'+
       '<span class="t-line">Nutrilo, gioca, fallo girare e tienilo felice!</span>\\n\\n'+
       '<span class="t-line">Digitando <span class="t-accent">pet</span> verrai portato al Pet Portal.</span>',
+    burp:
+      '<span class="t-head">burp — BURP Password Profiler</span>\\n\\n'+
+      '<span class="t-line">Genera wordlist personalizzate basate sul profilo della vittima.</span>\\n'+
+      '<span class="t-line">Compila il form con info su target, famiglia, animali, azienda e keyword.</span>\\n\\n'+
+      '<span class="t-line">Livelli: <span class="t-accent">fast</span> (~2k), <span class="t-accent">medium</span> (~15k), <span class="t-accent">full</span> (~100k+)</span>\\n\\n'+
+      '<span class="t-line">Digitando <span class="t-accent">burp</span> verrai portato al BURP profiler.</span>',
     help:
       '<span class="t-head">help — Aiuto Comandi</span>\\n\\n'+
       '<span class="t-line">Mostra la lista dei comandi disponibili.</span>',
@@ -606,6 +618,10 @@ def build():
     # Pet
     _write(out / "pet" / "index.html", _page_pet())
     print("  ✓ pet/")
+
+    # BURP
+    _write(out / "burp" / "index.html", _page_burp())
+    print("  ✓ burp/")
 
     # Search
     _write(out / "search" / "index.html", _page_search_static())

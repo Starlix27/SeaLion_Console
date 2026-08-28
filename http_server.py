@@ -765,6 +765,7 @@ def _base_html(title: str, body: str, active: str = "") -> str:
         ("/logs", "Logs", "logs"),
         ("/jwt", "JWT", "jwt"),
         ("/pet", "Pet", "pet"),
+        ("/burp", "BURP", "burp"),
     ]
     nav_html = ""
     for href, label, key in nav_items:
@@ -879,6 +880,7 @@ def _page_home() -> str:
       <li><a href="/loot/">Loot</a><span class="cnt">{n_loot} file</span></li>
       <li><a href="/delivery">Delivery</a><span class="cnt">payload &amp; curl</span></li>
       <li><a href="/logs">Logs</a><span class="cnt">server logs</span></li>
+      <li><a href="/burp">BURP</a><span class="cnt">password profiler</span></li>
     </ul>
   </div>
   <div class="info-box" id="pet-widget" style="display:none">
@@ -918,6 +920,7 @@ def _page_home() -> str:
     {{name:'logs',label:'Logs',cnt:'server logs',href:'/logs'}},
     {{name:'jwt',label:'JWT',cnt:'encoder/decoder',href:'/jwt'}},
     {{name:'pet',label:'Pet',cnt:'sealion virtuale',href:'/pet'}},
+    {{name:'burp',label:'BURP',cnt:'password profiler',href:'/burp'}},
   ];
   const input=document.getElementById('term-input');
   const box=document.getElementById('suggestions');
@@ -952,7 +955,8 @@ def _page_home() -> str:
     '  <span class="t-section">— Wordlists</span>\\n'+
     '  <span class="t-accent">wordfind</span>    <span class="t-line">Wizard wordlist — suggerisce liste e comandi per fuzzing/brute-force</span>\\n'+
     '  <span class="t-accent">wordgen</span>     <span class="t-line">Wizard creazione wordlist personalizzate (cewl, crunch, ecc.)</span>\\n'+
-    '  <span class="t-accent">passfind</span>    <span class="t-line">Wizard password cracking — hash, file protetti, archivi, servizi</span>\\n\\n'+
+    '  <span class="t-accent">passfind</span>    <span class="t-line">Wizard password cracking — hash, file protetti, archivi, servizi</span>\\n'+
+    '  <span class="t-accent">burp</span>        <span class="t-line">BURP — Profiler password avanzato (sostituisce CUPP)</span>\\n\\n'+
     '  <span class="t-section">— Terminale</span>\\n'+
     '  <span class="t-accent">help</span>        <span class="t-line">Mostra questo messaggio</span>\\n'+
     '  <span class="t-accent">help</span> <span class="t-line">&lt;cmd&gt;</span>  <span class="t-line">Dettagli su un comando (es. <span class="t-accent">help loot</span>)</span>\\n'+
@@ -1049,6 +1053,12 @@ def _page_home() -> str:
       '<span class="t-line">  • <span class="t-accent">Verifica HMAC</span> — controlla la firma con un secret</span>\\\\n'+
       '<span class="t-line">  • <span class="t-accent">Encode</span> — crea JWT con HS256/HS384/HS512 o alg:none</span>\\\\n\\\\n'+
       '<span class="t-line">Digitando <span class="t-accent">jwt</span> verrai portato alla pagina JWT.</span>',
+    burp:
+      '<span class="t-head">burp — BURP Password Profiler</span>\\\\n\\\\n'+
+      '<span class="t-line">Genera wordlist personalizzate basate sul profilo della vittima.</span>\\\\n'+
+      '<span class="t-line">Compila il form con info su target, famiglia, animali, azienda e keyword.</span>\\\\n\\\\n'+
+      '<span class="t-line">Livelli: <span class="t-accent">fast</span> (~2k), <span class="t-accent">medium</span> (~15k), <span class="t-accent">full</span> (~100k+)</span>\\\\n\\\\n'+
+      '<span class="t-line">Digitando <span class="t-accent">burp</span> verrai portato al BURP profiler.</span>',
     help:
       '<span class="t-head">help — Aiuto Comandi</span>\\n\\n'+
       '<span class="t-line">Mostra la lista dei comandi disponibili nel terminale SLWeb.</span>\\n\\n'+
@@ -1150,7 +1160,7 @@ def _page_home() -> str:
     }});
   }}
 
-  const allNames=[...cats.map(c=>c.name),'tunnel','wordfind','wordgen','passfind','help','clear','version'];
+  const allNames=[...cats.map(c=>c.name),'tunnel','wordfind','wordgen','passfind','burp','help','clear','version'];
   const helpSubs=Object.keys(CMD_HELP);
   function filter(){{
     const q=input.value.trim().toLowerCase();
@@ -2091,6 +2101,355 @@ def _page_jwt() -> str:
 </script>
 """
     return _base_html("JWT", body, active="jwt")
+
+
+    return _base_html("JWT", body, active="jwt")
+
+
+def _page_burp() -> str:
+    body = """\
+<div class="container">
+<div class="breadcrumb"><a href="/">Home</a> <span>/</span> BURP</div>
+<div class="page-title">BURP</div>
+<div class="page-sub">Better User Research Password — Profiler password avanzato</div>
+
+<style>
+.burp-section{border-bottom:1px solid var(--border);padding:16px 0}
+.burp-section:last-of-type{border-bottom:none}
+.burp-section-title{font-size:14px;font-weight:700;color:var(--accent);margin-bottom:10px}
+.burp-field{display:flex;gap:8px;margin-bottom:8px;align-items:center}
+.burp-field label{width:140px;flex-shrink:0;color:var(--text2);font-size:13px}
+.burp-field input[type="text"],.burp-field input[type="number"]{flex:1;background:var(--surface);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:7px 10px;font-family:inherit;font-size:13px;outline:none}
+.burp-field input:focus{border-color:var(--accent)}
+.burp-family-block{border:1px solid var(--border);border-radius:6px;padding:12px;margin:8px 0}
+.burp-add-btn{background:none;border:1px dashed var(--border);color:var(--accent);padding:6px 16px;border-radius:4px;cursor:pointer;font-size:12px;font-family:inherit}
+.burp-add-btn:hover{border-color:var(--accent)}
+.burp-remove-btn{background:none;border:none;color:#e55;cursor:pointer;font-size:18px;padding:0 8px;line-height:1}
+.burp-level-row{display:flex;gap:6px;margin:12px 0}
+.burp-level-btn{padding:7px 18px;border-radius:4px;font-size:13px;font-weight:600;cursor:pointer;border:1px solid var(--border);background:var(--surface);color:var(--text2);transition:all .15s;font-family:inherit}
+.burp-level-btn:hover{border-color:var(--accent);color:var(--text)}
+.burp-level-btn.active{background:var(--accent);color:#fff;border-color:var(--accent)}
+.burp-generate-btn{background:var(--green,#4c9);color:#fff;border:none;padding:10px 30px;border-radius:4px;font-size:14px;font-weight:600;cursor:pointer;font-family:inherit}
+.burp-generate-btn:hover{opacity:.9}
+.burp-generate-btn:disabled{opacity:.5;cursor:not-allowed}
+.burp-result{margin-top:16px;border:1px solid var(--border);border-radius:6px;padding:16px}
+.burp-result textarea{width:100%;height:300px;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:4px;font-family:'Fira Mono',monospace;font-size:13px;padding:10px;resize:vertical;outline:none;box-sizing:border-box}
+.burp-policy-row{display:flex;gap:16px;flex-wrap:wrap;margin:8px 0}
+.burp-policy-row label{display:flex;align-items:center;gap:6px;font-size:13px;color:var(--text2);cursor:pointer}
+.burp-policy-row input[type="checkbox"]{accent-color:var(--accent)}
+.burp-stats{display:flex;gap:16px;margin:8px 0 12px;font-size:13px;color:var(--text2);align-items:center;flex-wrap:wrap}
+.burp-stats .count{color:var(--green,#4c9);font-weight:600}
+.burp-level-desc{font-size:12px;color:var(--text2);margin:4px 0 12px}
+</style>
+
+<div id="burp-form">
+<!-- Target -->
+<div class="burp-section">
+  <div class="burp-section-title">Target</div>
+  <div class="burp-field"><label>Nome *</label><input type="text" id="b-first" placeholder="es. Mario"></div>
+  <div class="burp-field"><label>Cognome</label><input type="text" id="b-last" placeholder="es. Rossi"></div>
+  <div class="burp-field"><label>Soprannome</label><input type="text" id="b-nick" placeholder="es. SuperMario"></div>
+  <div class="burp-field"><label>Data di nascita</label><input type="text" id="b-birth" placeholder="GG/MM/AAAA"></div>
+</div>
+
+<!-- Partners -->
+<div class="burp-section">
+  <div class="burp-section-title">Partner</div>
+  <div id="b-partners"></div>
+  <button class="burp-add-btn" onclick="addPerson('partners')">+ Aggiungi partner</button>
+</div>
+
+<!-- Children -->
+<div class="burp-section">
+  <div class="burp-section-title">Figli</div>
+  <div id="b-children"></div>
+  <button class="burp-add-btn" onclick="addPerson('children')">+ Aggiungi figlio/a</button>
+</div>
+
+<!-- Siblings -->
+<div class="burp-section">
+  <div class="burp-section-title">Fratelli / Sorelle</div>
+  <div id="b-siblings"></div>
+  <button class="burp-add-btn" onclick="addPerson('siblings')">+ Aggiungi fratello/sorella</button>
+</div>
+
+<!-- Parents -->
+<div class="burp-section">
+  <div class="burp-section-title">Genitori</div>
+  <div id="b-parents"></div>
+  <button class="burp-add-btn" onclick="addPerson('parents')">+ Aggiungi genitore</button>
+</div>
+
+<!-- Pets -->
+<div class="burp-section">
+  <div class="burp-section-title">Animali domestici</div>
+  <div class="burp-field"><label>Nomi (virgola)</label><input type="text" id="b-pets" placeholder="es. Fido, Rex"></div>
+</div>
+
+<!-- Company + Keywords -->
+<div class="burp-section">
+  <div class="burp-section-title">Altro</div>
+  <div class="burp-field"><label>Azienda</label><input type="text" id="b-company" placeholder="es. AcmeCorp"></div>
+  <div class="burp-field"><label>Parole chiave</label><input type="text" id="b-keywords" placeholder="es. calcio, juventus, hacker"></div>
+</div>
+
+<!-- Policy -->
+<div class="burp-section">
+  <div class="burp-section-title">Filtro Policy <span style="font-weight:400;font-size:12px;color:var(--text2)">— regole del sito target (tieni solo password valide)</span></div>
+  <div class="burp-field"><label>Min lunghezza</label><input type="number" id="b-minlen" value="0" min="0" style="width:80px;flex:none"></div>
+  <div class="burp-field"><label>Max lunghezza</label><input type="number" id="b-maxlen" value="0" min="0" style="width:80px;flex:none"></div>
+  <div class="burp-policy-row">
+    <label><input type="checkbox" id="b-req-alpha" checked> Includi lettere</label>
+    <label><input type="checkbox" id="b-req-upper" checked> Includi maiuscole</label>
+    <label><input type="checkbox" id="b-req-digit" checked> Includi numeri</label>
+    <label><input type="checkbox" id="b-req-special" checked> Includi speciali (!@#$)</label>
+  </div>
+</div>
+
+<!-- Level + Generate -->
+<div class="burp-section" style="border-bottom:none">
+  <div class="burp-section-title">Livello</div>
+  <div class="burp-level-row">
+    <button class="burp-level-btn" data-level="fast" onclick="setLevel(this)">Fast</button>
+    <button class="burp-level-btn active" data-level="medium" onclick="setLevel(this)">Medium</button>
+    <button class="burp-level-btn" data-level="full" onclick="setLevel(this)">Full</button>
+  </div>
+  <div class="burp-level-desc" id="b-level-desc">~2k-15k password — cross-group, leet parziale, prefissi</div>
+  <div id="b-estimates" style="display:none;margin:10px 0;font-size:13px;color:var(--text2)">
+    <span style="margin-right:16px">fast: <b id="b-est-fast">-</b></span>
+    <span style="margin-right:16px">medium: <b id="b-est-medium">-</b></span>
+    <span>full: <b id="b-est-full">-</b></span>
+  </div>
+  <div style="margin-top:16px">
+    <button class="burp-generate-btn" id="b-gen-btn" onclick="doGenerate()">Genera Wordlist</button>
+    <span id="b-spinner" style="display:none;margin-left:12px;color:var(--text2)">Generazione...</span>
+  </div>
+</div>
+
+<!-- Results -->
+<div class="burp-result" id="b-result" style="display:none">
+  <div class="burp-stats">
+    <span>Password generate: <span class="count" id="b-count">0</span></span>
+    <button class="burp-add-btn" onclick="downloadWordlist()">Download .txt</button>
+    <button class="burp-add-btn" onclick="copyWordlist()">Copia</button>
+  </div>
+  <textarea id="b-output" readonly></textarea>
+</div>
+</div>
+</div>
+
+<script>
+(function(){
+  var level='medium';
+  var generated=[];
+  var LEVEL_DESC={
+    fast:'combo base, suffissi comuni',
+    medium:'cross-group, leet parziale, prefissi',
+    full:'tutto: permutazioni, leet, reverse'
+  };
+  var lastEstimates=null;
+
+  function updateLevelDesc(){
+    var desc=LEVEL_DESC[level]||'';
+    if(lastEstimates&&lastEstimates[level]){
+      desc=lastEstimates[level].toLocaleString()+' password — '+desc;
+    }
+    document.getElementById('b-level-desc').textContent=desc;
+  }
+
+  window.setLevel=function(btn){
+    document.querySelectorAll('.burp-level-btn').forEach(function(b){b.classList.remove('active')});
+    btn.classList.add('active');
+    level=btn.dataset.level;
+    updateLevelDesc();
+  };
+
+  window.addPerson=function(group){
+    var container=document.getElementById('b-'+group);
+    var idx=container.children.length;
+    var block=document.createElement('div');
+    block.className='burp-family-block';
+    block.innerHTML=
+      '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">'+
+      '<span style="font-size:12px;color:var(--text2)">#'+(idx+1)+'</span>'+
+      '<button class="burp-remove-btn" onclick="this.closest(\\'.burp-family-block\\').remove()">&times;</button>'+
+      '</div>'+
+      '<div class="burp-field"><label>Nome</label><input type="text" class="fp-name" placeholder="Nome"></div>'+
+      '<div class="burp-field"><label>Cognome</label><input type="text" class="fp-surname" placeholder="Cognome"></div>'+
+      '<div class="burp-field"><label>Soprannome</label><input type="text" class="fp-nick" placeholder="Soprannome"></div>'+
+      '<div class="burp-field"><label>Data nascita</label><input type="text" class="fp-birth" placeholder="GG/MM/AAAA"></div>';
+    container.appendChild(block);
+  };
+
+  function collectPeople(group){
+    var blocks=document.querySelectorAll('#b-'+group+' .burp-family-block');
+    var people=[];
+    blocks.forEach(function(b){
+      var name=b.querySelector('.fp-name').value.trim();
+      if(!name)return;
+      people.push({
+        name:name,
+        surname:b.querySelector('.fp-surname').value.trim(),
+        nickname:b.querySelector('.fp-nick').value.trim(),
+        birthdate:b.querySelector('.fp-birth').value.trim()
+      });
+    });
+    return people;
+  }
+
+  function buildProfile(){
+    return {
+      first_name:document.getElementById('b-first').value.trim(),
+      last_name:document.getElementById('b-last').value.trim(),
+      nickname:document.getElementById('b-nick').value.trim(),
+      birthdate:document.getElementById('b-birth').value.trim(),
+      partners:collectPeople('partners'),
+      children:collectPeople('children'),
+      siblings:collectPeople('siblings'),
+      parents:collectPeople('parents'),
+      pets:document.getElementById('b-pets').value.split(',').map(function(s){return s.trim()}).filter(Boolean),
+      company:document.getElementById('b-company').value.trim(),
+      keywords:document.getElementById('b-keywords').value.split(',').map(function(s){return s.trim()}).filter(Boolean),
+      min_length:parseInt(document.getElementById('b-minlen').value)||0,
+      max_length:parseInt(document.getElementById('b-maxlen').value)||0,
+      allow_alpha:document.getElementById('b-req-alpha').checked,
+      allow_upper:document.getElementById('b-req-upper').checked,
+      allow_digit:document.getElementById('b-req-digit').checked,
+      allow_special:document.getElementById('b-req-special').checked
+    };
+  }
+
+  window.doGenerate=function(){
+    var profile=buildProfile();
+    if(!profile.first_name){alert('Nome obbligatorio');return;}
+    var btn=document.getElementById('b-gen-btn');
+    var spinner=document.getElementById('b-spinner');
+    btn.disabled=true;
+    spinner.style.display='inline';
+    spinner.textContent='Calcolo stime...';
+    doEstimate(function(){
+      spinner.textContent='Generazione...';
+      fetch('/api/burp/generate',{
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({profile:profile,level:level})
+      })
+    .then(function(r){return r.json()})
+    .then(function(data){
+      if(data.ok){
+        generated=data.passwords;
+        document.getElementById('b-count').textContent=generated.length.toLocaleString();
+        document.getElementById('b-output').value=generated.join('\\n');
+        document.getElementById('b-result').style.display='block';
+      }else{
+        alert('Errore: '+(data.error||'sconosciuto'));
+      }
+    })
+    .catch(function(e){alert('Errore di rete: '+e.message)})
+    .finally(function(){btn.disabled=false;spinner.style.display='none'});
+    });
+  };
+
+  window.downloadWordlist=function(){
+    var blob=new Blob([generated.join('\\n')],{type:'text/plain'});
+    var url=URL.createObjectURL(blob);
+    var a=document.createElement('a');
+    a.href=url;
+    a.download=(document.getElementById('b-first').value.trim()||'target')+'_burp.txt';
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  window.copyWordlist=function(){
+    navigator.clipboard.writeText(generated.join('\\n')).then(function(){
+      var btn=event.target;
+      var old=btn.textContent;
+      btn.textContent='Copiato!';
+      setTimeout(function(){btn.textContent=old},1500);
+    });
+  };
+
+  window.doEstimate=function(cb){
+    var profile=buildProfile();
+    if(!profile.first_name){if(cb)cb();return;}
+    fetch('/api/burp/estimate',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({profile:profile})
+    })
+    .then(function(r){return r.json()})
+    .then(function(data){
+      if(data.ok){
+        lastEstimates=data.counts;
+        document.getElementById('b-est-fast').textContent=data.counts.fast.toLocaleString();
+        document.getElementById('b-est-medium').textContent=data.counts.medium.toLocaleString();
+        document.getElementById('b-est-full').textContent=data.counts.full.toLocaleString();
+        document.getElementById('b-estimates').style.display='block';
+        updateLevelDesc();
+        if(cb)cb();
+      }
+    })
+    .catch(function(){if(cb)cb()});
+  };
+
+  var _estTimer=null;
+  function scheduleEstimate(){
+    clearTimeout(_estTimer);
+    _estTimer=setTimeout(function(){doEstimate()},600);
+  }
+  document.querySelectorAll('#b-first,#b-last,#b-nick,#b-birth,#b-pets,#b-company,#b-keywords,#b-minlen,#b-maxlen').forEach(function(el){
+    el.addEventListener('input',scheduleEstimate);
+  });
+  document.querySelectorAll('#b-req-alpha,#b-req-upper,#b-req-digit,#b-req-special').forEach(function(el){
+    el.addEventListener('change',scheduleEstimate);
+  });
+  var _famObs=new MutationObserver(function(muts){
+    var dominated=false;
+    muts.forEach(function(m){if(m.addedNodes.length||m.removedNodes.length)dominated=true;});
+    if(dominated)scheduleEstimate();
+  });
+  ['b-partners','b-children','b-siblings','b-parents'].forEach(function(id){
+    _famObs.observe(document.getElementById(id),{childList:true,subtree:true});
+  });
+  document.addEventListener('input',function(e){
+    if(e.target.classList.contains('fp-name')||e.target.classList.contains('fp-surname')||
+       e.target.classList.contains('fp-nick')||e.target.classList.contains('fp-birth')){
+      scheduleEstimate();
+    }
+  });
+
+  function autoSlashDate(input){
+    input.addEventListener('input',function(){
+      var v=this.value.replace(/[^0-9]/g,'');
+      if(v.length>2)v=v.slice(0,2)+'/'+v.slice(2);
+      if(v.length>5)v=v.slice(0,5)+'/'+v.slice(5);
+      if(v.length>10)v=v.slice(0,10);
+      this.value=v;
+    });
+  }
+  autoSlashDate(document.getElementById('b-birth'));
+  var obs=new MutationObserver(function(){
+    document.querySelectorAll('.fp-birth').forEach(function(el){
+      if(!el.dataset.slashed){el.dataset.slashed='1';autoSlashDate(el);}
+    });
+  });
+  obs.observe(document.body,{childList:true,subtree:true});
+
+  document.addEventListener('keydown',function(e){
+    if(e.key!=='Enter')return;
+    var t=e.target;
+    if(t.tagName!=='INPUT'||t.type==='checkbox'||t.type==='radio')return;
+    e.preventDefault();
+    var form=document.getElementById('burp-form');
+    if(!form)return;
+    var inputs=Array.from(form.querySelectorAll('input:not([type=checkbox]):not([type=radio]):not([type=hidden]),select,textarea'));
+    var idx=inputs.indexOf(t);
+    if(idx>=0&&idx<inputs.length-1){inputs[idx+1].focus();}
+  });
+})();
+</script>
+"""
+    return _base_html("BURP", body, active="burp")
 
 
 def _page_pet() -> str:
@@ -3089,6 +3448,8 @@ class SlRequestHandler(http.server.BaseHTTPRequestHandler):
             self._send_html(_page_jwt())
         elif path == "/pet":
             self._send_html(_page_pet())
+        elif path == "/burp":
+            self._send_html(_page_burp())
         elif path.startswith("/loot/view/"):
             name = path[11:]
             if ".." in name or "/" in name:
@@ -3206,6 +3567,10 @@ class SlRequestHandler(http.server.BaseHTTPRequestHandler):
             self._api_loot_clear()
         elif path == "/api/lport":
             self._api_lport()
+        elif path == "/api/burp/generate":
+            self._api_burp_generate()
+        elif path == "/api/burp/estimate":
+            self._api_burp_estimate()
         else:
             self.send_error(404)
 
@@ -3369,6 +3734,37 @@ class SlRequestHandler(http.server.BaseHTTPRequestHandler):
             self._send_json({"ok": False, "error": msg}, status=400)
         else:
             self._send_json({"ok": True, "lport": _lport})
+
+    def _api_burp_generate(self) -> None:
+        try:
+            body = json.loads(self._read_body())
+            profile_data = body.get("profile", {})
+            level = body.get("level", "medium")
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            self._send_json({"ok": False, "error": "JSON non valido"}, status=400)
+            return
+        if level not in ("fast", "medium", "full"):
+            level = "medium"
+        try:
+            from lib.burp import generate_from_dict
+            passwords = generate_from_dict(profile_data, level)
+            self._send_json({"ok": True, "passwords": passwords, "count": len(passwords)})
+        except Exception as e:
+            self._send_json({"ok": False, "error": str(e)}, status=500)
+
+    def _api_burp_estimate(self) -> None:
+        try:
+            body = json.loads(self._read_body())
+            profile_data = body.get("profile", {})
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            self._send_json({"ok": False, "error": "JSON non valido"}, status=400)
+            return
+        try:
+            from lib.burp import estimate_counts
+            counts = estimate_counts(profile_data)
+            self._send_json({"ok": True, "counts": counts})
+        except Exception as e:
+            self._send_json({"ok": False, "error": str(e)}, status=500)
 
     def _serve_linseal(self, qs: dict) -> None:
         script_path = STATIC_ROOT / "linseal.sh"
