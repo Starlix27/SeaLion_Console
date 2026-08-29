@@ -21,7 +21,6 @@
 
 https://www.revshells.com/
 
-
 ## Reverse Shell
 
 Il target si connette a te — bypassa i firewall.

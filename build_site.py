@@ -156,6 +156,9 @@ def _page_home_static() -> str:
     seal = html.escape(http_server._load_seal_art())
     wag_frames = http_server._load_wag_frames()
     wag_json = json.dumps(wag_frames)
+    bark_frames = http_server._load_bark_frames()
+    bark1_json = json.dumps(bark_frames[0])
+    bark2_json = json.dumps(bark_frames[1])
 
     n_notes = len(_discover_notes())
     n_vulns = len(_discover_vulns())
@@ -414,16 +417,27 @@ def _page_home_static() -> str:
   var orig=art.textContent;
   var frames={wag_json};
   var seq=[2,3,4,3,2,1,0,1];
-  var tid=null,fi=0;
+  var tid=null,fi=0,barking=false;
+  var barkFrame1={bark1_json};
+  var barkFrame2={bark2_json};
   function wag(){{art.textContent=frames[seq[fi%seq.length]];fi++;}}
-  function start(e){{e.preventDefault();if(tid)return;fi=0;wag();tid=setInterval(wag,200);}}
+  function doBark(){{
+    barking=true;art.textContent=orig;
+    var bs=[barkFrame1,barkFrame2,barkFrame1,barkFrame2,barkFrame1,barkFrame2,barkFrame1,barkFrame2];
+    var bi=0;
+    var bt=setInterval(function(){{
+      if(bi<bs.length){{art.textContent=bs[bi];bi++;}}
+      else{{clearInterval(bt);art.textContent=orig;barking=false;}}
+    }},200);
+  }}
+  function start(e){{e.preventDefault();if(tid||barking)return;fi=0;wag();tid=setInterval(wag,200);}}
   function stop(){{
     if(tid){{clearInterval(tid);tid=null;}}
-    art.textContent=orig;
+    doBark();
   }}
   art.addEventListener('mousedown',start);
   art.addEventListener('mouseup',stop);
-  art.addEventListener('mouseleave',stop);
+  art.addEventListener('mouseleave',function(){{if(tid){{clearInterval(tid);tid=null;}}art.textContent=orig;}});
   art.addEventListener('touchstart',start,{{passive:false}});
   art.addEventListener('touchend',stop);
 }})();
