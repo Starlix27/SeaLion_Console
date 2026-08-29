@@ -45,7 +45,6 @@ from http_server import (
     _discover_tools,
     _page_list,
     _page_md,
-    _page_jwt,
     _page_pet,
     _page_burp,
     _sl_version_hash,
@@ -56,20 +55,31 @@ VERSION_HASH = _sl_version_hash()
 # ---------------------------------------------------------------------------
 # Static _base_html — no server-only nav, client-side search
 # ---------------------------------------------------------------------------
-_STATIC_NAV = [
-    ("", "Home", "home"),
+_STATIC_NAV_DOCS = [
     ("notes/", "Notes", "notes"),
     ("vuln/", "Vuln", "vuln"),
     ("tools/", "Tools", "tools"),
-    ("jwt", "JWT", "jwt"),
+]
+_STATIC_NAV_STANDALONE = [
     ("pet", "Pet", "pet"),
     ("burp", "BURP", "burp"),
 ]
 
 
 def _base_html_static(title: str, body: str, active: str = "") -> str:
-    nav_html = ""
-    for href, label, key in _STATIC_NAV:
+    docs_keys = {k for _, _, k in _STATIC_NAV_DOCS}
+    home_cls = ' class="active"' if active == "home" else ""
+    nav_html = f'<a href="{BASE}"{home_cls}>Home</a>\n'
+
+    is_docs = active in docs_keys
+    bcls = ' class="nav-drop-btn active"' if is_docs else ' class="nav-drop-btn"'
+    nav_html += f'<div class="nav-drop"><span{bcls}>Docs ▾</span><div class="nav-drop-menu">'
+    for href, label, key in _STATIC_NAV_DOCS:
+        acls = ' class="active"' if key == active else ""
+        nav_html += f'<a href="{BASE}{href}"{acls}>{label}</a>'
+    nav_html += '</div></div>\n'
+
+    for href, label, key in _STATIC_NAV_STANDALONE:
         cls = ' class="active"' if key == active else ""
         nav_html += f'<a href="{BASE}{href}"{cls}>{label}</a>\n'
 
@@ -180,12 +190,16 @@ def _page_home_static() -> str:
     <a href="https://github.com/Starlix27">@Starlix27</a>
   </div>
   <div class="info-box">
-    <div class="label">Categorie ospitate:</div>
+    <div class="label">Docs:</div>
     <ul class="cat-list">
       <li><a href="{BASE}notes/">Notes</a><span class="cnt">{n_notes} guide</span></li>
       <li><a href="{BASE}vuln/">Vuln</a><span class="cnt">{n_vulns} protocolli</span></li>
       <li><a href="{BASE}tools/">Tools</a><span class="cnt">{n_tools} tool</span></li>
-      <li><a href="{BASE}jwt">JWT</a><span class="cnt">encoder/decoder</span></li>
+    </ul>
+  </div>
+  <div class="info-box">
+    <div class="label">Strumenti:</div>
+    <ul class="cat-list">
       <li><a href="{BASE}pet">Pet</a><span class="cnt">sealion virtuale</span></li>
       <li><a href="{BASE}burp">BURP</a><span class="cnt">password profiler</span></li>
     </ul>
@@ -222,7 +236,6 @@ def _page_home_static() -> str:
     {{name:'notes',label:'Notes',cnt:'{n_notes} guide',href:B+'notes/'}},
     {{name:'vuln',label:'Vuln',cnt:'{n_vulns} protocolli',href:B+'vuln/'}},
     {{name:'tools',label:'Tools',cnt:'{n_tools} tool',href:B+'tools/'}},
-    {{name:'jwt',label:'JWT',cnt:'encoder/decoder',href:B+'jwt'}},
     {{name:'pet',label:'Pet',cnt:'sealion virtuale',href:B+'pet'}},
     {{name:'burp',label:'BURP',cnt:'password profiler',href:B+'burp'}},
   ];
@@ -242,8 +255,6 @@ def _page_home_static() -> str:
     '  <span class="t-accent">tools</span>       <span class="t-line">Documentazione e help dei tool installabili ({n_tools})</span>\\n'+
     '              <span class="t-line">Ogni tool ha guida d\\'uso, opzioni principali ed esempi</span>\\n\\n'+
     '  <span class="t-section">— Strumenti</span>\\n'+
-    '  <span class="t-accent">jwt</span>         <span class="t-line">Apri il JWT Encoder/Decoder nel browser</span>\\n'+
-    '              <span class="t-line">Decodifica, crea e verifica token JWT — tutto client-side</span>\\n'+
     '  <span class="t-accent">pet</span>         <span class="t-line">Pet Portal — nutri, gioca e cura il tuo sealion</span>\\n'+
     '              <span class="t-line">Feed, play, spin, annoy + mini-games (blackjack, wordle, 8ball)</span>\\n'+
     '  <span class="t-accent">burp</span>        <span class="t-line">BURP — Profiler password avanzato (sostituisce CUPP)</span>\\n'+
@@ -268,11 +279,6 @@ def _page_home_static() -> str:
       '<span class="t-head">tools — Documentazione Tool</span>\\n\\n'+
       '<span class="t-line">Apre la sezione con {n_tools} tool di sicurezza documentati.</span>\\n\\n'+
       '<span class="t-line">Digitando <span class="t-accent">tools</span> verrai portato alla pagina dei tool.</span>',
-    jwt:
-      '<span class="t-head">jwt — JWT Encoder / Decoder</span>\\n\\n'+
-      '<span class="t-line">Apre la pagina web per decodificare e creare JSON Web Token.</span>\\n'+
-      '<span class="t-line">Tutto il lavoro avviene nel browser (client-side).</span>\\n\\n'+
-      '<span class="t-line">Digitando <span class="t-accent">jwt</span> verrai portato alla pagina JWT.</span>',
     pet:
       '<span class="t-head">pet — SeaLion Pet Portal</span>\\n\\n'+
       '<span class="t-line">Apre il portale del tuo sealion virtuale.</span>\\n'+
@@ -624,10 +630,6 @@ def build():
         md = help_f.read_text(encoding="utf-8", errors="replace")
         _write(out / "tools" / tname / "index.html", _page_md("tools", "Tools", tname, md))
     print(f"  ✓ tools/ ({len(tools)} pages)")
-
-    # JWT
-    _write(out / "jwt" / "index.html", _page_jwt())
-    print("  ✓ jwt/")
 
     # Pet
     _write(out / "pet" / "index.html", _page_pet())
