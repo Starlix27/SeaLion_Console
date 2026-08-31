@@ -346,6 +346,7 @@ def print_help_text() -> None:
     print("  loot [azione]      Gestisci file ricevuti dalla vulnbox (loot help)")
     print("  tunnel <azione>    Port forwarding via chisel (tunnel help)")
     print("  pivot <azione>     IP tunneling via ligolo-ng (pivot help)")
+    print("  catch <azione>     OOB listeners: tcp, dns, ftp, smb (catch help)")
     print("  recon <target>     Reconnaissance automatica (recon help)")
     print("  reconfind <query>  Trova il tool giusto per porta/servizio/task")
     print()
@@ -526,6 +527,7 @@ def build_parser() -> argparse.ArgumentParser:
     catch_p = subparsers.add_parser("catch", add_help=False)
     catch_p.add_argument("action", nargs="?", default=None)
     catch_p.add_argument("extra", nargs="?", default=None)
+    catch_p.add_argument("--port", type=int, default=None)
     recon_p = subparsers.add_parser("recon", add_help=False)
     recon_p.add_argument("target", nargs="?", default=None)
     recon_p.add_argument("name", nargs="?", default=None)
@@ -559,7 +561,7 @@ def setup_readline() -> None:
 
 
 _COMPLETABLE = sorted(["sealsay", "list", "install", "use", "search", "vuln",
-                        "notes", "find", "back", "help", "serve", "loot", "wordfind", "passfind", "wordgen", "tunnel", "pivot", "reconfind", "recon", "pet", "burp", "exit"])
+                        "notes", "find", "back", "help", "serve", "loot", "wordfind", "passfind", "wordgen", "tunnel", "pivot", "reconfind", "recon", "pet", "burp", "catch", "exit"])
 _input_history: list[str] = []
 
 
@@ -845,6 +847,7 @@ def run_command(argv: list[str], state: ConsoleState | None = None) -> int:
     from lib.pet import cmd_pet
     from lib.wizards import cmd_wordfind, cmd_passfind, cmd_wordgen
     from lib.serve import cmd_serve, cmd_loot, cmd_tunnel, cmd_pivot
+    from lib.catch import cmd_catch
     from lib.recon import cmd_recon
     from lib.reconfind import cmd_reconfind
     from lib.burp import cmd_burp
@@ -870,6 +873,7 @@ def run_command(argv: list[str], state: ConsoleState | None = None) -> int:
         "recon": cmd_recon,
         "pet": cmd_pet,
         "burp": cmd_burp,
+        "catch": cmd_catch,
     }
     handler = handlers.get(args.command)
     if handler is None:
@@ -935,6 +939,8 @@ def run_console() -> int:
 
         if argv[0] == "serve" and len(argv) >= 2 and argv[1] in {"-h", "--help"}:
             argv = ["serve", "help"] + argv[2:]
+        if argv[0] == "catch" and len(argv) >= 2 and argv[1] in {"-h", "--help"}:
+            argv = ["catch", "help"] + argv[2:]
 
         if state.current_tool is not None and argv[0] == "install" and len(argv) == 1:
             rc = run_install(state.current_tool)
@@ -962,7 +968,7 @@ def run_console() -> int:
                     state.last_vuln_tools = _extract_vuln_tools(text)
                 continue
 
-        known_commands = {"sealsay", "list", "install", "use", "search", "vuln", "notes", "find", "back", "help", "?", "--version", "-h", "--help", "serve", "loot", "wordfind", "passfind", "wordgen", "tunnel", "pivot", "reconfind", "recon", "pet", "burp"}
+        known_commands = {"sealsay", "list", "install", "use", "search", "vuln", "notes", "find", "back", "help", "?", "--version", "-h", "--help", "serve", "loot", "wordfind", "passfind", "wordgen", "tunnel", "pivot", "reconfind", "recon", "pet", "burp", "catch"}
         if argv[0] not in known_commands:
             print("Comando non riconosciuto. Digita 'help' per i comandi.")
             continue
