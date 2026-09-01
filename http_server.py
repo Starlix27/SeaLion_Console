@@ -427,32 +427,18 @@ letter-spacing:.5px;margin-bottom:4px;font-weight:600}
 
 /* Sealsay — bubble on the right of the art */
 .seal-container{flex:1;display:flex;flex-direction:column;align-items:center;
-justify-content:center;min-height:380px;padding:28px 18px;position:relative;isolation:isolate}
-.seal-container::before{content:'';position:absolute;inset:8% 6%;z-index:-1;pointer-events:none;
-background:radial-gradient(ellipse at center,rgba(88,166,255,.09),transparent 68%)}
-.seal-scene{display:flex;align-items:flex-start;justify-content:center;gap:8px;position:relative;z-index:1}
-.seal-art{color:var(--accent2);font-size:clamp(11.5px,1.05vw,14px);line-height:1.12;white-space:pre;
-flex-shrink:0;cursor:pointer;user-select:none;-webkit-user-select:none;
-text-shadow:0 0 18px rgba(88,166,255,.2);transition:color .2s,filter .2s,transform .2s}
-.seal-art:hover{color:#fff;filter:drop-shadow(0 0 9px rgba(88,166,255,.28));transform:translateY(-2px)}
-.seal-eyebrow{display:flex;align-items:center;gap:8px;margin-bottom:14px;color:var(--text2);
-font-size:10px;font-weight:700;letter-spacing:1.6px;text-transform:uppercase;z-index:1}
-.seal-online{width:7px;height:7px;border-radius:50%;background:var(--green);box-shadow:0 0 10px var(--green)}
+justify-content:center}
+.seal-scene{display:flex;align-items:flex-start;gap:0;position:relative}
+.seal-art{color:var(--text2);font-size:11px;line-height:1.2;white-space:pre;
+flex-shrink:0;cursor:pointer;user-select:none;-webkit-user-select:none}
 .seal-bubble-wrap{display:flex;flex-direction:column;justify-content:flex-start;
 padding-top:0}
-.seal-bubble{border:1px solid var(--border);border-radius:9px;padding:13px 17px;
+.seal-bubble{border:1px solid var(--border);border-radius:4px;padding:12px 16px;
 font-size:13px;color:var(--text);max-width:480px;position:relative;
-background:rgba(28,35,51,.94);margin-left:4px;box-shadow:var(--glow)}
+background:var(--surface2);margin-left:4px}
 .seal-bubble::before{content:'';position:absolute;left:-7px;top:14px;
 width:12px;height:12px;background:var(--surface2);border-left:1px solid var(--border);
 border-bottom:1px solid var(--border);transform:rotate(45deg)}
-.seal-quick-actions{display:flex;align-items:center;justify-content:center;gap:8px;flex-wrap:wrap;
-margin-top:18px;z-index:1}
-.seal-quick-link{display:inline-flex;align-items:center;justify-content:center;min-height:38px;
-padding:8px 13px;border:1px solid var(--border);border-radius:7px;background:rgba(21,27,35,.88);
-color:var(--text2);font-size:11px;font-weight:700;letter-spacing:.25px;transition:.15s}
-.seal-quick-link:hover{color:var(--accent);border-color:var(--accent);background:var(--hover);transform:translateY(-1px)}
-.pet-mobile-actions{display:none}
 
 /* Terminal input */
 .terminal-input{margin-top:auto;padding-top:16px;font-size:13px;
@@ -666,41 +652,22 @@ vertical-align:top;word-break:break-all}
 @media(max-width:768px){
   body{font-size:13px}
   .topbar{padding:8px 12px;flex-wrap:wrap;gap:8px}
-  .topbar-left{gap:8px;flex-wrap:nowrap;width:100%;min-width:0}
+  .topbar-left{gap:10px;flex-wrap:wrap;width:100%}
   .topbar .logo{font-size:14px}
-  .topbar .logo{flex:0 0 auto}
-  .topbar nav{gap:0;flex:1;min-width:0;overflow-x:auto;overflow-y:hidden;flex-wrap:nowrap;
-    scrollbar-width:none;-webkit-overflow-scrolling:touch}
-  .topbar nav::-webkit-scrollbar{display:none}
-  .topbar nav>a,.nav-drop{flex:0 0 auto}
-  .topbar nav>a,.nav-drop>.nav-drop-btn{font-size:12px;padding:8px 10px;min-height:38px;display:flex;align-items:center}
+  .topbar nav{gap:0;flex-wrap:wrap}
+  .topbar nav>a,.nav-drop>.nav-drop-btn{font-size:12px;padding:6px 10px}
   .home-layout{display:flex;flex-direction:column;min-height:auto}
-  .main-area{order:1;padding:12px;min-height:calc(100dvh - 92px)}
-  .sidebar{order:2;border-right:none;border-top:1px solid var(--border);border-bottom:none;
-    padding:14px 12px;display:grid;grid-template-columns:1fr 1fr;gap:10px;background:var(--bg)}
-  .sidebar .info-box{border:1px solid var(--border);border-radius:9px;padding:13px;background:var(--surface)}
-  .sidebar .home-meta{display:none}
-  .sidebar .home-server,.sidebar .home-pet{grid-column:1/-1}
-  .cat-list li{min-height:40px;align-items:center;padding:7px 0;gap:8px}
-  .cat-list li a{font-size:13px}.cat-list .cnt{font-size:10px;text-align:right}
-  .seal-container{min-height:0;flex:1;padding:12px 0 16px;justify-content:center}
-  .seal-container::before{inset:0 -8px;background:radial-gradient(ellipse at center,rgba(88,166,255,.13),transparent 70%)}
-  .seal-eyebrow{font-size:9px;margin-bottom:9px;letter-spacing:1.25px}
-  .seal-scene{flex-direction:column;align-items:center;width:100%;gap:7px}
-  .seal-art{font-size:clamp(7.5px,2.35vw,9.7px);line-height:1.06;align-self:center;
-    color:var(--accent2);max-width:none;transform:none!important}
-  .seal-bubble-wrap{padding-top:0;width:100%;align-items:center}
-  .seal-bubble{margin-left:0;max-width:min(100%,520px);width:100%;font-size:13px;line-height:1.5;padding:11px 13px}
+  .main-area{order:1;padding:16px;min-height:calc(100dvh - 92px)}
+  .sidebar{order:2;border-right:none;border-top:1px solid var(--border);border-bottom:none;padding:12px 16px}
+  .seal-container{min-height:0}
+  .seal-scene{flex-direction:column;align-items:center}
+  .seal-art{font-size:clamp(7.5px,2.35vw,9.7px);line-height:1.1;align-self:center}
+  .seal-bubble-wrap{padding-top:8px;width:100%}
+  .seal-bubble{margin-left:0;max-width:100%;font-size:12px}
   .seal-bubble::before{display:none}
-  .seal-quick-actions{width:100%;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:7px;margin-top:12px}
-  .seal-quick-link{min-height:44px;padding:8px 6px;font-size:10px;text-align:center}
-  .pet-mobile-actions{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:7px;width:100%;margin-top:10px}
-  .pet-mobile-actions .pet-action-btn{min-height:44px;text-align:center;padding:8px 5px;font-size:11px}
-  .terminal-input{padding:11px 12px;background:rgba(21,27,35,.96);border:1px solid var(--border);
-    border-radius:9px;position:sticky;bottom:8px;z-index:7;box-shadow:0 8px 28px rgba(0,0,0,.32)}
-  #term-output{max-height:28dvh;font-size:12px}
+  .terminal-input{padding-top:12px}
   .terminal-input .prompt-line{font-size:12px}
-  .terminal-input input{font-size:16px;min-height:42px}
+  .terminal-input input{font-size:14px;min-height:36px}
   .suggestions .sug{padding:12px 14px;min-height:44px}
   .container{padding:16px 12px 60px}
   .page-title{font-size:18px}
@@ -735,9 +702,6 @@ vertical-align:top;word-break:break-all}
 @media(max-width:400px){
   .topbar nav>a,.nav-drop>.nav-drop-btn{font-size:11px;padding:5px 7px}
   .seal-art{font-size:clamp(8.2px,2.68vw,10px)}
-  .main-area{padding:9px;min-height:calc(100dvh - 88px)}
-  .sidebar{grid-template-columns:1fr;padding:10px}.sidebar .home-server,.sidebar .home-pet{grid-column:auto}
-  .seal-quick-link{font-size:9px}
   .container{padding:12px 8px 40px}
 }
 """
@@ -753,9 +717,19 @@ def _load_tips() -> list[str]:
     return ["SeaLion Console"]
 
 
+def _trim_ascii_frame(content: str) -> str:
+    """Remove blank padding rows without changing the art indentation."""
+    lines = content.splitlines()
+    while lines and not lines[0].strip():
+        lines.pop(0)
+    while lines and not lines[-1].strip():
+        lines.pop()
+    return "\n".join(lines)
+
+
 def _load_seal_art() -> str:
     if SEALSAY_FILE.exists():
-        return SEALSAY_FILE.read_text(encoding="utf-8", errors="replace").strip("\n")
+        return _trim_ascii_frame(SEALSAY_FILE.read_text(encoding="utf-8", errors="replace"))
     return ""
 
 
@@ -766,7 +740,7 @@ def _load_wag_frames() -> list[str]:
     for n in names:
         fp = PROJECT_ROOT / "assets" / f"{n}.txt"
         if fp.exists():
-            frames.append(fp.read_text(encoding="utf-8", errors="replace").strip("\n"))
+            frames.append(_trim_ascii_frame(fp.read_text(encoding="utf-8", errors="replace")))
         else:
             frames.append(base)
     return frames
@@ -777,7 +751,7 @@ def _load_bark_frames() -> list[str]:
     for n in ["SLmouth1", "SLmouth2"]:
         fp = PROJECT_ROOT / "assets" / f"{n}.txt"
         if fp.exists():
-            frames.append(fp.read_text(encoding="utf-8", errors="replace").strip("\n"))
+            frames.append(_trim_ascii_frame(fp.read_text(encoding="utf-8", errors="replace")))
         else:
             frames.append(_load_seal_art())
     return frames
@@ -990,17 +964,11 @@ def _page_home() -> str:
 </div>
 <div class="main-area">
   <div class="seal-container">
-    <div class="seal-eyebrow"><span class="seal-online"></span>SLWeb core companion // online</div>
     <div class="seal-scene">
       <pre class="seal-art">{seal}</pre>
       <div class="seal-bubble-wrap">
         <div class="seal-bubble">{html.escape(tip)}</div>
       </div>
-    </div>
-    <div class="seal-quick-actions" aria-label="Scorciatoie SeaLion">
-      <a class="seal-quick-link" href="/pet">PET PORTAL</a>
-      <a class="seal-quick-link" href="/pet/minigame">PENTEST QUIZ</a>
-      <a class="seal-quick-link" href="/notes/">GUIDE</a>
     </div>
   </div>
   <div class="terminal-input">
@@ -2280,17 +2248,11 @@ def _page_pet() -> str:
 </div>
 <div class="main-area">
   <div class="seal-container">
-    <div class="seal-eyebrow"><span class="seal-online"></span>SeaLion pet core // online</div>
     <div class="seal-scene" id="seal-scene">
       <pre class="seal-art" id="pet-art">{seal_art}</pre>
       <div class="seal-bubble-wrap">
         <div class="seal-bubble" id="pet-bubble">{html.escape(tip)}</div>
       </div>
-    </div>
-    <div class="pet-mobile-actions" aria-label="Azioni rapide del pet">
-      <button class="pet-action-btn" data-cmd="feed">FEED</button>
-      <button class="pet-action-btn" data-cmd="play">PLAY</button>
-      <button class="pet-action-btn" data-cmd="minigame">QUIZ</button>
     </div>
   </div>
   <div class="terminal-input">

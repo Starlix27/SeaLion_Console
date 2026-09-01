@@ -213,17 +213,11 @@ def _page_home_static() -> str:
 </div>
 <div class="main-area">
   <div class="seal-container">
-    <div class="seal-eyebrow"><span class="seal-online"></span>SLWeb core companion // online</div>
     <div class="seal-scene">
       <pre class="seal-art">{seal}</pre>
       <div class="seal-bubble-wrap">
         <div class="seal-bubble">{html.escape(tip)}</div>
       </div>
-    </div>
-    <div class="seal-quick-actions" aria-label="Scorciatoie SeaLion">
-      <a class="seal-quick-link" href="{BASE}pet">PET PORTAL</a>
-      <a class="seal-quick-link" href="{BASE}pet/minigame">PENTEST QUIZ</a>
-      <a class="seal-quick-link" href="{BASE}notes/">GUIDE</a>
     </div>
   </div>
   <div class="terminal-input">
