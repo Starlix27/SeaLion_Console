@@ -13,9 +13,10 @@ Ogni elemento di `questions` usa questo schema minimo:
   "category": "Web Application Security",
   "topic": "OWASP Top 10",
   "difficulty": "Base",
-  "type": "open_text",
-  "question": "Testo della domanda",
-  "answer": "Risposta di riferimento",
+  "type": "completion",
+  "question": "Completa il comando: nmap ____ <IP>",
+  "answer": "-sV",
+  "accepted_answers": ["-sV"],
   "explanation": "Motivazione e principio decisivo",
   "tags": ["owasp"]
 }
@@ -33,9 +34,21 @@ Per una domanda a crocette, impostare `type` a `multiple_choice` e aggiungere:
 Regole:
 
 - `id` deve essere unico e numerico;
-- `difficulty` deve essere `Base`, `Intermedio` o `Avanzato`;
+- `difficulty` deve essere `Base`, `Intermedio`, `Avanzato` o `EXTREME`;
 - una domanda a scelta multipla deve avere almeno due opzioni e una sola corretta;
-- una domanda `open_text` viene valutata dall'utente confrontandola con la risposta di riferimento.
+- una domanda `completion` deve contenere una sola sequenza `____`: il minigame
+  la sostituisce con un input e confronta il testo con `answer` o con le varianti
+  facoltative elencate in `accepted_answers`;
+- `reference_answer` è facoltativo e permette di mostrare, dopo la verifica, il
+  testo completo dal quale è stato rimosso il termine.
+
+La banca contiene un nucleo di esercizi `Base` curati per profili junior. Le
+nozioni molto specifiche sono classificate `EXTREME`. Per riapplicare il
+riequilibrio e convertire eventuali vecchie risposte libere:
+
+```bash
+python3 scripts/rebalance_pentest_questions.py
+```
 
 Per reimportare in massa un file numerato e un TSV di risposte:
 

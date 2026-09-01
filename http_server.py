@@ -2871,9 +2871,9 @@ def _load_pentest_questions() -> dict:
             required = ("category", "topic", "difficulty", "type", "question", "answer", "explanation")
             if any(not isinstance(question.get(key), str) or not question.get(key).strip() for key in required):
                 continue
-            if question["difficulty"] not in {"Base", "Intermedio", "Avanzato"}:
+            if question["difficulty"] not in {"Base", "Intermedio", "Avanzato", "EXTREME"}:
                 continue
-            if question["type"] not in {"multiple_choice", "open_text"}:
+            if question["type"] not in {"multiple_choice", "completion"}:
                 continue
             if question["type"] == "multiple_choice":
                 choices = question.get("choices")
@@ -2881,6 +2881,8 @@ def _load_pentest_questions() -> dict:
                     continue
                 if sum(bool(choice.get("correct")) for choice in choices if isinstance(choice, dict)) != 1:
                     continue
+            elif "____" not in question["question"]:
+                continue
             seen.add(qid)
             valid.append(question)
         data["questions"] = valid
@@ -2910,8 +2912,10 @@ body{{overflow:hidden}}
 .quiz-options{{display:grid;grid-template-columns:1fr 1fr;gap:12px}}.quiz-option{{text-align:left;border:1px solid var(--border);background:var(--surface);color:var(--text);border-radius:9px;padding:15px 17px;font:inherit;line-height:1.45;cursor:pointer;display:flex;gap:12px;transition:.15s}}
 .quiz-option:hover:not(:disabled){{border-color:var(--accent);transform:translateY(-1px)}}.quiz-option .letter{{color:var(--accent);font-weight:800;flex:0 0 auto}}
 .quiz-option.correct{{border-color:var(--green);background:rgba(63,185,80,.1)}}.quiz-option.wrong{{border-color:var(--red);background:rgba(248,81,73,.1)}}.quiz-option:disabled{{cursor:default;color:var(--text)}}
-.quiz-textarea{{width:100%;min-height:150px;resize:vertical;border:1px solid var(--border);border-radius:9px;background:var(--surface);color:var(--text);padding:16px;font:14px/1.6 inherit;outline:none}}
-.quiz-textarea:focus{{border-color:var(--accent)}}.quiz-actions{{display:flex;gap:10px;flex-wrap:wrap;margin-top:14px}}
+.quiz-question.completion{{white-space:pre-wrap}}
+.quiz-inline-input{{display:inline-block;width:clamp(120px,30vw,340px);min-width:8ch;margin:0 .18em;padding:.12em .35em;border:0;border-bottom:2px solid var(--accent);background:var(--surface);color:var(--accent2);border-radius:4px 4px 0 0;font:inherit;font-weight:700;line-height:1.25;outline:none;vertical-align:baseline}}
+.quiz-inline-input:focus{{background:var(--surface2);box-shadow:0 3px 0 rgba(88,166,255,.15)}}.quiz-inline-input:disabled{{color:var(--text2);border-color:var(--border)}}
+.quiz-actions{{display:flex;gap:10px;flex-wrap:wrap;margin-top:14px}}
 .quiz-btn{{border:1px solid var(--border);background:var(--surface);color:var(--text);border-radius:7px;padding:10px 15px;font:600 13px inherit;cursor:pointer}}
 .quiz-btn:hover{{border-color:var(--accent);color:var(--accent)}}.quiz-btn.primary{{background:var(--accent);border-color:var(--accent);color:var(--bg)}}
 .quiz-feedback{{margin-top:20px;border-left:3px solid var(--accent);background:var(--surface);padding:16px 18px;border-radius:0 8px 8px 0}}
@@ -2926,7 +2930,7 @@ body{{overflow:hidden}}
 .quiz-settings-foot{{padding:15px 18px;border-top:1px solid var(--border);display:flex;gap:9px}}.quiz-settings-foot .quiz-btn{{flex:1}}
 .quiz-scrim{{position:fixed;inset:45px 0 0;background:rgba(0,0,0,.55);z-index:110;display:none}}.quiz-scrim.open{{display:block}}
 .quiz-empty{{text-align:center;color:var(--text2);align-self:center}}.quiz-empty h2{{color:var(--text);margin-bottom:8px}}.quiz-back{{color:var(--text2);text-decoration:none;font-size:12px}}.quiz-back:hover{{color:var(--accent)}}
-@media(max-width:768px){{body{{overflow:auto}}.quiz-app{{height:calc(100dvh - 86px);min-height:520px}}.quiz-top{{grid-template-columns:1fr auto;padding:9px 12px}}.quiz-title{{font-size:12px}}.quiz-progress{{display:none}}.quiz-score{{font-size:11px}}.quiz-stage{{padding:24px 14px}}.quiz-card{{align-self:flex-start}}.quiz-question{{font-size:22px;margin-bottom:20px}}.quiz-options{{grid-template-columns:1fr}}.quiz-option{{padding:13px;font-size:13px}}.quiz-textarea{{min-height:120px}}.quiz-nav{{padding:8px 12px}}.quiz-arrow{{width:46px;height:42px}}.quiz-settings{{inset:0 auto 0 0}}.quiz-scrim{{inset:0}}.quiz-meta{{margin-bottom:12px}}.quiz-chip{{font-size:10px}}}}
+@media(max-width:768px){{body{{overflow:auto}}.quiz-app{{height:calc(100dvh - 86px);min-height:520px}}.quiz-top{{grid-template-columns:1fr auto;padding:9px 12px}}.quiz-title{{font-size:12px}}.quiz-progress{{display:none}}.quiz-score{{font-size:11px}}.quiz-stage{{padding:24px 14px}}.quiz-card{{align-self:flex-start}}.quiz-question{{font-size:22px;margin-bottom:20px}}.quiz-options{{grid-template-columns:1fr}}.quiz-option{{padding:13px;font-size:13px}}.quiz-inline-input{{width:min(100%,280px);margin:.3em 0}}.quiz-nav{{padding:8px 12px}}.quiz-arrow{{width:46px;height:42px}}.quiz-settings{{inset:0 auto 0 0}}.quiz-scrim{{inset:0}}.quiz-meta{{margin-bottom:12px}}.quiz-chip{{font-size:10px}}}}
 @media(max-width:420px){{.quiz-title{{display:none}}.quiz-question{{font-size:19px}}.quiz-stage{{padding-top:18px}}.quiz-nav-status>span{{display:none}}}}
 </style>
 
@@ -2968,7 +2972,7 @@ var BANK=Array.isArray(DATA.questions)?DATA.questions:[];
 var app=document.getElementById('quiz-app'),stage=document.getElementById('quiz-stage');
 var settings=document.getElementById('quiz-settings'),scrim=document.getElementById('quiz-scrim');
 var session=[],position=0,responses={{}};
-var labels={{multiple_choice:'Scelta multipla',open_text:'Risposta libera'}};
+var labels={{multiple_choice:'Scelta multipla',completion:'Completamento'}};
 var baseMeta=document.querySelector('meta[name="base-path"]');
 var base=baseMeta?baseMeta.content:'/';document.getElementById('quiz-back').href=base+'pet';
 
@@ -2978,10 +2982,12 @@ function shuffle(items){{var a=items.slice();for(var i=a.length-1;i>0;i--){{var 
 function checkbox(container,value,name,checked){{var label=document.createElement('label');label.className='quiz-check';var input=document.createElement('input');input.type='checkbox';input.value=value;input.name=name;input.checked=checked;var span=document.createElement('span');span.textContent=value;label.append(input,span);container.appendChild(label);}}
 function buildSettings(){{
   var saved={{}};try{{saved=JSON.parse(localStorage.getItem('sl_quiz_settings')||'{{}}');}}catch(e){{}}
+  if(saved.schemaVersion!==DATA.schema_version){{saved={{levels:['Base'],types:['multiple_choice','completion']}};}}
+  if(saved.types&&saved.types.indexOf('open_text')>=0){{saved.types=saved.types.filter(function(v){{return v!=='open_text';}});saved.types.push('completion');}}
   document.getElementById('quiz-count').value=Math.max(1,Math.min(500,parseInt(saved.count||DATA.default_question_count||10)));
-  var cats=unique('category'),levels=['Base','Intermedio','Avanzato'],types=['multiple_choice','open_text'];
+  var cats=unique('category'),levels=['Base','Intermedio','Avanzato','EXTREME'],types=['multiple_choice','completion'];
   cats.forEach(function(v){{checkbox(document.getElementById('quiz-categories'),v,'category',!saved.categories||saved.categories.indexOf(v)>=0);}});
-  levels.forEach(function(v){{checkbox(document.getElementById('quiz-levels'),v,'level',!saved.levels||saved.levels.indexOf(v)>=0);}});
+  levels.forEach(function(v){{checkbox(document.getElementById('quiz-levels'),v,'level',saved.levels?saved.levels.indexOf(v)>=0:v==='Base');}});
   types.forEach(function(v){{checkbox(document.getElementById('quiz-types'),v,'type',!saved.types||saved.types.indexOf(v)>=0);var all=document.querySelectorAll('input[name=type]');all[all.length-1].nextSibling.textContent=labels[v];}});
 }}
 function selected(name){{return Array.from(document.querySelectorAll('input[name="'+name+'"]:checked')).map(function(x){{return x.value;}});}}
@@ -2992,7 +2998,7 @@ function balancedPick(pool,count){{
   var keys=shuffle(Object.keys(groups));while(picked.length<count){{var advanced=false;for(var i=0;i<keys.length&&picked.length<count;i++){{var list=groups[keys[i]];while(list.length&&used[list[0].id])list.shift();if(list.length){{var q=list.shift();picked.push(q);used[q.id]=1;advanced=true;}}}}if(!advanced)break;}}
   // Se entrambi i tipi sono richiesti, garantisce una sessione realmente mista quando possibile.
   if(count>1){{
-    ['multiple_choice','open_text'].forEach(function(type){{
+    ['multiple_choice','completion'].forEach(function(type){{
       if(pool.some(function(q){{return q.type===type;}}) && !picked.some(function(q){{return q.type===type;}})){{
         var replacement=shuffle(pool).find(function(q){{return q.type===type&&!used[q.id];}});
         if(replacement){{
@@ -3011,10 +3017,12 @@ function startSession(){{
   var pool=BANK.filter(function(q){{return categories.indexOf(q.category)>=0&&levels.indexOf(q.difficulty)>=0&&types.indexOf(q.type)>=0;}});
   if(!pool.length){{alert('Nessuna domanda corrisponde ai filtri.');return;}}
   var count=Math.max(1,Math.min(pool.length,parseInt(document.getElementById('quiz-count').value)||10));
-  localStorage.setItem('sl_quiz_settings',JSON.stringify({{count:count,categories:categories,levels:levels,types:types}}));
+  localStorage.setItem('sl_quiz_settings',JSON.stringify({{schemaVersion:DATA.schema_version,count:count,categories:categories,levels:levels,types:types}}));
   session=balancedPick(pool,count);position=0;responses={{}};closeSettings();render();
 }}
 function setNode(tag,className,text){{var n=document.createElement(tag);if(className)n.className=className;if(text!==undefined)n.textContent=text;return n;}}
+function normalizeAnswer(value){{return String(value||'').trim().toLocaleLowerCase('it').replace(/\\s+/g,' ');}}
+function completionIsCorrect(q,value){{var accepted=Array.isArray(q.accepted_answers)&&q.accepted_answers.length?q.accepted_answers:[q.answer];return accepted.some(function(answer){{return normalizeAnswer(answer)===normalizeAnswer(value);}});}}
 function renderFeedback(parent,q,response){{
   var box=setNode('div','quiz-feedback '+(response.correct===false?'bad':'good'));
   if(q.type==='multiple_choice'){{
@@ -3022,9 +3030,10 @@ function renderFeedback(parent,q,response){{
     box.appendChild(setNode('p','',choice&&choice.explanation?choice.explanation:q.explanation));
     if(!response.correct){{var correct=q.choices.find(function(c){{return c.correct;}});var p=setNode('p');p.appendChild(setNode('strong','','Risposta corretta: '));p.appendChild(document.createTextNode(correct?correct.text:q.answer));box.appendChild(p);}}
   }}else{{
-    box.appendChild(setNode('h3','','Risposta di riferimento'));
-    box.appendChild(setNode('p','',q.answer));var why=setNode('p');why.appendChild(setNode('strong','','Perché: '));why.appendChild(document.createTextNode(q.explanation));box.appendChild(why);
-    var actions=setNode('div','quiz-actions');[['La sapevo',true],['Da ripassare',false]].forEach(function(pair){{var b=setNode('button','quiz-btn'+(response.selfGrade===pair[1]?' primary':''),pair[0]);b.type='button';b.onclick=function(){{response.selfGrade=pair[1];response.correct=pair[1];render();}};actions.appendChild(b);}});box.appendChild(actions);
+    box.appendChild(setNode('h3','',response.correct?'Completamento corretto':'Completamento errato'));
+    var solution=setNode('p');solution.appendChild(setNode('strong','','Risposta: '));solution.appendChild(document.createTextNode(q.answer));box.appendChild(solution);
+    var why=setNode('p');why.appendChild(setNode('strong','','Perché: '));why.appendChild(document.createTextNode(q.explanation));box.appendChild(why);
+    if(q.reference_answer){{var full=setNode('p');full.appendChild(setNode('strong','','Testo completo: '));full.appendChild(document.createTextNode(q.reference_answer));box.appendChild(full);}}
   }}
   parent.appendChild(box);
 }}
@@ -3034,12 +3043,15 @@ function render(){{
   if(!session.length){{startSession();return;}}
   var q=session[position],response=responses[q.id]||(responses[q.id]={{answered:false,draft:''}}),card=setNode('article','quiz-card');
   var meta=setNode('div','quiz-meta');[['quiz-chip id','ID #'+q.id],['quiz-chip',q.category],['quiz-chip',q.topic],['quiz-chip level',q.difficulty],['quiz-chip',labels[q.type]||q.type]].forEach(function(x){{meta.appendChild(setNode('span',x[0],x[1]));}});card.appendChild(meta);
-  card.appendChild(setNode('h1','quiz-question',q.question));
   if(q.type==='multiple_choice'){{
+    card.appendChild(setNode('h1','quiz-question',q.question));
     var options=setNode('div','quiz-options');q.choices.forEach(function(choice,index){{var button=setNode('button','quiz-option');button.type='button';var letter=setNode('span','letter',String.fromCharCode(65+index));button.append(letter,setNode('span','',choice.text));if(response.answered){{button.disabled=true;if(choice.correct)button.classList.add('correct');if(index===response.selected&&!choice.correct)button.classList.add('wrong');}}button.onclick=function(){{if(response.answered)return;response.answered=true;response.selected=index;response.correct=!!choice.correct;render();}};options.appendChild(button);}});card.appendChild(options);
   }}else{{
-    var area=setNode('textarea','quiz-textarea');area.placeholder='Scrivi qui la tua risposta...';area.value=response.draft||'';area.disabled=response.answered;area.addEventListener('input',function(){{response.draft=area.value;}});card.appendChild(area);
-    if(!response.answered){{var actions=setNode('div','quiz-actions');var check=setNode('button','quiz-btn primary','Mostra la risposta');check.type='button';check.onclick=function(){{response.draft=area.value;response.answered=true;response.correct=null;render();}};actions.appendChild(check);card.appendChild(actions);}}
+    var prompt=setNode('h1','quiz-question completion'),parts=String(q.question).split('____'),answerInput=document.createElement('input');
+    answerInput.className='quiz-inline-input';answerInput.type='text';answerInput.autocomplete='off';answerInput.spellcheck=false;answerInput.placeholder='completa';answerInput.setAttribute('aria-label','Testo mancante');answerInput.value=response.draft||'';answerInput.disabled=response.answered;
+    parts.forEach(function(part,index){{prompt.appendChild(document.createTextNode(part));if(index<parts.length-1)prompt.appendChild(index===0?answerInput:document.createTextNode('____'));}});card.appendChild(prompt);
+    answerInput.addEventListener('input',function(){{response.draft=answerInput.value;}});
+    if(!response.answered){{var actions=setNode('div','quiz-actions');var check=setNode('button','quiz-btn primary','Verifica risposta');check.type='button';check.onclick=function(){{response.draft=answerInput.value;if(!response.draft.trim()){{answerInput.focus();return;}}response.answered=true;response.correct=completionIsCorrect(q,response.draft);render();}};answerInput.addEventListener('keydown',function(event){{if(event.key==='Enter'){{event.preventDefault();check.click();}}}});actions.appendChild(check);card.appendChild(actions);setTimeout(function(){{answerInput.focus();}},0);}}
   }}
   if(response.answered)renderFeedback(card,q,response);stage.appendChild(card);stage.scrollTop=0;
   var answered=Object.keys(responses).filter(function(id){{return responses[id].answered;}}).length,graded=Object.keys(responses).filter(function(id){{return responses[id].correct!==null&&responses[id].correct!==undefined;}}),correct=graded.filter(function(id){{return responses[id].correct;}}).length;
