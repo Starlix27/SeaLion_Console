@@ -46,6 +46,7 @@ from http_server import (
     _page_list,
     _page_md,
     _page_pet,
+    _page_minigame,
     _page_burp,
     _sl_version_hash,
 )
@@ -177,19 +178,19 @@ def _page_home_static() -> str:
     body = f"""
 <div class="home-layout">
 <div class="sidebar">
-  <div class="info-box">
+  <div class="info-box home-meta">
     <div class="label">Versione:</div>
     <div class="value">v{VERSION_HASH}</div>
   </div>
-  <div class="info-box">
+  <div class="info-box home-meta">
     <div class="label">GitHub:</div>
     <a href="https://github.com/Starlix27/SeaLion">github.com/Starlix27/SeaLion</a>
   </div>
-  <div class="info-box">
+  <div class="info-box home-meta">
     <div class="label">Creatrice:</div>
     <a href="https://github.com/Starlix27">@Starlix27</a>
   </div>
-  <div class="info-box">
+  <div class="info-box home-nav home-docs">
     <div class="label">Docs:</div>
     <ul class="cat-list">
       <li><a href="{BASE}notes/">Notes</a><span class="cnt">{n_notes} guide</span></li>
@@ -197,14 +198,14 @@ def _page_home_static() -> str:
       <li><a href="{BASE}tools/">Tools</a><span class="cnt">{n_tools} tool</span></li>
     </ul>
   </div>
-  <div class="info-box">
+  <div class="info-box home-nav home-tools">
     <div class="label">Strumenti:</div>
     <ul class="cat-list">
       <li><a href="{BASE}pet">Pet</a><span class="cnt">sealion virtuale</span></li>
       <li><a href="{BASE}burp">BURP</a><span class="cnt">password profiler</span></li>
     </ul>
   </div>
-  <div class="info-box" id="pet-widget" style="display:none">
+  <div class="info-box home-pet" id="pet-widget" style="display:none">
     <div class="label">SeaLion Pet:</div>
     <div id="pet-home-name" class="value" style="cursor:pointer;color:var(--accent)" title="Apri Pet Portal"></div>
     <div id="pet-home-bars" style="margin-top:6px"></div>
@@ -212,11 +213,17 @@ def _page_home_static() -> str:
 </div>
 <div class="main-area">
   <div class="seal-container">
+    <div class="seal-eyebrow"><span class="seal-online"></span>SLWeb core companion // online</div>
     <div class="seal-scene">
       <pre class="seal-art">{seal}</pre>
       <div class="seal-bubble-wrap">
         <div class="seal-bubble">{html.escape(tip)}</div>
       </div>
+    </div>
+    <div class="seal-quick-actions" aria-label="Scorciatoie SeaLion">
+      <a class="seal-quick-link" href="{BASE}pet">PET PORTAL</a>
+      <a class="seal-quick-link" href="{BASE}pet/minigame">PENTEST QUIZ</a>
+      <a class="seal-quick-link" href="{BASE}notes/">GUIDE</a>
     </div>
   </div>
   <div class="terminal-input">
@@ -237,6 +244,7 @@ def _page_home_static() -> str:
     {{name:'vuln',label:'Vuln',cnt:'{n_vulns} protocolli',href:B+'vuln/'}},
     {{name:'tools',label:'Tools',cnt:'{n_tools} tool',href:B+'tools/'}},
     {{name:'pet',label:'Pet',cnt:'sealion virtuale',href:B+'pet'}},
+    {{name:'minigame',label:'Minigame',cnt:'quiz pentesting',href:B+'pet/minigame'}},
     {{name:'burp',label:'BURP',cnt:'password profiler',href:B+'burp'}},
   ];
   const input=document.getElementById('term-input');
@@ -257,6 +265,7 @@ def _page_home_static() -> str:
     '  <span class="t-section">— Strumenti</span>\\n'+
     '  <span class="t-accent">pet</span>         <span class="t-line">Pet Portal — nutri, gioca e cura il tuo sealion</span>\\n'+
     '              <span class="t-line">Feed, play, spin, annoy + mini-games (blackjack, wordle, 8ball)</span>\\n'+
+    '  <span class="t-accent">minigame</span>    <span class="t-line">Quiz fullscreen con 500 domande di pentesting</span>\\n'+
     '  <span class="t-accent">burp</span>        <span class="t-line">BURP — Profiler password avanzato (sostituisce CUPP)</span>\\n'+
     '              <span class="t-line">Genera wordlist personalizzate basate sul profilo della vittima</span>\\n\\n'+
     '  <span class="t-section">— Terminale</span>\\n'+
@@ -284,6 +293,10 @@ def _page_home_static() -> str:
       '<span class="t-line">Apre il portale del tuo sealion virtuale.</span>\\n'+
       '<span class="t-line">Nutrilo, gioca, fallo girare e tienilo felice!</span>\\n\\n'+
       '<span class="t-line">Digitando <span class="t-accent">pet</span> verrai portato al Pet Portal.</span>',
+    minigame:
+      '<span class="t-head">minigame — Pentest Interview Quiz</span>\\n\\n'+
+      '<span class="t-line">Apre il quiz fullscreen con 500 domande.</span>\\n'+
+      '<span class="t-line">Configura categorie, livelli e quantità dal menu con i tre puntini.</span>',
     burp:
       '<span class="t-head">burp — BURP Password Profiler</span>\\n\\n'+
       '<span class="t-line">Genera wordlist personalizzate basate sul profilo della vittima.</span>\\n'+
@@ -379,7 +392,7 @@ def _page_home_static() -> str:
     else if(e.key==='Tab'&&items.length){{e.preventDefault();const t=items[Math.max(sel,0)];input.value=t.dataset.name;filter();}}
     else if(e.key==='Enter'){{
       e.preventDefault();
-      const active=sel>=0&&items[sel]?items[sel]:null;
+      const active=open?items[Math.max(sel,0)]:null;
       if(active){{
         const hr=active.dataset.href;
         if(hr&&hr!=='null')location.href=hr;
@@ -633,7 +646,8 @@ def build():
 
     # Pet
     _write(out / "pet" / "index.html", _page_pet())
-    print("  ✓ pet/")
+    _write(out / "pet" / "minigame" / "index.html", _page_minigame())
+    print("  ✓ pet/ + pet/minigame/")
 
     # BURP
     _write(out / "burp" / "index.html", _page_burp())
@@ -645,7 +659,7 @@ def build():
     _write(out / "search-index.json", json.dumps(index, ensure_ascii=False))
     print(f"  ✓ search/ (index: {len(index)} docs)")
 
-    total = 2 + (1 + len(notes)) + (1 + len(vulns)) + (1 + len(tools)) + 1 + 1 + 1
+    total = 2 + (1 + len(notes)) + (1 + len(vulns)) + (1 + len(tools)) + 2 + 1 + 1
     print(f"\nDone! {total} HTML files + search-index.json")
     print(f"Preview: python3 -m http.server -d site 8080")
 

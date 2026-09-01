@@ -28,6 +28,7 @@ TOOL_ROOT = PROJECT_ROOT / "tool"
 LOOT_ROOT = PROJECT_ROOT / "loot"
 TIPS_FILE = PROJECT_ROOT / "assets" / "tips.txt"
 SEALSAY_FILE = PROJECT_ROOT / "assets" / "sealion_say.txt"
+PENTEST_QUESTIONS_FILE = PROJECT_ROOT / "data" / "pentest_questions.json"
 
 _VERSION_FILE = PROJECT_ROOT / "VERSION"
 _SL_VERSION = _VERSION_FILE.read_text(encoding="utf-8").strip() if _VERSION_FILE.exists() else "0.0.0"
@@ -426,18 +427,32 @@ letter-spacing:.5px;margin-bottom:4px;font-weight:600}
 
 /* Sealsay — bubble on the right of the art */
 .seal-container{flex:1;display:flex;flex-direction:column;align-items:center;
-justify-content:center}
-.seal-scene{display:flex;align-items:flex-start;gap:0;position:relative}
-.seal-art{color:var(--text2);font-size:11px;line-height:1.2;white-space:pre;
-flex-shrink:0;cursor:pointer;user-select:none;-webkit-user-select:none}
+justify-content:center;min-height:380px;padding:28px 18px;position:relative;isolation:isolate}
+.seal-container::before{content:'';position:absolute;inset:8% 6%;z-index:-1;pointer-events:none;
+background:radial-gradient(ellipse at center,rgba(88,166,255,.09),transparent 68%)}
+.seal-scene{display:flex;align-items:flex-start;justify-content:center;gap:8px;position:relative;z-index:1}
+.seal-art{color:var(--accent2);font-size:clamp(11.5px,1.05vw,14px);line-height:1.12;white-space:pre;
+flex-shrink:0;cursor:pointer;user-select:none;-webkit-user-select:none;
+text-shadow:0 0 18px rgba(88,166,255,.2);transition:color .2s,filter .2s,transform .2s}
+.seal-art:hover{color:#fff;filter:drop-shadow(0 0 9px rgba(88,166,255,.28));transform:translateY(-2px)}
+.seal-eyebrow{display:flex;align-items:center;gap:8px;margin-bottom:14px;color:var(--text2);
+font-size:10px;font-weight:700;letter-spacing:1.6px;text-transform:uppercase;z-index:1}
+.seal-online{width:7px;height:7px;border-radius:50%;background:var(--green);box-shadow:0 0 10px var(--green)}
 .seal-bubble-wrap{display:flex;flex-direction:column;justify-content:flex-start;
 padding-top:0}
-.seal-bubble{border:1px solid var(--border);border-radius:4px;padding:12px 16px;
+.seal-bubble{border:1px solid var(--border);border-radius:9px;padding:13px 17px;
 font-size:13px;color:var(--text);max-width:480px;position:relative;
-background:var(--surface2);margin-left:4px}
+background:rgba(28,35,51,.94);margin-left:4px;box-shadow:var(--glow)}
 .seal-bubble::before{content:'';position:absolute;left:-7px;top:14px;
 width:12px;height:12px;background:var(--surface2);border-left:1px solid var(--border);
 border-bottom:1px solid var(--border);transform:rotate(45deg)}
+.seal-quick-actions{display:flex;align-items:center;justify-content:center;gap:8px;flex-wrap:wrap;
+margin-top:18px;z-index:1}
+.seal-quick-link{display:inline-flex;align-items:center;justify-content:center;min-height:38px;
+padding:8px 13px;border:1px solid var(--border);border-radius:7px;background:rgba(21,27,35,.88);
+color:var(--text2);font-size:11px;font-weight:700;letter-spacing:.25px;transition:.15s}
+.seal-quick-link:hover{color:var(--accent);border-color:var(--accent);background:var(--hover);transform:translateY(-1px)}
+.pet-mobile-actions{display:none}
 
 /* Terminal input */
 .terminal-input{margin-top:auto;padding-top:16px;font-size:13px;
@@ -447,7 +462,7 @@ border-top:1px solid var(--border);position:relative}
 .terminal-input .path{color:var(--accent)}
 .terminal-input input{background:none;border:none;color:var(--text);
 font-family:inherit;font-size:13px;outline:none;flex:1;caret-color:var(--accent);
-padding:0;margin-left:4px}
+padding:0;margin-left:4px;min-width:0}
 .terminal-input input::placeholder{color:var(--text2)}
 /* Terminal output */
 #term-output{font-size:13px;line-height:1.7;max-height:340px;overflow-y:auto;
@@ -651,21 +666,41 @@ vertical-align:top;word-break:break-all}
 @media(max-width:768px){
   body{font-size:13px}
   .topbar{padding:8px 12px;flex-wrap:wrap;gap:8px}
-  .topbar-left{gap:10px;flex-wrap:wrap;width:100%}
+  .topbar-left{gap:8px;flex-wrap:nowrap;width:100%;min-width:0}
   .topbar .logo{font-size:14px}
-  .topbar nav{gap:0;flex-wrap:wrap}
-  .topbar nav>a,.nav-drop>.nav-drop-btn{font-size:12px;padding:6px 10px}
-  .home-layout{grid-template-columns:1fr;min-height:auto}
-  .sidebar{border-right:none;border-bottom:1px solid var(--border);padding:12px 16px}
-  .main-area{padding:16px}
-  .seal-scene{flex-direction:column;align-items:center}
-  .seal-art{font-size:7px;line-height:1.1;align-self:center}
-  .seal-bubble-wrap{padding-top:8px;width:100%}
-  .seal-bubble{margin-left:0;max-width:100%;font-size:12px}
+  .topbar .logo{flex:0 0 auto}
+  .topbar nav{gap:0;flex:1;min-width:0;overflow-x:auto;overflow-y:hidden;flex-wrap:nowrap;
+    scrollbar-width:none;-webkit-overflow-scrolling:touch}
+  .topbar nav::-webkit-scrollbar{display:none}
+  .topbar nav>a,.nav-drop{flex:0 0 auto}
+  .topbar nav>a,.nav-drop>.nav-drop-btn{font-size:12px;padding:8px 10px;min-height:38px;display:flex;align-items:center}
+  .home-layout{display:flex;flex-direction:column;min-height:auto}
+  .main-area{order:1;padding:12px;min-height:calc(100dvh - 92px)}
+  .sidebar{order:2;border-right:none;border-top:1px solid var(--border);border-bottom:none;
+    padding:14px 12px;display:grid;grid-template-columns:1fr 1fr;gap:10px;background:var(--bg)}
+  .sidebar .info-box{border:1px solid var(--border);border-radius:9px;padding:13px;background:var(--surface)}
+  .sidebar .home-meta{display:none}
+  .sidebar .home-server,.sidebar .home-pet{grid-column:1/-1}
+  .cat-list li{min-height:40px;align-items:center;padding:7px 0;gap:8px}
+  .cat-list li a{font-size:13px}.cat-list .cnt{font-size:10px;text-align:right}
+  .seal-container{min-height:0;flex:1;padding:12px 0 16px;justify-content:center}
+  .seal-container::before{inset:0 -8px;background:radial-gradient(ellipse at center,rgba(88,166,255,.13),transparent 70%)}
+  .seal-eyebrow{font-size:9px;margin-bottom:9px;letter-spacing:1.25px}
+  .seal-scene{flex-direction:column;align-items:center;width:100%;gap:7px}
+  .seal-art{font-size:clamp(7.5px,2.35vw,9.7px);line-height:1.06;align-self:center;
+    color:var(--accent2);max-width:none;transform:none!important}
+  .seal-bubble-wrap{padding-top:0;width:100%;align-items:center}
+  .seal-bubble{margin-left:0;max-width:min(100%,520px);width:100%;font-size:13px;line-height:1.5;padding:11px 13px}
   .seal-bubble::before{display:none}
-  .terminal-input{padding-top:12px}
+  .seal-quick-actions{width:100%;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:7px;margin-top:12px}
+  .seal-quick-link{min-height:44px;padding:8px 6px;font-size:10px;text-align:center}
+  .pet-mobile-actions{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:7px;width:100%;margin-top:10px}
+  .pet-mobile-actions .pet-action-btn{min-height:44px;text-align:center;padding:8px 5px;font-size:11px}
+  .terminal-input{padding:11px 12px;background:rgba(21,27,35,.96);border:1px solid var(--border);
+    border-radius:9px;position:sticky;bottom:8px;z-index:7;box-shadow:0 8px 28px rgba(0,0,0,.32)}
+  #term-output{max-height:28dvh;font-size:12px}
   .terminal-input .prompt-line{font-size:12px}
-  .terminal-input input{font-size:14px;min-height:36px}
+  .terminal-input input{font-size:16px;min-height:42px}
   .suggestions .sug{padding:12px 14px;min-height:44px}
   .container{padding:16px 12px 60px}
   .page-title{font-size:18px}
@@ -699,7 +734,10 @@ vertical-align:top;word-break:break-all}
 }
 @media(max-width:400px){
   .topbar nav>a,.nav-drop>.nav-drop-btn{font-size:11px;padding:5px 7px}
-  .seal-art{font-size:5.5px}
+  .seal-art{font-size:clamp(8.2px,2.68vw,10px)}
+  .main-area{padding:9px;min-height:calc(100dvh - 88px)}
+  .sidebar{grid-template-columns:1fr;padding:10px}.sidebar .home-server,.sidebar .home-pet{grid-column:auto}
+  .seal-quick-link{font-size:9px}
   .container{padding:12px 8px 40px}
 }
 """
@@ -717,7 +755,7 @@ def _load_tips() -> list[str]:
 
 def _load_seal_art() -> str:
     if SEALSAY_FILE.exists():
-        return SEALSAY_FILE.read_text(encoding="utf-8", errors="replace").rstrip()
+        return SEALSAY_FILE.read_text(encoding="utf-8", errors="replace").strip("\n")
     return ""
 
 
@@ -728,7 +766,7 @@ def _load_wag_frames() -> list[str]:
     for n in names:
         fp = PROJECT_ROOT / "assets" / f"{n}.txt"
         if fp.exists():
-            frames.append(fp.read_text(encoding="utf-8", errors="replace").rstrip())
+            frames.append(fp.read_text(encoding="utf-8", errors="replace").strip("\n"))
         else:
             frames.append(base)
     return frames
@@ -739,7 +777,7 @@ def _load_bark_frames() -> list[str]:
     for n in ["SLmouth1", "SLmouth2"]:
         fp = PROJECT_ROOT / "assets" / f"{n}.txt"
         if fp.exists():
-            frames.append(fp.read_text(encoding="utf-8", errors="replace").rstrip())
+            frames.append(fp.read_text(encoding="utf-8", errors="replace").strip("\n"))
         else:
             frames.append(_load_seal_art())
     return frames
@@ -907,19 +945,19 @@ def _page_home() -> str:
     body = f"""
 <div class="home-layout">
 <div class="sidebar">
-  <div class="info-box">
+  <div class="info-box home-meta">
     <div class="label">Versione:</div>
     <div class="value">v{_sl_version_hash()}</div>
   </div>
-  <div class="info-box">
+  <div class="info-box home-meta">
     <div class="label">GitHub:</div>
     <a href="https://github.com/Starlix27/SeaLion">github.com/Starlix27/SeaLion</a>
   </div>
-  <div class="info-box">
+  <div class="info-box home-meta">
     <div class="label">Creatrice:</div>
     <a href="https://github.com/Starlix27">@Starlix27</a>
   </div>
-  <div class="info-box">
+  <div class="info-box home-nav home-docs">
     <div class="label">Docs:</div>
     <ul class="cat-list">
       <li><a href="/notes/">Notes</a><span class="cnt">{n_notes} guide</span></li>
@@ -927,7 +965,7 @@ def _page_home() -> str:
       <li><a href="/tools/">Tools</a><span class="cnt">{n_tools} tool</span></li>
     </ul>
   </div>
-  <div class="info-box">
+  <div class="info-box home-nav home-server">
     <div class="label">Server:</div>
     <ul class="cat-list">
       <li><a href="/static/">Payload</a><span class="cnt">{n_static} file</span></li>
@@ -937,14 +975,14 @@ def _page_home() -> str:
       <li><a href="/logs">Logs</a><span class="cnt">server logs</span></li>
     </ul>
   </div>
-  <div class="info-box">
+  <div class="info-box home-nav home-tools">
     <div class="label">Strumenti:</div>
     <ul class="cat-list">
       <li><a href="/pet">Pet</a><span class="cnt">sealion virtuale</span></li>
       <li><a href="/burp">BURP</a><span class="cnt">password profiler</span></li>
     </ul>
   </div>
-  <div class="info-box" id="pet-widget" style="display:none">
+  <div class="info-box home-pet" id="pet-widget" style="display:none">
     <div class="label">SeaLion Pet:</div>
     <div id="pet-home-name" class="value" style="cursor:pointer;color:var(--accent)" title="Apri Pet Portal"></div>
     <div id="pet-home-bars" style="margin-top:6px"></div>
@@ -952,11 +990,17 @@ def _page_home() -> str:
 </div>
 <div class="main-area">
   <div class="seal-container">
+    <div class="seal-eyebrow"><span class="seal-online"></span>SLWeb core companion // online</div>
     <div class="seal-scene">
       <pre class="seal-art">{seal}</pre>
       <div class="seal-bubble-wrap">
         <div class="seal-bubble">{html.escape(tip)}</div>
       </div>
+    </div>
+    <div class="seal-quick-actions" aria-label="Scorciatoie SeaLion">
+      <a class="seal-quick-link" href="/pet">PET PORTAL</a>
+      <a class="seal-quick-link" href="/pet/minigame">PENTEST QUIZ</a>
+      <a class="seal-quick-link" href="/notes/">GUIDE</a>
     </div>
   </div>
   <div class="terminal-input">
@@ -982,6 +1026,7 @@ def _page_home() -> str:
     {{name:'catch',label:'Catch',cnt:'OOB listeners',href:'/catch'}},
     {{name:'logs',label:'Logs',cnt:'server logs',href:'/logs'}},
     {{name:'pet',label:'Pet',cnt:'sealion virtuale',href:'/pet'}},
+    {{name:'minigame',label:'Minigame',cnt:'quiz pentesting',href:'/pet/minigame'}},
     {{name:'burp',label:'BURP',cnt:'password profiler',href:'/burp'}},
   ];
   const input=document.getElementById('term-input');
@@ -1012,6 +1057,7 @@ def _page_home() -> str:
     '  <span class="t-section">— Strumenti</span>\\n'+
     '  <span class="t-accent">pet</span>         <span class="t-line">Pet Portal — nutri, gioca e cura il tuo sealion</span>\\n'+
     '              <span class="t-line">Feed, play, spin, annoy + mini-games (blackjack, wordle, 8ball)</span>\\n'+
+    '  <span class="t-accent">minigame</span>    <span class="t-line">Quiz fullscreen con 500 domande di pentesting</span>\\n'+
     '  <span class="t-accent">burp</span>        <span class="t-line">BURP — Profiler password avanzato (sostituisce CUPP)</span>\\n\\n'+
     '  <span class="t-section">— Wordlists</span>\\n'+
     '  <span class="t-accent">wordfind</span>    <span class="t-line">Wizard wordlist — suggerisce liste e comandi per fuzzing/brute-force</span>\\n'+
@@ -1174,6 +1220,10 @@ def _page_home() -> str:
       '<span class="t-line">Funzioni: feed, play, spin, annoy, games (blackjack, wordle, guess, 8ball)</span>\\\\n'+
       '<span class="t-line">Stato sincronizzato con SLConsole (pet.json).</span>\\\\n\\\\n'+
       '<span class="t-line">Digitando <span class="t-accent">pet</span> verrai portato al Pet Portal.</span>',
+    minigame:
+      '<span class="t-head">minigame — Pentest Interview Quiz</span>\\\\n\\\\n'+
+      '<span class="t-line">Apre il quiz fullscreen con 500 domande.</span>\\\\n'+
+      '<span class="t-line">Configura categorie, livelli e quantità dal menu con i tre puntini.</span>',
   }};
 
   function echo(cmd,h){{
@@ -1254,7 +1304,7 @@ def _page_home() -> str:
     else if(e.key==='Tab'&&items.length){{e.preventDefault();const t=items[Math.max(sel,0)];input.value=t.dataset.name;filter();}}
     else if(e.key==='Enter'){{
       e.preventDefault();
-      const active=sel>=0&&items[sel]?items[sel]:null;
+      const active=open?items[Math.max(sel,0)]:null;
       if(active){{
         const hr=active.dataset.href;
         if(hr&&hr!=='null')location.href=hr;
@@ -2218,6 +2268,7 @@ def _page_pet() -> str:
     <div style="display:flex;flex-direction:column;gap:4px;margin-top:6px">
       <button class="pet-action-btn" data-cmd="feed">Feed</button>
       <button class="pet-action-btn" data-cmd="games">Games</button>
+      <button class="pet-action-btn" data-cmd="minigame">Pentest Minigame</button>
       <button class="pet-action-btn" data-cmd="annoy">Annoy</button>
       <button class="pet-action-btn" data-cmd="spin">Spin</button>
     </div>
@@ -2229,11 +2280,17 @@ def _page_pet() -> str:
 </div>
 <div class="main-area">
   <div class="seal-container">
+    <div class="seal-eyebrow"><span class="seal-online"></span>SeaLion pet core // online</div>
     <div class="seal-scene" id="seal-scene">
       <pre class="seal-art" id="pet-art">{seal_art}</pre>
       <div class="seal-bubble-wrap">
         <div class="seal-bubble" id="pet-bubble">{html.escape(tip)}</div>
       </div>
+    </div>
+    <div class="pet-mobile-actions" aria-label="Azioni rapide del pet">
+      <button class="pet-action-btn" data-cmd="feed">FEED</button>
+      <button class="pet-action-btn" data-cmd="play">PLAY</button>
+      <button class="pet-action-btn" data-cmd="minigame">QUIZ</button>
     </div>
   </div>
   <div class="terminal-input">
@@ -2241,7 +2298,7 @@ def _page_pet() -> str:
     <div class="suggestions" id="suggestions"></div>
     <div class="prompt-line">
       <span class="user">user@slweb</span>:<span class="path">~</span>$&nbsp;
-      <input type="text" id="term-input" placeholder="feed, play, games, spin, annoy, help..." autocomplete="off" spellcheck="false">
+      <input type="text" id="term-input" placeholder="feed, play, games, minigame, spin, help..." autocomplete="off" spellcheck="false">
     </div>
   </div>
 </div>
@@ -2389,7 +2446,7 @@ function spawnFish(fish){{
 updateUI();
 
 /* --- TERMINAL --- */
-var cmds=['feed','play','games','spin','annoy','help','stats','clear','blackjack','wordle','guess','8ball'];
+var cmds=['feed','play','games','minigame','spin','annoy','help','stats','clear','blackjack','wordle','guess','8ball'];
 var hist=[],hpos=-1;
 var sel=-1;
 var activeGame=null;
@@ -2414,8 +2471,9 @@ input.addEventListener('keydown',function(e){{
   }}
   if(e.key==='ArrowDown'&&!items.length){{e.preventDefault();if(hpos>=0&&hpos<hist.length-1){{hpos++;input.value=hist[hpos];}}else{{hpos=-1;input.value='';}}return;}}
   if(e.key==='Enter'){{
-    if(sel>=0&&items.length){{input.value=items[sel].textContent;box.innerHTML='';box.classList.remove('open');sel=-1;return;}}
-    var raw=input.value.trim();
+    e.preventDefault();
+    var suggestion=!activeGame&&box.classList.contains('open')&&items.length?items[Math.max(sel,0)]:null;
+    var raw=suggestion?suggestion.textContent.trim():input.value.trim();
     if(!raw)return;
     input.value='';box.innerHTML='';box.classList.remove('open');sel=-1;
     hist.push(raw);hpos=-1;
@@ -2442,6 +2500,7 @@ function runCmd(cmd,raw){{
       '  <span class="t-accent">spin</span>       <span class="t-line">Barrel roll! (+6 felicità)</span>\\n'+
       '  <span class="t-accent">annoy</span>      <span class="t-line">Infastidisci il sealion (-5 felicità)</span>\\n'+
       '  <span class="t-accent">games</span>      <span class="t-line">Minigiochi: blackjack, wordle, guess, 8ball</span>\\n'+
+      '  <span class="t-accent">minigame</span>   <span class="t-line">Quiz fullscreen per colloquio pentesting</span>\\n'+
       '  <span class="t-accent">stats</span>      <span class="t-line">Mostra le statistiche del pet</span>\\n'+
       '  <span class="t-accent">name</span> <span class="t-line">&lt;nome&gt;</span>  <span class="t-line">Rinomina il pet</span>\\n'+
       '  <span class="t-accent">clear</span>      <span class="t-line">Pulisci il terminale</span>\\n'
@@ -2470,6 +2529,7 @@ function runCmd(cmd,raw){{
   if(cmd==='spin'){{doSpin();return;}}
   if(cmd==='annoy'){{doAnnoy();return;}}
   if(cmd==='games'){{showGames();return;}}
+  if(cmd==='minigame'){{var bm=document.querySelector('meta[name="base-path"]');location.href=(bm?bm.content:'/')+'pet/minigame';return;}}
   if(cmd==='blackjack'){{initBlackjack();return;}}
   if(cmd==='wordle'){{initWordle();return;}}
   if(cmd==='guess'){{initGuess();return;}}
@@ -2575,6 +2635,7 @@ function showGames(){{
     '  <span class="t-accent">wordle</span>     <span class="t-line">Indovina la parola in 6 tentativi</span>\\n'+
     '  <span class="t-accent">guess</span>      <span class="t-line">Numero 1-100 in 7 tentativi</span>\\n'+
     '  <span class="t-accent">8ball</span>      <span class="t-line">Chiedi al sealion del futuro</span>\\n\\n'+
+    '  <span class="t-accent">minigame</span>   <span class="t-line">500 domande per il colloquio pentesting</span>\\n\\n'+
     '<span class="t-line">Digita il nome del gioco per iniziare. <span class="t-accent">back</span> per tornare.</span>'
   );
 }}
@@ -2822,6 +2883,219 @@ function init8Ball(){{
 </script>
 """
     return _base_html("Pet Portal", body, active="pet")
+
+
+def _load_pentest_questions() -> dict:
+    """Carica e valida la banca del minigame senza rendere fragile SLWeb."""
+    fallback = {
+        "schema_version": 1,
+        "default_question_count": 10,
+        "questions": [],
+        "load_error": "Banca domande non disponibile.",
+    }
+    try:
+        data = json.loads(PENTEST_QUESTIONS_FILE.read_text(encoding="utf-8"))
+        questions = data.get("questions") if isinstance(data, dict) else None
+        if not isinstance(questions, list):
+            raise ValueError("Il campo questions deve essere un array")
+        seen: set[int] = set()
+        valid: list[dict] = []
+        for question in questions:
+            if not isinstance(question, dict):
+                continue
+            qid = question.get("id")
+            if not isinstance(qid, int) or qid in seen:
+                continue
+            required = ("category", "topic", "difficulty", "type", "question", "answer", "explanation")
+            if any(not isinstance(question.get(key), str) or not question.get(key).strip() for key in required):
+                continue
+            if question["difficulty"] not in {"Base", "Intermedio", "Avanzato"}:
+                continue
+            if question["type"] not in {"multiple_choice", "open_text"}:
+                continue
+            if question["type"] == "multiple_choice":
+                choices = question.get("choices")
+                if not isinstance(choices, list) or len(choices) < 2:
+                    continue
+                if sum(bool(choice.get("correct")) for choice in choices if isinstance(choice, dict)) != 1:
+                    continue
+            seen.add(qid)
+            valid.append(question)
+        data["questions"] = valid
+        data["load_error"] = "" if valid else "La banca JSON non contiene domande valide."
+        return data
+    except Exception as exc:
+        fallback["load_error"] = f"Impossibile caricare la banca domande: {exc}"
+        return fallback
+
+
+def _page_minigame() -> str:
+    payload = json.dumps(_load_pentest_questions(), ensure_ascii=False).replace("</", "<\\/")
+    body = f"""\
+<style>
+body{{overflow:hidden}}
+.quiz-app{{height:calc(100vh - 45px);min-height:560px;background:var(--bg);display:grid;grid-template-rows:auto 1fr auto;position:relative}}
+.quiz-top{{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:16px;padding:14px 22px;border-bottom:1px solid var(--border);background:var(--surface)}}
+.quiz-left{{display:flex;align-items:center;gap:10px;min-width:0}}.quiz-title{{font-size:13px;font-weight:700;color:var(--accent);white-space:nowrap}}
+.quiz-progress{{font-size:12px;color:var(--text2);text-align:center}}.quiz-score{{justify-self:end;font-size:12px;color:var(--text2);white-space:nowrap}}
+.quiz-icon{{width:40px;height:40px;border:1px solid var(--border);background:var(--bg);color:var(--text);border-radius:8px;display:grid;place-items:center;cursor:pointer;font:700 20px/1 inherit}}
+.quiz-icon:hover{{border-color:var(--accent);color:var(--accent);background:var(--hover)}}
+.quiz-stage{{min-height:0;overflow-y:auto;padding:clamp(20px,5vh,58px) clamp(18px,7vw,96px);display:flex;justify-content:center}}
+.quiz-card{{width:min(100%,980px);align-self:center}}.quiz-meta{{display:flex;gap:7px;flex-wrap:wrap;margin-bottom:18px}}
+.quiz-chip{{font-size:11px;letter-spacing:.2px;border:1px solid var(--border);background:var(--surface);color:var(--text2);padding:5px 9px;border-radius:999px}}
+.quiz-chip.id{{color:var(--green);border-color:rgba(63,185,80,.35)}}.quiz-chip.level{{color:var(--yellow)}}
+.quiz-question{{font-size:clamp(22px,3vw,36px);line-height:1.32;font-weight:700;color:var(--text);margin:0 0 28px;letter-spacing:-.02em}}
+.quiz-options{{display:grid;grid-template-columns:1fr 1fr;gap:12px}}.quiz-option{{text-align:left;border:1px solid var(--border);background:var(--surface);color:var(--text);border-radius:9px;padding:15px 17px;font:inherit;line-height:1.45;cursor:pointer;display:flex;gap:12px;transition:.15s}}
+.quiz-option:hover:not(:disabled){{border-color:var(--accent);transform:translateY(-1px)}}.quiz-option .letter{{color:var(--accent);font-weight:800;flex:0 0 auto}}
+.quiz-option.correct{{border-color:var(--green);background:rgba(63,185,80,.1)}}.quiz-option.wrong{{border-color:var(--red);background:rgba(248,81,73,.1)}}.quiz-option:disabled{{cursor:default;color:var(--text)}}
+.quiz-textarea{{width:100%;min-height:150px;resize:vertical;border:1px solid var(--border);border-radius:9px;background:var(--surface);color:var(--text);padding:16px;font:14px/1.6 inherit;outline:none}}
+.quiz-textarea:focus{{border-color:var(--accent)}}.quiz-actions{{display:flex;gap:10px;flex-wrap:wrap;margin-top:14px}}
+.quiz-btn{{border:1px solid var(--border);background:var(--surface);color:var(--text);border-radius:7px;padding:10px 15px;font:600 13px inherit;cursor:pointer}}
+.quiz-btn:hover{{border-color:var(--accent);color:var(--accent)}}.quiz-btn.primary{{background:var(--accent);border-color:var(--accent);color:var(--bg)}}
+.quiz-feedback{{margin-top:20px;border-left:3px solid var(--accent);background:var(--surface);padding:16px 18px;border-radius:0 8px 8px 0}}
+.quiz-feedback.good{{border-color:var(--green)}}.quiz-feedback.bad{{border-color:var(--red)}}.quiz-feedback h3{{font-size:14px;margin:0 0 7px;color:var(--text)}}.quiz-feedback p{{font-size:13px;line-height:1.6;color:var(--text2);margin:6px 0}}.quiz-feedback strong{{color:var(--text)}}
+.quiz-nav{{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;padding:12px 22px;border-top:1px solid var(--border);background:var(--surface)}}
+.quiz-arrow{{width:48px;height:44px;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text);font-size:23px;cursor:pointer}}.quiz-arrow:hover:not(:disabled){{border-color:var(--accent);color:var(--accent)}}.quiz-arrow:disabled{{opacity:.3;cursor:default}}#quiz-next{{justify-self:end}}
+.quiz-nav-status{{font-size:11px;color:var(--text2);text-align:center}}.quiz-dots{{display:flex;gap:4px;justify-content:center;margin-top:5px;max-width:50vw;flex-wrap:wrap}}.quiz-dot{{width:6px;height:6px;border-radius:50%;background:var(--border)}}.quiz-dot.current{{background:var(--accent)}}.quiz-dot.done{{background:var(--green)}}
+.quiz-settings{{position:fixed;inset:45px auto 0 0;width:min(390px,100%);background:var(--surface);border-right:1px solid var(--border);z-index:120;transform:translateX(-102%);transition:transform .2s;box-shadow:12px 0 32px rgba(0,0,0,.35);display:flex;flex-direction:column}}.quiz-settings.open{{transform:translateX(0)}}
+.quiz-settings-head{{display:flex;align-items:center;justify-content:space-between;padding:18px;border-bottom:1px solid var(--border)}}.quiz-settings-head h2{{font-size:17px;margin:0}}.quiz-settings-body{{padding:18px;overflow-y:auto;flex:1}}.quiz-field{{margin-bottom:21px}}.quiz-field>label,.quiz-label{{display:block;color:var(--text2);font-size:11px;text-transform:uppercase;letter-spacing:.7px;font-weight:700;margin-bottom:9px}}
+.quiz-checks{{display:flex;flex-direction:column;gap:7px}}.quiz-check{{display:flex;align-items:flex-start;gap:9px;font-size:13px;color:var(--text);cursor:pointer}}.quiz-check input{{accent-color:var(--accent);margin-top:2px}}
+.quiz-number{{width:100%;border:1px solid var(--border);background:var(--bg);color:var(--text);border-radius:7px;padding:10px 12px;font:inherit;outline:none}}.quiz-number:focus{{border-color:var(--accent)}}
+.quiz-settings-foot{{padding:15px 18px;border-top:1px solid var(--border);display:flex;gap:9px}}.quiz-settings-foot .quiz-btn{{flex:1}}
+.quiz-scrim{{position:fixed;inset:45px 0 0;background:rgba(0,0,0,.55);z-index:110;display:none}}.quiz-scrim.open{{display:block}}
+.quiz-empty{{text-align:center;color:var(--text2);align-self:center}}.quiz-empty h2{{color:var(--text);margin-bottom:8px}}.quiz-back{{color:var(--text2);text-decoration:none;font-size:12px}}.quiz-back:hover{{color:var(--accent)}}
+@media(max-width:768px){{body{{overflow:auto}}.quiz-app{{height:calc(100dvh - 86px);min-height:520px}}.quiz-top{{grid-template-columns:1fr auto;padding:9px 12px}}.quiz-title{{font-size:12px}}.quiz-progress{{display:none}}.quiz-score{{font-size:11px}}.quiz-stage{{padding:24px 14px}}.quiz-card{{align-self:flex-start}}.quiz-question{{font-size:22px;margin-bottom:20px}}.quiz-options{{grid-template-columns:1fr}}.quiz-option{{padding:13px;font-size:13px}}.quiz-textarea{{min-height:120px}}.quiz-nav{{padding:8px 12px}}.quiz-arrow{{width:46px;height:42px}}.quiz-settings{{inset:0 auto 0 0}}.quiz-scrim{{inset:0}}.quiz-meta{{margin-bottom:12px}}.quiz-chip{{font-size:10px}}}}
+@media(max-width:420px){{.quiz-title{{display:none}}.quiz-question{{font-size:19px}}.quiz-stage{{padding-top:18px}}.quiz-nav-status>span{{display:none}}}}
+</style>
+
+<main class="quiz-app" id="quiz-app">
+  <header class="quiz-top">
+    <div class="quiz-left">
+      <button class="quiz-icon" id="quiz-settings-open" type="button" aria-label="Configura minigame" title="Configura">&#8942;</button>
+      <span class="quiz-title">PET // PENTEST MINIGAME</span>
+      <a class="quiz-back" id="quiz-back" href="/pet">&larr; Pet</a>
+    </div>
+    <div class="quiz-progress" id="quiz-progress">Domanda 1 / 10</div>
+    <div class="quiz-score" id="quiz-score">0 risposte</div>
+  </header>
+  <section class="quiz-stage" id="quiz-stage"></section>
+  <footer class="quiz-nav">
+    <button class="quiz-arrow" id="quiz-prev" type="button" aria-label="Domanda precedente">&#8592;</button>
+    <div class="quiz-nav-status"><span>Usa le frecce per navigare</span><div class="quiz-dots" id="quiz-dots"></div></div>
+    <button class="quiz-arrow" id="quiz-next" type="button" aria-label="Domanda successiva">&#8594;</button>
+  </footer>
+</main>
+<div class="quiz-scrim" id="quiz-scrim"></div>
+<aside class="quiz-settings" id="quiz-settings" aria-hidden="true">
+  <div class="quiz-settings-head"><h2>Configura sessione</h2><button class="quiz-icon" id="quiz-settings-close" type="button" aria-label="Chiudi">&times;</button></div>
+  <div class="quiz-settings-body">
+    <div class="quiz-field"><label for="quiz-count">Numero di domande</label><input class="quiz-number" id="quiz-count" type="number" min="1" max="500" value="10"></div>
+    <div class="quiz-field"><span class="quiz-label">Categorie</span><div class="quiz-checks" id="quiz-categories"></div></div>
+    <div class="quiz-field"><span class="quiz-label">Livello</span><div class="quiz-checks" id="quiz-levels"></div></div>
+    <div class="quiz-field"><span class="quiz-label">Tipo</span><div class="quiz-checks" id="quiz-types"></div></div>
+  </div>
+  <div class="quiz-settings-foot"><button class="quiz-btn" id="quiz-select-all" type="button">Seleziona tutto</button><button class="quiz-btn primary" id="quiz-start" type="button">Nuova sessione</button></div>
+</aside>
+
+<script id="quiz-data" type="application/json">{payload}</script>
+<script>
+(function(){{
+'use strict';
+var DATA=JSON.parse(document.getElementById('quiz-data').textContent);
+var BANK=Array.isArray(DATA.questions)?DATA.questions:[];
+var app=document.getElementById('quiz-app'),stage=document.getElementById('quiz-stage');
+var settings=document.getElementById('quiz-settings'),scrim=document.getElementById('quiz-scrim');
+var session=[],position=0,responses={{}};
+var labels={{multiple_choice:'Scelta multipla',open_text:'Risposta libera'}};
+var baseMeta=document.querySelector('meta[name="base-path"]');
+var base=baseMeta?baseMeta.content:'/';document.getElementById('quiz-back').href=base+'pet';
+
+function unique(key){{return BANK.map(function(q){{return q[key];}}).filter(function(v,i,a){{return a.indexOf(v)===i;}});}}
+function escText(value){{return value==null?'':String(value);}}
+function shuffle(items){{var a=items.slice();for(var i=a.length-1;i>0;i--){{var j=Math.floor(Math.random()*(i+1)),t=a[i];a[i]=a[j];a[j]=t;}}return a;}}
+function checkbox(container,value,name,checked){{var label=document.createElement('label');label.className='quiz-check';var input=document.createElement('input');input.type='checkbox';input.value=value;input.name=name;input.checked=checked;var span=document.createElement('span');span.textContent=value;label.append(input,span);container.appendChild(label);}}
+function buildSettings(){{
+  var saved={{}};try{{saved=JSON.parse(localStorage.getItem('sl_quiz_settings')||'{{}}');}}catch(e){{}}
+  document.getElementById('quiz-count').value=Math.max(1,Math.min(500,parseInt(saved.count||DATA.default_question_count||10)));
+  var cats=unique('category'),levels=['Base','Intermedio','Avanzato'],types=['multiple_choice','open_text'];
+  cats.forEach(function(v){{checkbox(document.getElementById('quiz-categories'),v,'category',!saved.categories||saved.categories.indexOf(v)>=0);}});
+  levels.forEach(function(v){{checkbox(document.getElementById('quiz-levels'),v,'level',!saved.levels||saved.levels.indexOf(v)>=0);}});
+  types.forEach(function(v){{checkbox(document.getElementById('quiz-types'),v,'type',!saved.types||saved.types.indexOf(v)>=0);var all=document.querySelectorAll('input[name=type]');all[all.length-1].nextSibling.textContent=labels[v];}});
+}}
+function selected(name){{return Array.from(document.querySelectorAll('input[name="'+name+'"]:checked')).map(function(x){{return x.value;}});}}
+function openSettings(){{settings.classList.add('open');scrim.classList.add('open');settings.setAttribute('aria-hidden','false');}}
+function closeSettings(){{settings.classList.remove('open');scrim.classList.remove('open');settings.setAttribute('aria-hidden','true');}}
+function balancedPick(pool,count){{
+  var picked=[],used={{}},groups={{}};shuffle(pool).forEach(function(q){{(groups[q.category]||(groups[q.category]=[])).push(q);}});
+  var keys=shuffle(Object.keys(groups));while(picked.length<count){{var advanced=false;for(var i=0;i<keys.length&&picked.length<count;i++){{var list=groups[keys[i]];while(list.length&&used[list[0].id])list.shift();if(list.length){{var q=list.shift();picked.push(q);used[q.id]=1;advanced=true;}}}}if(!advanced)break;}}
+  // Se entrambi i tipi sono richiesti, garantisce una sessione realmente mista quando possibile.
+  if(count>1){{
+    ['multiple_choice','open_text'].forEach(function(type){{
+      if(pool.some(function(q){{return q.type===type;}}) && !picked.some(function(q){{return q.type===type;}})){{
+        var replacement=shuffle(pool).find(function(q){{return q.type===type&&!used[q.id];}});
+        if(replacement){{
+          used[picked[picked.length-1].id]=0;
+          picked[picked.length-1]=replacement;
+          used[replacement.id]=1;
+        }}
+      }}
+    }});
+  }}
+  return shuffle(picked);
+}}
+function startSession(){{
+  var categories=selected('category'),levels=selected('level'),types=selected('type');
+  if(!categories.length||!levels.length||!types.length){{alert('Seleziona almeno una categoria, un livello e un tipo.');return;}}
+  var pool=BANK.filter(function(q){{return categories.indexOf(q.category)>=0&&levels.indexOf(q.difficulty)>=0&&types.indexOf(q.type)>=0;}});
+  if(!pool.length){{alert('Nessuna domanda corrisponde ai filtri.');return;}}
+  var count=Math.max(1,Math.min(pool.length,parseInt(document.getElementById('quiz-count').value)||10));
+  localStorage.setItem('sl_quiz_settings',JSON.stringify({{count:count,categories:categories,levels:levels,types:types}}));
+  session=balancedPick(pool,count);position=0;responses={{}};closeSettings();render();
+}}
+function setNode(tag,className,text){{var n=document.createElement(tag);if(className)n.className=className;if(text!==undefined)n.textContent=text;return n;}}
+function renderFeedback(parent,q,response){{
+  var box=setNode('div','quiz-feedback '+(response.correct===false?'bad':'good'));
+  if(q.type==='multiple_choice'){{
+    var choice=q.choices[response.selected];box.appendChild(setNode('h3','',response.correct?'Risposta corretta':'Risposta errata'));
+    box.appendChild(setNode('p','',choice&&choice.explanation?choice.explanation:q.explanation));
+    if(!response.correct){{var correct=q.choices.find(function(c){{return c.correct;}});var p=setNode('p');p.appendChild(setNode('strong','','Risposta corretta: '));p.appendChild(document.createTextNode(correct?correct.text:q.answer));box.appendChild(p);}}
+  }}else{{
+    box.appendChild(setNode('h3','','Risposta di riferimento'));
+    box.appendChild(setNode('p','',q.answer));var why=setNode('p');why.appendChild(setNode('strong','','Perché: '));why.appendChild(document.createTextNode(q.explanation));box.appendChild(why);
+    var actions=setNode('div','quiz-actions');[['La sapevo',true],['Da ripassare',false]].forEach(function(pair){{var b=setNode('button','quiz-btn'+(response.selfGrade===pair[1]?' primary':''),pair[0]);b.type='button';b.onclick=function(){{response.selfGrade=pair[1];response.correct=pair[1];render();}};actions.appendChild(b);}});box.appendChild(actions);
+  }}
+  parent.appendChild(box);
+}}
+function render(){{
+  stage.innerHTML='';
+  if(!BANK.length){{var empty=setNode('div','quiz-empty');empty.appendChild(setNode('h2','','Minigame non disponibile'));empty.appendChild(setNode('p','',DATA.load_error||'Nessuna domanda valida nel JSON.'));stage.appendChild(empty);document.getElementById('quiz-prev').disabled=true;document.getElementById('quiz-next').disabled=true;return;}}
+  if(!session.length){{startSession();return;}}
+  var q=session[position],response=responses[q.id]||(responses[q.id]={{answered:false,draft:''}}),card=setNode('article','quiz-card');
+  var meta=setNode('div','quiz-meta');[['quiz-chip id','ID #'+q.id],['quiz-chip',q.category],['quiz-chip',q.topic],['quiz-chip level',q.difficulty],['quiz-chip',labels[q.type]||q.type]].forEach(function(x){{meta.appendChild(setNode('span',x[0],x[1]));}});card.appendChild(meta);
+  card.appendChild(setNode('h1','quiz-question',q.question));
+  if(q.type==='multiple_choice'){{
+    var options=setNode('div','quiz-options');q.choices.forEach(function(choice,index){{var button=setNode('button','quiz-option');button.type='button';var letter=setNode('span','letter',String.fromCharCode(65+index));button.append(letter,setNode('span','',choice.text));if(response.answered){{button.disabled=true;if(choice.correct)button.classList.add('correct');if(index===response.selected&&!choice.correct)button.classList.add('wrong');}}button.onclick=function(){{if(response.answered)return;response.answered=true;response.selected=index;response.correct=!!choice.correct;render();}};options.appendChild(button);}});card.appendChild(options);
+  }}else{{
+    var area=setNode('textarea','quiz-textarea');area.placeholder='Scrivi qui la tua risposta...';area.value=response.draft||'';area.disabled=response.answered;area.addEventListener('input',function(){{response.draft=area.value;}});card.appendChild(area);
+    if(!response.answered){{var actions=setNode('div','quiz-actions');var check=setNode('button','quiz-btn primary','Mostra la risposta');check.type='button';check.onclick=function(){{response.draft=area.value;response.answered=true;response.correct=null;render();}};actions.appendChild(check);card.appendChild(actions);}}
+  }}
+  if(response.answered)renderFeedback(card,q,response);stage.appendChild(card);stage.scrollTop=0;
+  var answered=Object.keys(responses).filter(function(id){{return responses[id].answered;}}).length,graded=Object.keys(responses).filter(function(id){{return responses[id].correct!==null&&responses[id].correct!==undefined;}}),correct=graded.filter(function(id){{return responses[id].correct;}}).length;
+  document.getElementById('quiz-progress').textContent='Domanda '+(position+1)+' / '+session.length;
+  document.getElementById('quiz-score').textContent=answered+' risposte · '+correct+'/'+graded.length+' corrette';
+  document.getElementById('quiz-prev').disabled=position===0;document.getElementById('quiz-next').disabled=position===session.length-1;
+  var dots=document.getElementById('quiz-dots');dots.innerHTML='';session.forEach(function(item,i){{var d=setNode('span','quiz-dot'+(i===position?' current':'')+(responses[item.id]&&responses[item.id].answered?' done':''));dots.appendChild(d);}});
+}}
+buildSettings();
+document.getElementById('quiz-settings-open').onclick=openSettings;document.getElementById('quiz-settings-close').onclick=closeSettings;scrim.onclick=closeSettings;
+document.getElementById('quiz-start').onclick=startSession;document.getElementById('quiz-select-all').onclick=function(){{document.querySelectorAll('.quiz-settings input[type=checkbox]').forEach(function(x){{x.checked=true;}});}};
+document.getElementById('quiz-prev').onclick=function(){{if(position>0){{position--;render();}}}};document.getElementById('quiz-next').onclick=function(){{if(position<session.length-1){{position++;render();}}}};
+document.addEventListener('keydown',function(event){{var tag=document.activeElement&&document.activeElement.tagName;if(tag==='TEXTAREA'||tag==='INPUT')return;if(event.key==='ArrowLeft'&&position>0){{position--;render();}}if(event.key==='ArrowRight'&&position<session.length-1){{position++;render();}}if(event.key==='Escape')closeSettings();}});
+if(BANK.length)startSession();else render();
+}})();
+</script>
+"""
+    return _base_html("Pentest Minigame", body, active="pet")
 
 
 def _page_delivery() -> str:
@@ -3279,6 +3553,8 @@ class SlRequestHandler(http.server.BaseHTTPRequestHandler):
             self._send_html(_page_loot())
         elif path == "/pet":
             self._send_html(_page_pet())
+        elif path in {"/pet/minigame", "/minigame"}:
+            self._send_html(_page_minigame())
         elif path == "/burp":
             self._send_html(_page_burp())
         elif path.startswith("/loot/view/"):
