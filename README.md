@@ -30,7 +30,17 @@
                     =###%%%+.
 ```
 
-**Personal tool vault per pentester.** Console interattiva per gestire, installare e consultare tool di sicurezza offensiva, servire payload di post-exploitation e consultare cheatsheet per protocolli vulnerabili.
+**Personal tool vault per pentester.** Console interattiva per gestire e consultare tool di sicurezza offensiva, automatizzare la reconnaissance, creare wordlist, gestire tunnel e listener OOB, servire payload di post-exploitation e studiare con un quiz dedicato ai colloqui junior.
+
+### Funzionalità principali
+
+- **42 tool integrati** con installazione guidata e documentazione locale.
+- **Recon automatica** con profili Fast, Medium e Full, enumerazione mirata dei servizi e report.
+- **Quick Delivery, Loot, Tunnel e Pivot** per supportare le attività su ambienti autorizzati.
+- **Catch OOB** con listener TCP, DNS, FTP e SMB eseguibili in parallelo.
+- **Wordfind, Wordgen, Passfind e BURP** per scegliere e costruire wordlist e comandi.
+- **SLWeb responsive** con documentazione, payload, loot, log, PET e terminale di navigazione.
+- **Pentest Interview Minigame** con 620 domande a scelta multipla e completamento.
 
 ---
 
@@ -70,6 +80,8 @@ slconsole list         # Elenca i tool disponibili
 slconsole search <q>   # Cerca tool per nome o descrizione
 slconsole vuln smb     # Cheatsheet vulnerabilità SMB
 slconsole vuln list    # Elenca tutti i protocolli per categoria
+slconsole recon <IP>   # Avvia la reconnaissance automatica
+slconsole reconfind 445 # Suggerisce tool e comandi per porta/servizio/task
 slconsole --version    # Versione
 ```
 
@@ -88,8 +100,15 @@ slconsole> serve on               # Avvia il server HTTP di delivery
 slconsole> serve list             # Mostra file serviti con curl
 slconsole> loot                   # Elenca file ricevuti dalla vulnbox
 slconsole> loot read <nome|num>   # Mostra contenuto di un file loot
+slconsole> recon <target>         # Recon automatica e report finale
+slconsole> reconfind <query>      # Cerca tool per porta, servizio o attività
+slconsole> tunnel on <porta>      # Port forwarding reverse con chisel
+slconsole> pivot on               # Tunneling IP con ligolo-ng
+slconsole> catch tcp on           # Listener OOB TCP in background
 slconsole> wordfind http://target # Wizard wordlist per fuzzing/bruteforce
 slconsole> passfind               # Wizard password cracking
+slconsole> wordgen                # Wizard per creare e trasformare wordlist
+slconsole> burp                   # Profiler di password basato sul target
 slconsole> pet                    # Il tuo sealion virtuale
 slconsole> back                   # Torna alla console principale
 ```
@@ -289,6 +308,100 @@ slconsole> passfind
 
 ---
 
+## Reconnaissance (`recon` e `reconfind`)
+
+`recon` esegue una pipeline di ricognizione con output live, follow-up specifici per i servizi trovati e report salvabili. Le attività basate su wordlist possono essere eseguite in una shell separata e fermate con Invio senza interrompere il resto della recon.
+
+```bash
+slconsole> recon 10.10.11.42                 # Profilo Full
+slconsole> recon 10.10.11.42 --medium        # Profilo bilanciato
+slconsole> recon 10.10.11.42 --fast          # Top port e controlli web essenziali
+slconsole> recon 10.10.11.42 --wordlists     # Directory, VHost, WordPress e parametri
+slconsole> recon 10.10.11.42 --phase web     # Solo una fase
+slconsole> recon 10.10.11.42 -o              # Salva in loot/recon/
+slconsole> recon medium -i                    # Mostra il piano senza eseguirlo
+```
+
+`reconfind` parte invece da una porta, un servizio, una tecnologia o un'attività e propone tool, cheatsheet e comandi pronti:
+
+```bash
+slconsole> reconfind 445
+slconsole> reconfind wordpress
+slconsole> reconfind active directory
+slconsole> reconfind smb brute
+slconsole> reconfind privesc
+```
+
+---
+
+## Tunnel e Pivot
+
+| Comando | Tecnologia | Utilizzo |
+|---------|------------|----------|
+| `tunnel on <porta>` | chisel | Espone localmente una singola porta TCP del target |
+| `pivot on` | ligolo-ng | Crea un'interfaccia TUN per raggiungere una rete interna |
+| `pivot route add <CIDR>` | ligolo-ng | Aggiunge una rotta alla rete raggiungibile dal target |
+
+Workflow essenziale:
+
+```bash
+slconsole> serve on
+slconsole> tunnel fetch                 # Scarica chisel in static/
+slconsole> tunnel on 8080 --local-port 9001
+
+slconsole> pivot fetch                  # Scarica proxy e agent ligolo-ng
+slconsole> pivot on
+slconsole> pivot session
+slconsole> pivot route add 172.16.0.0/24
+slconsole> pivot off
+```
+
+Usa `tunnel help` o `pivot help` per prerequisiti, stato, chiusura e comandi da copiare sul target autorizzato.
+
+---
+
+## Catch — Listener OOB (`catch`)
+
+Avvia listener in background per confermare vulnerabilità blind e osservare callback. Più listener possono funzionare contemporaneamente al server HTTP.
+
+| Tipo | Porta predefinita | Scopo |
+|------|:-----------------:|-------|
+| TCP | 4444 | Callback generiche per RCE, SSRF e SSTI |
+| DNS | 53 | Query OOB, token di correlazione ed esfiltrazione DNS |
+| FTP | 2121 | Callback ed esfiltrazione da parser XML |
+| SMB | 445 | Connessioni UNC e cattura NTLMv2 |
+
+```bash
+slconsole> catch tcp on
+slconsole> catch dns on --port 5353
+slconsole> catch dns token
+slconsole> catch status
+slconsole> catch logs dns
+slconsole> catch off
+```
+
+I listener e i relativi log sono consultabili anche dalla pagina `/catch` di SLWeb.
+
+---
+
+## Wordgen e BURP
+
+`wordgen` crea o trasforma wordlist tramite un wizard con 16 metodi, tra cui CeWL, Crunch, CUPP, regole John/Hashcat, Maskprocessor, Princeprocessor, Username Anarchy, rsmangler e combinazioni Bash/Python.
+
+```bash
+slconsole> wordgen
+```
+
+`burp` (**Better User Research Password**) genera una wordlist mirata usando informazioni autorizzate sul target: nomi, date, familiari, animali, azienda e parole chiave. I livelli Fast, Medium e Full controllano quantità e profondità delle permutazioni.
+
+```bash
+slconsole> burp
+```
+
+Il profiler BURP è disponibile anche in SLWeb all'indirizzo `/burp`.
+
+---
+
 ## SLWeb — Piattaforma Web
 
 **SLWeb** (SeaLionWeb) è la piattaforma web integrata in SeaLion Console. Si avvia automaticamente insieme alla console sulla porta `2727` e permette di consultare tutti i contenuti dal browser.
@@ -304,6 +417,12 @@ slconsole> passfind
 | **Static** | `/static/` | Gestione file statici (crea, importa, modifica, elimina) |
 | **Delivery** | `/delivery` | Pannello curl per post-exploitation |
 | **Loot** | `/loot/` | File ricevuti dalla vulnbox (visualizza, scarica, elimina) |
+| **Catch** | `/catch` | Stato e log live dei listener OOB TCP, DNS, FTP e SMB |
+| **Logs** | `/logs` | Log delle richieste gestite dal server |
+| **BURP** | `/burp` | Profiler visuale per generare wordlist mirate |
+| **Pet** | `/pet` | SeaLion virtuale, statistiche, azioni e minigiochi |
+| **Pentest Quiz** | `/pet/minigame` | Quiz fullscreen configurabile per prepararsi ai colloqui |
+| **Search** | `/search` | Ricerca unificata in notes, vulnerabilità e tool |
 
 ### Come accedere
 
@@ -315,9 +434,43 @@ SLWeb si avvia in automatico quando si lancia `slconsole`. Il link viene mostrat
 
 Dalla CLI, ogni volta che si apre un file `.md` (con `vuln`, `notes` o `tool`), viene mostrato anche il link diretto alla pagina web corrispondente.
 
+Il terminale della Home supporta suggerimenti filtrati: premendo Invio viene eseguito il primo risultato compatibile, oppure quello selezionato con le frecce. Anche il terminale PET usa lo stesso comportamento senza interferire con gli input dei giochi.
+
+SLWeb è responsive: su telefono il SeaLion rimane ben visibile, i contenuti si adattano alla larghezza disponibile e il minigame usa controlli touch-friendly.
+
+### Pentest Interview Minigame
+
+Il minigame contiene attualmente **620 domande** distribuite nelle aree Web Application Security, networking e protocolli, reconnaissance e tooling, privilege escalation e post-exploitation, reporting ed etica.
+
+- **159 domande a scelta multipla**, con motivazione per ogni risposta corretta o errata.
+- **461 completamenti**, con un input inserito direttamente al posto di `____` e verifica automatica.
+- Livelli **Base**, **Intermedio**, **Avanzato** ed **EXTREME**; le nuove sessioni partono dal livello Base.
+- Sessioni da 10 domande per impostazione predefinita, modificabili dal menu `⋮`.
+- Filtri combinabili per categoria, difficoltà e tipo di domanda.
+- ID visibile, punteggio, spiegazione, soluzione completa e navigazione precedente/successiva.
+
+Il quiz può essere aperto dalla pagina PET oppure digitando `minigame` nel terminale Home o PET. La banca è un normale file JSON estendibile:
+
+```text
+data/pentest_questions.json
+```
+
+Lo schema e le istruzioni per aggiungere domande sono documentati in [data/README.md](data/README.md).
+
 ### Rendering Markdown
 
 I contenuti `.md` vengono renderizzati in stile Notion con syntax highlighting per i blocchi di codice, tabelle formattate e navigazione breadcrumb.
+
+### Build statica
+
+La stessa interfaccia può essere generata in `site/` per GitHub Pages o hosting statico:
+
+```bash
+python3 build_site.py
+
+# Repository ospitato sotto un percorso, per esempio /SeaLion/
+SITE_BASE_PATH=/SeaLion/ python3 build_site.py
+```
 
 ---
 
@@ -339,14 +492,16 @@ slconsole> pet help             # Documentazione
 
 Le statistiche sono salvate in un singolo file: `~/.sealionconsole/pet.json`.
 
+Nel portale SLWeb il PET dispone inoltre di un terminale dedicato, animazioni ASCII e dei giochi Blackjack, Wordle, Guess e 8Ball. Il comando `minigame` apre invece il quiz di preparazione ai colloqui.
+
 ---
 
-## Tool inclusi (41)
+## Tool inclusi (42)
 
 | Categoria | Tool |
 |-----------|------|
 | **Ricognizione & OSINT** | nmap, shodan, theHarvester, recon-ng, finalrecon, whois, amass |
-| **DNS & Web Fuzzing** | dnsenum, gobuster, ffuf, feroxbuster, dirsearch, wfuzz, nikto, scrapy, nuclei |
+| **DNS, Web Fuzzing & Crawling** | dnsenum, gobuster, ffuf, feroxbuster, dirsearch, wfuzz, nikto, scrapy, httrack, nuclei |
 | **Enumerazione Servizi** | enum4linux-ng, smbmap, crackmapexec/netexec, onesixtyone, braa, ssh-audit, rdp-sec-check |
 | **Accesso Remoto & Post-Exploitation** | evil-winrm, impacket, odat, xfreerdp |
 | **Password Cracking & Wordlist** | john, hashcat, hashid, hydra, ncrack, medusa, cewl, seclists, htb-wordlists |
@@ -398,39 +553,65 @@ vuln/mio-protocollo.md
 
 Metti qualsiasi file nella cartella `static/` — apparira automaticamente in `serve list` e sara servito dal Quick-Delivery Server.
 
+### Nuova domanda del minigame
+
+Modifica [data/pentest_questions.json](data/pentest_questions.json) seguendo lo schema descritto in [data/README.md](data/README.md). Sono supportati i tipi `multiple_choice` e `completion`; per un completamento inserisci una sola sequenza `____` nel testo della domanda.
+
+Per ribilanciare una banca importata e convertire le vecchie risposte libere:
+
+```bash
+python3 scripts/rebalance_pentest_questions.py
+```
+
 ---
 
 ## Struttura del progetto
 
 ```
 SeaLion/
-├── sealion.py          # Console principale
-├── http_server.py      # Quick-Delivery Server HTTP + SLWeb
-├── setup.sh            # Installer (crea comandi slconsole e sealsay)
-├── pyproject.toml      # Metadata pacchetto
-├── ascii-art.txt       # Logo ASCII
+├── sealion.py              # Console principale e routing dei comandi
+├── http_server.py          # Quick-Delivery, listener e SLWeb dinamico
+├── build_site.py           # Generatore della versione statica di SLWeb
+├── setup.sh                # Installer (crea comandi slconsole e sealsay)
+├── pyproject.toml          # Metadata pacchetto
 ├── README.md
 │
-├── tool/               # 41 tool — ogni sottocartella contiene:
+├── lib/                     # Moduli per PET, recon, catch, BURP e wizard
+│   ├── recon.py
+│   ├── reconfind.py
+│   ├── serve.py
+│   ├── catch.py
+│   ├── burp.py
+│   └── wizards.py
+│
+├── data/
+│   ├── pentest_questions.json  # Banca del minigame
+│   └── README.md               # Schema per aggiungere domande
+│
+├── scripts/
+│   ├── import_pentest_questions.py
+│   └── rebalance_pentest_questions.py
+│
+├── tool/                   # 42 tool — ogni sottocartella contiene:
 │   ├── nmap/
 │   │   ├── help.md     #   documentazione
 │   │   └── install.py  #   script di installazione
 │   └── ...
 │
-├── vuln/               # 15 protocolli — un file .md per ognuno
+├── notes/                  # Guide e appunti in Markdown
+├── vuln/                   # 15 protocolli — un file .md per ognuno
 │   ├── ftp.md
 │   ├── smb.md
 │   └── ...
 │
-├── static/             # File serviti dal Quick-Delivery Server
-│   ├── linpeas.sh
-│   ├── pspy64
+├── static/                 # Payload e script serviti dal Quick-Delivery
+│   ├── linseal.sh
+│   └── slrecon.sh
+│
+├── loot/                   # File ricevuti dalla vulnbox via /upload
 │   └── ...
 │
-├── loot/               # File ricevuti dalla vulnbox via /upload
-│   └── ...
-│
-└── assets/             # Risorse (GIF, immagini)
+└── assets/                 # ASCII art, frame animati, tips e GIF
+    ├── sealion_say.txt
     └── spinning.gif
 ```
-
