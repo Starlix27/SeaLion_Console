@@ -129,6 +129,7 @@ slconsole> serve on                          # Avvia (seleziona interfaccia di r
 slconsole> serve on --port 9090 --lport 4444 # Porta e LPORT custom
 slconsole> serve off                         # Arresta
 slconsole> serve status                      # Stato corrente
+slconsole> serve port [porta]                # Mostra o cambia la porta del server
 slconsole> serve fetch                       # Scarica tool di post-exploitation in static/
 slconsole> serve list                        # Elenca file con comandi curl pronti
 slconsole> serve help                        # Documentazione completa
