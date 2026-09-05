@@ -495,7 +495,7 @@ def build_parser() -> argparse.ArgumentParser:
     serve_p = subparsers.add_parser("serve", add_help=False)
     serve_p.add_argument("action", nargs="?", default="status")
     serve_p.add_argument("subtopic", nargs="?", default=None)
-    serve_p.add_argument("--port", type=int, default=2727)
+    serve_p.add_argument("--port", type=int, default=None)
     serve_p.add_argument("--lhost", default=None)
     serve_p.add_argument("--lport", type=int, default=None)
     serve_p.add_argument("--force", action="store_true", default=False)

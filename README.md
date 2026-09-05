@@ -30,7 +30,7 @@
                     =###%%%+.
 ```
 
-**Personal tool vault per pentester.** Console interattiva per gestire e consultare tool di sicurezza offensiva, automatizzare la reconnaissance, creare wordlist, gestire tunnel e listener OOB, servire payload di post-exploitation e studiare con un quiz dedicato ai colloqui junior.
+**Personal tool vault per pentester.** Console interattiva per gestire e consultare tool di sicurezza offensiva, automatizzare la reconnaissance, creare wordlist, gestire tunnel e listener OOB e servire payload di post-exploitation.
 
 ### Funzionalità principali
 
@@ -40,8 +40,6 @@
 - **Catch OOB** con listener TCP, DNS, FTP e SMB eseguibili in parallelo.
 - **Wordfind, Wordgen, Passfind e BURP** per scegliere e costruire wordlist e comandi.
 - **SLWeb responsive** con documentazione, payload, loot, log, PET e terminale di navigazione.
-- **Pentest Interview Minigame** con 620 domande a scelta multipla e completamento.
-
 ---
 
 ## Download veloce
@@ -421,7 +419,6 @@ Il profiler BURP è disponibile anche in SLWeb all'indirizzo `/burp`.
 | **Logs** | `/logs` | Log delle richieste gestite dal server |
 | **BURP** | `/burp` | Profiler visuale per generare wordlist mirate |
 | **Pet** | `/pet` | SeaLion virtuale, statistiche, azioni e minigiochi |
-| **Pentest Quiz** | `/pet/minigame` | Quiz fullscreen configurabile per prepararsi ai colloqui |
 | **Search** | `/search` | Ricerca unificata in notes, vulnerabilità e tool |
 
 ### Come accedere
@@ -437,25 +434,6 @@ Dalla CLI, ogni volta che si apre un file `.md` (con `vuln`, `notes` o `tool`), 
 Il terminale della Home supporta suggerimenti filtrati: premendo Invio viene eseguito il primo risultato compatibile, oppure quello selezionato con le frecce. Anche il terminale PET usa lo stesso comportamento senza interferire con gli input dei giochi.
 
 SLWeb è responsive: su telefono il SeaLion rimane ben visibile, i contenuti si adattano alla larghezza disponibile e il minigame usa controlli touch-friendly.
-
-### Pentest Interview Minigame
-
-Il minigame contiene attualmente **620 domande** distribuite nelle aree Web Application Security, networking e protocolli, reconnaissance e tooling, privilege escalation e post-exploitation, reporting ed etica.
-
-- **159 domande a scelta multipla**, con motivazione per ogni risposta corretta o errata.
-- **461 completamenti**, con un input inserito direttamente al posto di `____` e verifica automatica.
-- Livelli **Base**, **Intermedio**, **Avanzato** ed **EXTREME**; le nuove sessioni partono dal livello Base.
-- Sessioni da 10 domande per impostazione predefinita, modificabili dal menu `⋮`.
-- Filtri combinabili per categoria, difficoltà e tipo di domanda.
-- ID visibile, punteggio, spiegazione, soluzione completa e navigazione precedente/successiva.
-
-Il quiz può essere aperto dalla pagina PET oppure digitando `minigame` nel terminale Home o PET. La banca è un normale file JSON estendibile:
-
-```text
-data/pentest_questions.json
-```
-
-Lo schema e le istruzioni per aggiungere domande sono documentati in [data/README.md](data/README.md).
 
 ### Rendering Markdown
 
@@ -492,7 +470,7 @@ slconsole> pet help             # Documentazione
 
 Le statistiche sono salvate in un singolo file: `~/.sealionconsole/pet.json`.
 
-Nel portale SLWeb il PET dispone inoltre di un terminale dedicato, animazioni ASCII e dei giochi Blackjack, Wordle, Guess e 8Ball. Il comando `minigame` apre invece il quiz di preparazione ai colloqui.
+Nel portale SLWeb il PET dispone inoltre di un terminale dedicato, animazioni ASCII e dei giochi Blackjack, Wordle, Guess e 8Ball.
 
 ---
 
@@ -553,16 +531,6 @@ vuln/mio-protocollo.md
 
 Metti qualsiasi file nella cartella `static/` — apparira automaticamente in `serve list` e sara servito dal Quick-Delivery Server.
 
-### Nuova domanda del minigame
-
-Modifica [data/pentest_questions.json](data/pentest_questions.json) seguendo lo schema descritto in [data/README.md](data/README.md). Sono supportati i tipi `multiple_choice` e `completion`; per un completamento inserisci una sola sequenza `____` nel testo della domanda.
-
-Per ribilanciare una banca importata e convertire le vecchie risposte libere:
-
-```bash
-python3 scripts/rebalance_pentest_questions.py
-```
-
 ---
 
 ## Struttura del progetto
@@ -583,10 +551,6 @@ SeaLion/
 │   ├── catch.py
 │   ├── burp.py
 │   └── wizards.py
-│
-├── data/
-│   ├── pentest_questions.json  # Banca del minigame
-│   └── README.md               # Schema per aggiungere domande
 │
 ├── scripts/
 │   ├── import_pentest_questions.py

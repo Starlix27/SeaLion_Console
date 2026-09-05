@@ -32,6 +32,7 @@ from http_server import (
     pivot_route_list as _pivot_route_list,
 )
 from http_server import set_lport as _set_lport
+from http_server import set_port as _set_port
 
 from sealion import normalize, render_markdown, _paged_print
 
@@ -85,6 +86,7 @@ Serve payload dinamici e file statici via `curl` dal target.
 | `serve fetch [--force]` | Scarica i tool di post-exploitation in `static/` |
 | `serve list` | Elenca i file in `static/` |
 | `serve lport [porta]` | Mostra o cambia la porta per le reverse shell |
+| `serve port [porta]` | Mostra o cambia la porta del server (riavvia se attivo) |
 
 ## Categorie di help
 
@@ -348,7 +350,8 @@ def cmd_serve(args: argparse.Namespace, state=None) -> int:
             _serve_help_main()
         return 0
     if action in {"on", "start"}:
-        port = getattr(args, "port", 2727)
+        from http_server import _srv_port
+        port = getattr(args, "port", None) or _srv_port
         lhost = getattr(args, "lhost", None)
         lport = getattr(args, "lport", None)
 
@@ -404,6 +407,19 @@ def cmd_serve(args: argparse.Namespace, state=None) -> int:
             from http_server import _lport
             print(f"LPORT attuale: \033[96m{_lport}\033[0m")
             print(f"  Cambia con: \033[93mserve lport <porta>\033[0m")
+        return 0
+    if action == "port":
+        if subtopic:
+            try:
+                port = int(subtopic)
+            except ValueError:
+                print(f"Porta non valida: {subtopic}")
+                return 1
+            print(_set_port(port))
+        else:
+            from http_server import _srv_port
+            print(f"Porta server attuale: \033[96m{_srv_port}\033[0m")
+            print(f"  Cambia con: \033[93mserve port <porta>\033[0m")
         return 0
     print(_serve_status())
     return 0

