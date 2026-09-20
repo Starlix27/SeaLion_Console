@@ -14,15 +14,19 @@ from http_server import get_web_url as _serve_get_url
 SLRECON_SCRIPT = PROJECT_ROOT / "static" / "slrecon.sh"
 
 
-def _wl(path: str) -> str:
-    """Risolve il path di una wordlist cercandola nel sistema se non esiste."""
+def _wl(path: str, *fallbacks: str) -> str:
+    """Risolve il path di una wordlist; se manca, prova le alternative."""
     if os.path.isfile(path):
         return path
     try:
         from lib import wordlists as _wlsearch
-        return _wlsearch.find_wordlist(path) or path
+        for cand in (path, *fallbacks):
+            hit = _wlsearch.find_wordlist(cand)
+            if hit:
+                return hit
     except Exception:
-        return path
+        pass
+    return path
 
 
 def _print_recon_info(profile: str, target: str | None, phase: str | None = None) -> None:
@@ -110,13 +114,17 @@ def _print_recon_info(profile: str, target: str | None, phase: str | None = None
         if profile != "fast":
             if profile == "medium":
                 directory_wordlist = _wl("/usr/share/seclists/Discovery/Web-Content/common.txt")
-                vhost_wordlist = _wl("/usr/share/seclists/Discovery/DNS/subdomains-top1million-5000.txt")
+                vhost_wordlist = _wl("/usr/share/seclists/Discovery/DNS/subdomains-top1million-5000.txt",
+                                     "/usr/share/seclists/Discovery/DNS/namelist.txt")
                 wp_enum = "vp,u"
                 arjun_limit = 15
                 nikto_limit = 30
             else:
-                directory_wordlist = _wl("/usr/share/seclists/Discovery/Web-Content/DirBuster-2007_directory-list-2.3-medium.txt")
-                vhost_wordlist = _wl("/usr/share/seclists/Discovery/DNS/subdomains-top1million-20000.txt")
+                directory_wordlist = _wl("/usr/share/seclists/Discovery/Web-Content/DirBuster-2007_directory-list-2.3-medium.txt",
+                                         "/usr/share/seclists/Discovery/Web-Content/common.txt")
+                vhost_wordlist = _wl("/usr/share/seclists/Discovery/DNS/subdomains-top1million-20000.txt",
+                                     "/usr/share/seclists/Discovery/DNS/subdomains-top1million-5000.txt",
+                                     "/usr/share/seclists/Discovery/DNS/namelist.txt")
                 wp_enum = "vp,vt,u"
                 arjun_limit = 30
                 nikto_limit = 60
@@ -125,8 +133,10 @@ def _print_recon_info(profile: str, target: str | None, phase: str | None = None
             ):
                 # FULL and MEDIUM launch the same standalone wordlist profile;
                 # MEDIUM remains reduced only for its main scan pipeline.
-                directory_wordlist = _wl("/usr/share/seclists/Discovery/Web-Content/DirBuster-2007_directory-list-2.3-medium.txt")
-                vhost_wordlist = _wl("/usr/share/seclists/Discovery/DNS/subdomains-top1million-5000.txt")
+                directory_wordlist = _wl("/usr/share/seclists/Discovery/Web-Content/DirBuster-2007_directory-list-2.3-medium.txt",
+                                         "/usr/share/seclists/Discovery/Web-Content/common.txt")
+                vhost_wordlist = _wl("/usr/share/seclists/Discovery/DNS/subdomains-top1million-5000.txt",
+                                     "/usr/share/seclists/Discovery/DNS/namelist.txt")
                 wp_enum = "vp,vt,u"
                 arjun_limit = 30
                 nikto_limit = 60
@@ -162,7 +172,8 @@ def _print_recon_info(profile: str, target: str | None, phase: str | None = None
     if selected_phase in {"all", "services"} and profile not in {"fast", "wordlists"}:
         kerberos_limit = 60 if profile == "medium" else 120
         snmp_wordlist = _wl("/usr/share/seclists/Discovery/SNMP/snmp-onesixtyone.txt")
-        kerb_wordlist = _wl("/usr/share/seclists/Usernames/xato-net-10-million-usernames-nt.txt")
+        kerb_wordlist = _wl("/usr/share/seclists/Usernames/xato-net-10-million-usernames-nt.txt",
+                            "/usr/share/seclists/Usernames/Names/names.txt")
         kerb_fallback = _wl("/usr/share/seclists/Usernames/Names/names.txt")
         service_commands = [
             f"curl -sS -m 10 ftp://{shown_target}/ --user anonymous:anonymous",

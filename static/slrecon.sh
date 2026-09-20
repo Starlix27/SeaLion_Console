@@ -99,6 +99,8 @@ UDP_SERVICES_FILE_TEMP=0
 OPEN_UDP_PORTS=""
 GOBUSTER_WORDLIST="${SLRECON_DIR_WORDLIST:-}"
 [ -z "$GOBUSTER_WORDLIST" ] && GOBUSTER_WORDLIST=$(_find_wordlist "/usr/share/seclists/Discovery/Web-Content/DirBuster-2007_directory-list-2.3-medium.txt")
+# degrado automatico: se la lista media manca, ripiega sulla piccola
+[ -z "$GOBUSTER_WORDLIST" ] && GOBUSTER_WORDLIST=$(_find_wordlist "/usr/share/seclists/Discovery/Web-Content/common.txt")
 [ -z "$GOBUSTER_WORDLIST" ] && GOBUSTER_WORDLIST="/usr/share/seclists/Discovery/Web-Content/DirBuster-2007_directory-list-2.3-medium.txt"
 GOBUSTER_MEDIUM_WORDLIST="${SLRECON_MEDIUM_DIR_WORDLIST:-}"
 [ -z "$GOBUSTER_MEDIUM_WORDLIST" ] && GOBUSTER_MEDIUM_WORDLIST=$(_find_wordlist "/usr/share/seclists/Discovery/Web-Content/common.txt")

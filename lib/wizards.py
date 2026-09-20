@@ -147,6 +147,45 @@ _WL = {
 
 _SECLISTS_GITHUB = "https://raw.githubusercontent.com/danielmiessler/SecLists/master"
 
+# Catene di fallback: se la wordlist scelta non esiste sul sistema, viene
+# sostituita automaticamente con la prima alternativa disponibile della
+# stessa categoria (e la sostituzione viene mostrata nel report finale).
+_WL_FALLBACKS = {
+    "dir_full":      ["dir_medium", "dir_small", "dir_fast"],
+    "dir_medium":    ["dir_small", "dir_fast", "raft_dirs"],
+    "dir_small":     ["dir_fast", "raft_dirs"],
+    "dir_2_3_small": ["dir_fast"],
+    "dir_fast":      ["raft_dirs"],
+    "raft_dirs":     ["dir_medium", "dir_fast"],
+    "raft_files":    ["dir_fast"],
+    "raft_dirs_l":   ["raft_dirs", "dir_medium", "dir_fast"],
+    "raft_files_l":  ["raft_files", "dir_fast"],
+    "sub_full":      ["sub_medium", "sub_fast", "sub_names"],
+    "sub_medium":    ["sub_fast", "sub_names"],
+    "sub_fast":      ["sub_names"],
+    "sub_bitquark":  ["sub_medium", "sub_fast"],
+    "sub_fierce":    ["sub_names"],
+    "sub_names":     ["sub_fast"],
+    "param_burp":    ["param_top"],
+    "param_top":     ["param_burp"],
+    "api_endpoints": ["api_common", "api_objects"],
+    "api_common":    ["api_endpoints", "api_objects"],
+    "api_objects":   ["api_common"],
+    "user_xato":     ["user_names", "user_cirt", "user_top"],
+    "user_names":    ["user_cirt", "user_top"],
+    "user_cirt":     ["user_top"],
+    "user_unix":     ["user_names", "user_top"],
+    "user_satanlist":["user_top"],
+    "pass_top1m":    ["pass_100k", "pass_top10k", "pass_10k_most_common", "pass_500"],
+    "pass_100k":     ["pass_top10k", "pass_10k_most_common", "pass_500"],
+    "pass_top10k":   ["pass_10k_most_common", "pass_500", "pass_common"],
+    "pass_10k_most_common": ["pass_top10k", "pass_500"],
+    "pass_rockyou":  ["pass_top10k", "pass_10k_most_common", "pass_500"],
+}
+
+# key richiesta -> path finale usato (popolata da _wl_path)
+_wl_subs: dict[str, str] = {}
+
 def _wl_link(key: str) -> str:
     p = _WL[key][0]
     if p.startswith("/"):
@@ -157,27 +196,34 @@ def _wl_link(key: str) -> str:
 
 
 def _wl_path(key: str) -> str:
+    return _wl_resolve(key, set())
+
+
+def _wl_resolve(key: str, seen: set[str]) -> str:
     p = _WL[key][0]
     if p.startswith("/"):
-        if os.path.isfile(p):
-            return p
-        found = _wlsearch.find_wordlist(p)
-        if found:
-            return found
-        local = os.path.join(os.path.dirname(os.path.abspath(__file__)), os.path.basename(p))
-        if os.path.isfile(local):
-            return local
-        return p
-    full = f"{_SECLISTS_BASE}/{p}"
-    if os.path.isfile(full):
-        return full
+        canonical = p
+    else:
+        canonical = f"{_SECLISTS_BASE}/{p}"
+    if os.path.isfile(canonical):
+        return canonical
     found = _wlsearch.find_wordlist(p)
     if found:
         return found
     local = os.path.join(os.path.dirname(os.path.abspath(__file__)), os.path.basename(p))
     if os.path.isfile(local):
         return local
-    return full
+    # fallback automatico: prima alternativa esistente della stessa categoria
+    if key not in seen:
+        seen.add(key)
+        for alt in _WL_FALLBACKS.get(key, []):
+            if alt in seen:
+                continue
+            alt_path = _wl_resolve(alt, seen)
+            if os.path.isfile(alt_path):
+                _wl_subs[key] = alt_path
+                return alt_path
+    return canonical
 
 
 def _resolve_wl(path: str) -> str:
@@ -207,7 +253,15 @@ def _wl_default_paths() -> list[str]:
 
 
 def _print_missing_wordlists(keys: list[str]) -> None:
-    """Avvisa se una wordlist consigliata non è stata trovata nel sistema."""
+    """Mostra sostituzioni automatiche e wordlist davvero assenti."""
+    subs = [(key, _wl_subs[key]) for key in keys if key in _wl_subs]
+    if subs:
+        print("  \033[93m[↺] Wordlist sostituite automaticamente (originale assente):\033[0m")
+        for key, alt_path in subs:
+            orig = _WL[key][0].rsplit("/", 1)[-1]
+            print(f"      \033[93m{orig}\033[0m  →  {alt_path.rsplit('/', 1)[-1]}")
+            print(f"        \033[90m{alt_path}\033[0m")
+        print()
     missing = []
     for key in keys:
         p = _wl_path(key)

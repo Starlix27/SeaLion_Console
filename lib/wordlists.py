@@ -294,6 +294,10 @@ def find_wordlist(path: str) -> str | None:
     if not found:
         found = _search_find(name)
 
+    # 6. variante compressa .gz (es. rockyou di Kali): decomprimi in cache
+    if not found:
+        found = _extract_gz_variant(name)
+
     _cache_put(path, found)
     return found
 
@@ -315,13 +319,51 @@ def _find_compressed_variant(name: str) -> str | None:
     return None
 
 
+def _extract_gz_variant(name: str) -> str | None:
+    """Decomprime <name>.gz nella cache utente (senza sudo) e ritorna il path.
+
+    Su Kali rockyou esiste solo come /usr/share/wordlists/rockyou.txt.gz:
+    invece di fallire, la decomprimiamo una tantum in
+    ~/.cache/sealion/wordlists/ e riusiamo quel file.
+    """
+    gz = _find_compressed_variant(name)
+    if not gz:
+        return None
+    out_dir = _cache_file().parent / "wordlists"
+    out = out_dir / name
+    try:
+        if out.is_file() and out.stat().st_size > 0:
+            return str(out)
+        import gzip
+        import shutil
+        out_dir.mkdir(parents=True, exist_ok=True)
+        with gzip.open(gz, "rb") as src, open(out, "wb") as dst:
+            shutil.copyfileobj(src, dst, 1024 * 1024)
+        return str(out)
+    except Exception:
+        try:
+            out.unlink(missing_ok=True)
+        except Exception:
+            pass
+        return None
+
+
+def find_any(paths) -> str | None:
+    """Ritorna la prima wordlist esistente tra una lista di candidati."""
+    for p in paths:
+        hit = find_wordlist(p)
+        if hit:
+            return hit
+    return None
+
+
 def fix_hint(path: str) -> str:
     """Suggerimento pratico quando una wordlist non viene trovata."""
     name = os.path.basename(path)
     gz = _find_compressed_variant(name)
     if gz:
-        return (f"trovata solo compressa: {gz}\n"
-                f"        ↳ decomprimi con: sudo gunzip -k {gz}")
+        return (f"esiste solo compressa: {gz} (auto-estrazione fallita)\n"
+                f"        ↳ decomprimi manualmente: gunzip -c {gz} > ~/{name}")
     if _seclists_rel(path):
         return ("installa SecLists con: install seclists   (dalla console slconsole)\n"
                 "        ↳ oppure: sudo apt install seclists")
