@@ -14,6 +14,17 @@ from http_server import get_web_url as _serve_get_url
 SLRECON_SCRIPT = PROJECT_ROOT / "static" / "slrecon.sh"
 
 
+def _wl(path: str) -> str:
+    """Risolve il path di una wordlist cercandola nel sistema se non esiste."""
+    if os.path.isfile(path):
+        return path
+    try:
+        from lib import wordlists as _wlsearch
+        return _wlsearch.find_wordlist(path) or path
+    except Exception:
+        return path
+
+
 def _print_recon_info(profile: str, target: str | None, phase: str | None = None) -> None:
     """Print the resolved recon pipeline without executing it."""
     shown_target = shlex.quote(target) if target else "<target>"
@@ -98,14 +109,14 @@ def _print_recon_info(profile: str, target: str | None, phase: str | None = None
 
         if profile != "fast":
             if profile == "medium":
-                directory_wordlist = "/usr/share/seclists/Discovery/Web-Content/common.txt"
-                vhost_wordlist = "/usr/share/seclists/Discovery/DNS/subdomains-top1million-5000.txt"
+                directory_wordlist = _wl("/usr/share/seclists/Discovery/Web-Content/common.txt")
+                vhost_wordlist = _wl("/usr/share/seclists/Discovery/DNS/subdomains-top1million-5000.txt")
                 wp_enum = "vp,u"
                 arjun_limit = 15
                 nikto_limit = 30
             else:
-                directory_wordlist = "/usr/share/seclists/Discovery/Web-Content/DirBuster-2007_directory-list-2.3-medium.txt"
-                vhost_wordlist = "/usr/share/seclists/Discovery/DNS/subdomains-top1million-20000.txt"
+                directory_wordlist = _wl("/usr/share/seclists/Discovery/Web-Content/DirBuster-2007_directory-list-2.3-medium.txt")
+                vhost_wordlist = _wl("/usr/share/seclists/Discovery/DNS/subdomains-top1million-20000.txt")
                 wp_enum = "vp,vt,u"
                 arjun_limit = 30
                 nikto_limit = 60
@@ -114,8 +125,8 @@ def _print_recon_info(profile: str, target: str | None, phase: str | None = None
             ):
                 # FULL and MEDIUM launch the same standalone wordlist profile;
                 # MEDIUM remains reduced only for its main scan pipeline.
-                directory_wordlist = "/usr/share/seclists/Discovery/Web-Content/DirBuster-2007_directory-list-2.3-medium.txt"
-                vhost_wordlist = "/usr/share/seclists/Discovery/DNS/subdomains-top1million-5000.txt"
+                directory_wordlist = _wl("/usr/share/seclists/Discovery/Web-Content/DirBuster-2007_directory-list-2.3-medium.txt")
+                vhost_wordlist = _wl("/usr/share/seclists/Discovery/DNS/subdomains-top1million-5000.txt")
                 wp_enum = "vp,vt,u"
                 arjun_limit = 30
                 nikto_limit = 60
@@ -150,6 +161,9 @@ def _print_recon_info(profile: str, target: str | None, phase: str | None = None
 
     if selected_phase in {"all", "services"} and profile not in {"fast", "wordlists"}:
         kerberos_limit = 60 if profile == "medium" else 120
+        snmp_wordlist = _wl("/usr/share/seclists/Discovery/SNMP/snmp-onesixtyone.txt")
+        kerb_wordlist = _wl("/usr/share/seclists/Usernames/xato-net-10-million-usernames-nt.txt")
+        kerb_fallback = _wl("/usr/share/seclists/Usernames/Names/names.txt")
         service_commands = [
             f"curl -sS -m 10 ftp://{shown_target}/ --user anonymous:anonymous",
             f"timeout -k 5s 60s ssh-audit {shown_target}",
@@ -172,15 +186,15 @@ def _print_recon_info(profile: str, target: str | None, phase: str | None = None
             f"printf 'INFO server\\r\\nQUIT\\r\\n' | nc -w 5 {shown_target} 6379",
             f"printf 'KEYS *\\r\\nQUIT\\r\\n' | nc -w 5 {shown_target} 6379  # se Redis è no-auth",
             f"timeout -k 2s 20s mongosh --host {shown_target} --eval \"db.adminCommand('listDatabases')\" --quiet",
-            f"timeout -k 5s 60s onesixtyone -c /usr/share/seclists/Discovery/SNMP/snmp-onesixtyone.txt {shown_target}",
+            f"timeout -k 5s 60s onesixtyone -c {snmp_wordlist} {shown_target}",
             f"printf 'public\\nprivate\\ncommunity\\n' | timeout -k 5s 20s onesixtyone -c /dev/stdin {shown_target}  # fallback",
             f"timeout -k 5s 30s snmpwalk -v2c -c <community> {shown_target} 1.3.6.1.2.1.1              # system",
             f"timeout -k 5s 30s snmpwalk -v2c -c <community> {shown_target} 1.3.6.1.2.1.2.2.1.2        # interfacce",
             f"timeout -k 5s 30s snmpwalk -v2c -c <community> {shown_target} 1.3.6.1.2.1.25.4.2.1       # processi",
             f"timeout -k 5s 30s snmpwalk -v2c -c <community> {shown_target} 1.3.6.1.2.1.25.6.3.1.2     # software",
             f"timeout -k 5s 30s snmpwalk -v2c -c <community> {shown_target} 1.3.6.1.4.1.77.1.2.25      # utenti",
-            f"timeout -k 5s {kerberos_limit}s kerbrute userenum -d {shown_target} --dc {shown_target} /usr/share/seclists/Usernames/xato-net-10-million-usernames-nt.txt",
-            "  ↳ fallback wordlist: /usr/share/seclists/Usernames/Names/names.txt",
+            f"timeout -k 5s {kerberos_limit}s kerbrute userenum -d {shown_target} --dc {shown_target} {kerb_wordlist}",
+            f"  ↳ fallback wordlist: {kerb_fallback}",
         ]
         groups.append(("SERVICE FOLLOW-UP (read-only)", service_commands))
 

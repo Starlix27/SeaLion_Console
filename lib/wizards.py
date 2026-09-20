@@ -6,6 +6,8 @@ import shlex
 import subprocess
 import sys
 
+from lib import wordlists as _wlsearch
+
 
 _SECLISTS_BASE = "/usr/share/seclists"
 
@@ -159,6 +161,9 @@ def _wl_path(key: str) -> str:
     if p.startswith("/"):
         if os.path.isfile(p):
             return p
+        found = _wlsearch.find_wordlist(p)
+        if found:
+            return found
         local = os.path.join(os.path.dirname(os.path.abspath(__file__)), os.path.basename(p))
         if os.path.isfile(local):
             return local
@@ -166,10 +171,58 @@ def _wl_path(key: str) -> str:
     full = f"{_SECLISTS_BASE}/{p}"
     if os.path.isfile(full):
         return full
+    found = _wlsearch.find_wordlist(p)
+    if found:
+        return found
     local = os.path.join(os.path.dirname(os.path.abspath(__file__)), os.path.basename(p))
     if os.path.isfile(local):
         return local
     return full
+
+
+def _resolve_wl(path: str) -> str:
+    """Risolve un path wordlist hardcoded cercandolo nel sistema se non esiste."""
+    if os.path.isfile(path):
+        return path
+    return _wlsearch.find_wordlist(path) or path
+
+
+def _wl_default_paths() -> list[str]:
+    """Path (canonici e risolti) usati come default dai builder passfind.
+
+    Serve ai cicli di replace: i comandi generati possono contenere il path
+    canonico oppure quello risolto dalla ricerca nel filesystem.
+    """
+    canon = [
+        "/usr/share/wordlists/rockyou.txt",
+        "/usr/share/seclists/Passwords/Common-Credentials/xato-net-10-million-passwords-10000.txt",
+    ]
+    seen: set[str] = set()
+    out: list[str] = []
+    for p in canon + [_resolve_wl(c) for c in canon]:
+        if p not in seen:
+            seen.add(p)
+            out.append(p)
+    return out
+
+
+def _print_missing_wordlists(keys: list[str]) -> None:
+    """Avvisa se una wordlist consigliata non è stata trovata nel sistema."""
+    missing = []
+    for key in keys:
+        p = _wl_path(key)
+        if not os.path.isfile(p):
+            missing.append(p)
+    if not missing:
+        return
+    print("  \033[93m[!] Wordlist non trovate sul sistema (i comandi sotto fallirebbero):\033[0m")
+    for p in missing:
+        print(f"      \033[91m✗ {p}\033[0m")
+        for line in _wlsearch.fix_hint(p).splitlines():
+            line = line.strip()
+            prefix = "" if line.startswith("↳") else "↳ "
+            print(f"        \033[90m{prefix}{line}\033[0m")
+    print()
 
 
 def _wl_label(key: str) -> str:
@@ -447,6 +500,7 @@ def _print_wordfind_result(result: dict) -> None:
             if link:
                 print(f"        \033[90m↳ {link}\033[0m")
         print()
+        _print_missing_wordlists(result["wordlists"])
 
     if result.get("extensions"):
         print(f"  \033[1mEstensioni:\033[0m {result['extensions']}")
@@ -914,8 +968,7 @@ def cmd_wordfind(args: argparse.Namespace, state=None) -> int:
             result = _build_service_result(svc_proto, svc_port, target["host"],
                                            username, "custom", user_wl_key=user_wl_key)
             for i, (name, cmd) in enumerate(result["commands"]):
-                for old in ["/usr/share/wordlists/rockyou.txt",
-                            "/usr/share/seclists/Passwords/Common-Credentials/xato-net-10-million-passwords-10000.txt"]:
+                for old in _wl_default_paths():
                     cmd = cmd.replace(old, wl_path)
                 result["commands"][i] = (name, cmd)
             result["wordlists"] = [pw_key]
@@ -1085,8 +1138,8 @@ def _pf_hash_detect_hint(hash_str: str) -> list[str]:
 
 def _build_hash_result(john_fmt: str, hc_mode: str, attack: str,
                        intensity: str, mask: str) -> dict:
-    wl_fast = "/usr/share/seclists/Passwords/Common-Credentials/xato-net-10-million-passwords-10000.txt"
-    wl_med = "/usr/share/wordlists/rockyou.txt"
+    wl_fast = _resolve_wl("/usr/share/seclists/Passwords/Common-Credentials/xato-net-10-million-passwords-10000.txt")
+    wl_med = _resolve_wl("/usr/share/wordlists/rockyou.txt")
     rules = "/usr/share/hashcat/rules/best64.rule"
 
     wordlists = []
@@ -1144,9 +1197,9 @@ def _build_hash_result(john_fmt: str, hc_mode: str, attack: str,
 
 def _build_file_result(file_type: str, tool_2john: str, hc_mode: str,
                        intensity: str) -> dict:
-    wl = "/usr/share/wordlists/rockyou.txt"
+    wl = _resolve_wl("/usr/share/wordlists/rockyou.txt")
     if intensity == "fast":
-        wl = "/usr/share/seclists/Passwords/Common-Credentials/xato-net-10-million-passwords-10000.txt"
+        wl = _resolve_wl("/usr/share/seclists/Passwords/Common-Credentials/xato-net-10-million-passwords-10000.txt")
 
     rules = "/usr/share/hashcat/rules/best64.rule"
     ext_map = {
@@ -1184,9 +1237,9 @@ def _build_file_result(file_type: str, tool_2john: str, hc_mode: str,
 
 def _build_archive_result(archive_type: str, tool_2john: str, hc_mode: str,
                           intensity: str) -> dict:
-    wl = "/usr/share/wordlists/rockyou.txt"
+    wl = _resolve_wl("/usr/share/wordlists/rockyou.txt")
     if intensity == "fast":
-        wl = "/usr/share/seclists/Passwords/Common-Credentials/xato-net-10-million-passwords-10000.txt"
+        wl = _resolve_wl("/usr/share/seclists/Passwords/Common-Credentials/xato-net-10-million-passwords-10000.txt")
     rules = "/usr/share/hashcat/rules/best64.rule"
 
     commands = []
@@ -1221,9 +1274,9 @@ def _build_archive_result(archive_type: str, tool_2john: str, hc_mode: str,
 
 def _build_service_result(proto: str, port: str, host: str, username: str,
                           intensity: str, user_wl_key: str | None = None) -> dict:
-    wl = "/usr/share/wordlists/rockyou.txt"
+    wl = _resolve_wl("/usr/share/wordlists/rockyou.txt")
     if intensity == "fast":
-        wl = "/usr/share/seclists/Passwords/Common-Credentials/xato-net-10-million-passwords-10000.txt"
+        wl = _resolve_wl("/usr/share/seclists/Passwords/Common-Credentials/xato-net-10-million-passwords-10000.txt")
 
     user_flag = f"-L {_wl_path(user_wl_key)}" if user_wl_key else f"-l {username}"
     user_flag_med = f"-U {_wl_path(user_wl_key)}" if user_wl_key else f"-u {username}"
@@ -1314,6 +1367,8 @@ def _print_passfind_result(result: dict) -> None:
             if link:
                 print(f"        \033[90m↳ {link}\033[0m")
         print()
+
+    _print_missing_wordlists(result.get("wordlists", []) + result.get("user_wordlists", []))
 
     if result.get("commands"):
         print("  \033[1mComandi pronti (copia-incolla):\033[0m\n")
@@ -1552,11 +1607,7 @@ def cmd_passfind(args: argparse.Namespace, state=None) -> int:
                                        user_wl_key=user_wl_key)
         # Override password wordlist in generated commands
         for i, (name, cmd) in enumerate(result["commands"]):
-            old_wls = [
-                "/usr/share/wordlists/rockyou.txt",
-                "/usr/share/seclists/Passwords/Common-Credentials/xato-net-10-million-passwords-10000.txt",
-            ]
-            for old in old_wls:
+            for old in _wl_default_paths():
                 cmd = cmd.replace(old, wl_path)
             result["commands"][i] = (name, cmd)
 
@@ -1669,7 +1720,7 @@ def _wg_build(method: str) -> dict:
         notes.append("Più info inserisci, migliore è la wordlist generata")
 
     elif method == "john_rules":
-        wl = _wf_ask_text("[Wordlist] Wordlist base da mutare", default="/usr/share/wordlists/rockyou.txt")
+        wl = _wf_ask_text("[Wordlist] Wordlist base da mutare", default=_resolve_wl("/usr/share/wordlists/rockyou.txt"))
         outfile = _wf_ask_text("[Output] File di output", default="mutated.txt")
         commands.append(("John + best64", f"john --wordlist={wl} --rules=best64 --stdout > {outfile}"))
         commands.append(("John + jumbo", f"john --wordlist={wl} --rules=jumbo --stdout > {outfile}"))
@@ -1679,7 +1730,7 @@ def _wg_build(method: str) -> dict:
         notes.append("jumbo = migliaia di regole (lento, esaustivo)")
 
     elif method == "hc_rules":
-        wl = _wf_ask_text("[Wordlist] Wordlist base da mutare", default="/usr/share/wordlists/rockyou.txt")
+        wl = _wf_ask_text("[Wordlist] Wordlist base da mutare", default=_resolve_wl("/usr/share/wordlists/rockyou.txt"))
         outfile = _wf_ask_text("[Output] File di output", default="mutated.txt")
         rules_dir = "/usr/share/hashcat/rules"
         commands.append(("best64.rule", f"hashcat --stdout -r {rules_dir}/best64.rule {wl} > {outfile}"))

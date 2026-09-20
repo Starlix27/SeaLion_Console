@@ -13,6 +13,73 @@
 #   -h           Help
 
 # ── Config ───────────────────────────────────────────────────
+
+# Cerca una wordlist nel filesystem: variabili d'ambiente, percorsi tipici
+# dei pacchetti (Kali/Parrot), clone git in /opt o home, locate e find con
+# profondità limitata. Stampa il path trovato (stringa vuota se assente).
+_find_wordlist() {
+  _fwl_target="$1"
+  [ -f "$_fwl_target" ] && { printf '%s\n' "$_fwl_target"; return 0; }
+
+  # porzione relativa SecLists (es. Discovery/Web-Content/common.txt)
+  _fwl_rel=""
+  for _m in Discovery Passwords Usernames Fuzzing Web-Shells Miscellaneous; do
+    case "$_fwl_target" in
+      *"$_m/"*) _fwl_rel="$_m/${_fwl_target#*"$_m/"}"; break ;;
+    esac
+  done
+  _fwl_name="${_fwl_target##*/}"
+
+  # 1. radici candidate: join con la porzione relativa, poi per basename
+  for _base in ${SECLISTS_PATH:-} ${SEALION_WORDLISTS:-} \
+      /usr/share/seclists /usr/share/wordlists/seclists \
+      /usr/share/wordlists/SecLists /usr/share/SecLists \
+      /usr/local/share/seclists /usr/local/share/SecLists \
+      /opt/SecLists /opt/seclists "$HOME/SecLists" "$HOME/seclists"; do
+    [ -n "$_base" ] && [ -d "$_base" ] || continue
+    if [ -n "$_fwl_rel" ] && [ -f "$_base/$_fwl_rel" ]; then
+      printf '%s\n' "$_base/$_fwl_rel"; return 0
+    fi
+    if [ -f "$_base/$_fwl_name" ]; then
+      printf '%s\n' "$_base/$_fwl_name"; return 0
+    fi
+  done
+
+  # 2. directory wordlist generiche (rockyou, dirb, john, ...)
+  for _dir in /usr/share/wordlists /usr/share/dirb/wordlists \
+              /usr/share/dirbuster /usr/share/john /usr/local/share/wordlists; do
+    if [ -f "$_dir/$_fwl_name" ]; then
+      printf '%s\n' "$_dir/$_fwl_name"; return 0
+    fi
+  done
+
+  # 3. ricerca ricorsiva nelle radici esistenti (layout non standard)
+  for _base in ${SECLISTS_PATH:-} /usr/share/seclists /usr/share/wordlists \
+               /opt/SecLists "$HOME/SecLists" "$HOME/seclists"; do
+    [ -n "$_base" ] && [ -d "$_base" ] || continue
+    _fwl_found=$(find "$_base" -type f -name "$_fwl_name" 2>/dev/null | head -n 1)
+    if [ -n "$_fwl_found" ]; then
+      printf '%s\n' "$_fwl_found"; return 0
+    fi
+  done
+
+  # 4. locate (database mlocate/plocate), verificando il basename esatto
+  if command -v locate >/dev/null 2>&1; then
+    _fwl_found=$(locate -b "\\$_fwl_name" 2>/dev/null | while IFS= read -r _p; do
+      [ "${_p##*/}" = "$_fwl_name" ] && [ -f "$_p" ] && { printf '%s\n' "$_p"; break; }
+    done | head -n 1)
+    if [ -n "$_fwl_found" ]; then
+      printf '%s\n' "$_fwl_found"; return 0
+    fi
+  fi
+
+  # 5. find di fallback sulle radici comuni (profondità limitata)
+  _fwl_found=$(find /usr/share /usr/local/share /opt -maxdepth 8 -type f \
+    -name "$_fwl_name" 2>/dev/null | head -n 1)
+  [ -n "$_fwl_found" ] && printf '%s\n' "$_fwl_found"
+  return 0
+}
+
 TARGET=""
 OUTDIR=""
 SAVE=0
@@ -30,8 +97,12 @@ SERVICES_FILE_TEMP=0
 UDP_SERVICES_FILE=""
 UDP_SERVICES_FILE_TEMP=0
 OPEN_UDP_PORTS=""
-GOBUSTER_WORDLIST="${SLRECON_DIR_WORDLIST:-/usr/share/seclists/Discovery/Web-Content/DirBuster-2007_directory-list-2.3-medium.txt}"
-GOBUSTER_MEDIUM_WORDLIST="${SLRECON_MEDIUM_DIR_WORDLIST:-/usr/share/seclists/Discovery/Web-Content/common.txt}"
+GOBUSTER_WORDLIST="${SLRECON_DIR_WORDLIST:-}"
+[ -z "$GOBUSTER_WORDLIST" ] && GOBUSTER_WORDLIST=$(_find_wordlist "/usr/share/seclists/Discovery/Web-Content/DirBuster-2007_directory-list-2.3-medium.txt")
+[ -z "$GOBUSTER_WORDLIST" ] && GOBUSTER_WORDLIST="/usr/share/seclists/Discovery/Web-Content/DirBuster-2007_directory-list-2.3-medium.txt"
+GOBUSTER_MEDIUM_WORDLIST="${SLRECON_MEDIUM_DIR_WORDLIST:-}"
+[ -z "$GOBUSTER_MEDIUM_WORDLIST" ] && GOBUSTER_MEDIUM_WORDLIST=$(_find_wordlist "/usr/share/seclists/Discovery/Web-Content/common.txt")
+[ -z "$GOBUSTER_MEDIUM_WORDLIST" ] && GOBUSTER_MEDIUM_WORDLIST="/usr/share/seclists/Discovery/Web-Content/common.txt"
 SUDO_READY=0
 PRIV_CMD=""
 SUDO_KEEPALIVE_PID=""
@@ -987,23 +1058,22 @@ phase_web() {
     section "VHOST SCAN — :$_hp"
 
     _vhost_wl=""
-    _vhost_candidates="/usr/share/seclists/Discovery/DNS/subdomains-top1million-20000.txt
-/usr/share/seclists/Discovery/DNS/subdomains-top1million-5000.txt
-/usr/share/seclists/Discovery/DNS/namelist.txt
-/usr/share/wordlists/amass/subdomains-top1mil-5000.txt"
     if [ "$MEDIUM" -eq 1 ]; then
-      _vhost_candidates="/usr/share/seclists/Discovery/DNS/subdomains-top1million-5000.txt
-/usr/share/wordlists/amass/subdomains-top1mil-5000.txt"
+      _vhost_wl=$(_find_wordlist "/usr/share/seclists/Discovery/DNS/subdomains-top1million-5000.txt")
+    else
+      _vhost_wl=$(_find_wordlist "/usr/share/seclists/Discovery/DNS/subdomains-top1million-20000.txt")
     fi
-    for _vwl in $_vhost_candidates; do
-      if [ -f "$_vwl" ]; then
-        _vhost_wl="$_vwl"
-        break
-      fi
-    done
+    if [ -z "$_vhost_wl" ]; then
+      _vhost_wl=$(_find_wordlist "/usr/share/seclists/Discovery/DNS/namelist.txt")
+    fi
+    if [ -z "$_vhost_wl" ]; then
+      for _vwl in /usr/share/wordlists/amass/subdomains-top1mil-5000.txt; do
+        [ -f "$_vwl" ] && _vhost_wl="$_vwl" && break
+      done
+    fi
 
     if [ -z "$_vhost_wl" ]; then
-      warn "No subdomain wordlist — skipping VHost scan"
+      warn "No subdomain wordlist — skipping VHost scan (installa con: sudo apt install seclists)"
       _rec "[WARN] VHost scan skipped on :$_hp (subdomain wordlist missing)"
     else
       _run_ffuf_vhost "$_base" "$_hp" "$_vhost_wl"
@@ -1161,6 +1231,7 @@ phase_wordlists() {
     # as a compatibility fallback when Feroxbuster is not installed.
     if [ ! -f "$GOBUSTER_WORDLIST" ]; then
       warn "Directory wordlist not found: $GOBUSTER_WORDLIST"
+      warn "Installa SecLists con: sudo apt install seclists   (oppure: install seclists da slconsole)"
       _rec "[WARN] Directory scan skipped on :$_hp (wordlist missing)"
     elif _has feroxbuster; then
       info "Queueing Feroxbuster recursive scan on :$_hp (no time limit)"
@@ -1197,15 +1268,19 @@ phase_wordlists() {
     if [ -n "${SLRECON_VHOST_WORDLIST:-}" ] && [ -f "$SLRECON_VHOST_WORDLIST" ]; then
       _vhost_wl="$SLRECON_VHOST_WORDLIST"
     else
-      for _vwl in /usr/share/seclists/Discovery/DNS/subdomains-top1million-5000.txt \
-                  /usr/share/seclists/Discovery/DNS/namelist.txt \
-                  /usr/share/wordlists/amass/subdomains-top1mil-5000.txt; do
-        [ -f "$_vwl" ] && _vhost_wl="$_vwl" && break
-      done
+      _vhost_wl=$(_find_wordlist "/usr/share/seclists/Discovery/DNS/subdomains-top1million-5000.txt")
+      if [ -z "$_vhost_wl" ]; then
+        _vhost_wl=$(_find_wordlist "/usr/share/seclists/Discovery/DNS/namelist.txt")
+      fi
+      if [ -z "$_vhost_wl" ]; then
+        for _vwl in /usr/share/wordlists/amass/subdomains-top1mil-5000.txt; do
+          [ -f "$_vwl" ] && _vhost_wl="$_vwl" && break
+        done
+      fi
     fi
 
     if [ -z "$_vhost_wl" ]; then
-      warn "No subdomain wordlist — skipping VHost scan"
+      warn "No subdomain wordlist — skipping VHost scan (installa con: sudo apt install seclists)"
       _rec "[WARN] VHost scan skipped on :$_hp (subdomain wordlist missing)"
     elif _has ffuf; then
       info "Queueing ffuf VHost scan on :$_hp with auto-calibration (no time limit)"
@@ -1586,11 +1661,12 @@ phase_services() {
       hi "SMTP VRFY enabled — user enumeration possible"
       [ -n "$OUTDIR" ] && echo "$_smtp" > "$OUTDIR/smtp_vrfy.txt"
       _rec "[ENUM] SMTP VRFY enabled on :25 → enumerate users:"
-      _rec "  → smtp-user-enum -M VRFY -U /usr/share/seclists/Usernames/Names/names.txt -t $TARGET"
+      _smtp_wl=$(_find_wordlist "/usr/share/seclists/Usernames/Names/names.txt")
+      [ -z "$_smtp_wl" ] && _smtp_wl="/usr/share/seclists/Usernames/Names/names.txt"
+      _rec "  → smtp-user-enum -M VRFY -U $_smtp_wl -t $TARGET"
       _rec "  → smtp-user-enum -M RCPT -U users.txt -t $TARGET"
       _rec "  → nmap --script smtp-enum-users -p 25 $TARGET"
-      _smtp_wl="/usr/share/seclists/Usernames/Names/names.txt"
-      if _has smtp-user-enum && [ -f "$_smtp_wl" ]; then
+      if _has smtp-user-enum && [ -n "$_smtp_wl" ] && [ -f "$_smtp_wl" ]; then
         info "Following up SMTP VRFY with user enumeration (max 60s)..."
         _smtp_enum=$(timeout -k 5s 60s smtp-user-enum -M VRFY -U "$_smtp_wl" -t "$TARGET" 2>&1)
         _smtp_enum_status=$?
@@ -2040,7 +2116,7 @@ phase_services() {
   if _has onesixtyone; then
     section "SNMP (161)"
     info "SNMP community string bruteforce..."
-    _snmp_wl="/usr/share/seclists/Discovery/SNMP/snmp-onesixtyone.txt"
+    _snmp_wl=$(_find_wordlist "/usr/share/seclists/Discovery/SNMP/snmp-onesixtyone.txt")
     if [ -f "$_snmp_wl" ]; then
       _snmp_out=$(timeout -k 5s 60s onesixtyone -c "$_snmp_wl" "$TARGET" 2>&1)
       _snmp_probe_status=$?
@@ -2126,11 +2202,10 @@ phase_services() {
     section "Kerberos (88)"
     if _has kerbrute; then
       info "Kerberos user enumeration..."
-      _krb_wl=""
-      for _kwl in /usr/share/seclists/Usernames/xato-net-10-million-usernames-nt.txt \
-                  /usr/share/seclists/Usernames/Names/names.txt; do
-        [ -f "$_kwl" ] && _krb_wl="$_kwl" && break
-      done
+      _krb_wl=$(_find_wordlist "/usr/share/seclists/Usernames/xato-net-10-million-usernames-nt.txt")
+      if [ -z "$_krb_wl" ]; then
+        _krb_wl=$(_find_wordlist "/usr/share/seclists/Usernames/Names/names.txt")
+      fi
       if [ -n "$_krb_wl" ]; then
         _krb_limit=120
         [ "$MEDIUM" -eq 1 ] && _krb_limit=60
