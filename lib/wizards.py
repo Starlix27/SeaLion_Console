@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import os
 import shlex
 import subprocess
 import sys
+from pathlib import Path
 
 from lib import wordlists as _wlsearch
 
@@ -320,6 +322,105 @@ def _wf_ask_text(prompt: str, default: str = "") -> str:
     return raw or default
 
 
+def _install_seclists() -> bool:
+    """Lancia l'installer del tool seclists del progetto (apt + fallback git)."""
+    installer = Path(__file__).resolve().parent.parent / "tool" / "seclists" / "install.py"
+    if not installer.is_file():
+        print(f"  \033[91mInstaller non trovato: {installer}\033[0m")
+        return False
+    spec = importlib.util.spec_from_file_location("sealion_seclists_install", installer)
+    mod = importlib.util.module_from_spec(spec)
+    try:
+        spec.loader.exec_module(mod)
+        dest = Path.home() / ".sealionconsole" / "tools" / "seclists"
+        return mod.install(dest) == 0
+    except Exception as exc:
+        print(f"  \033[91mErrore durante l'installazione: {exc}\033[0m")
+        return False
+
+
+def _ensure_seclists() -> bool:
+    """Controlla che SecLists esista prima di partire; se manca propone il download.
+
+    Ritorna True se SecLists è presente (o appena installato), False se
+    l'utente rifiuta o l'installazione fallisce: in quel caso il wizard
+    continua comunque e il report finale segnala le wordlist mancanti.
+    """
+    base = _wlsearch.seclists_base()
+    if base:
+        return True
+
+    if os.path.isdir(_SECLISTS_BASE):
+        print(f"\n  \033[93m[!] La directory {_SECLISTS_BASE} esiste ma è vuota:\033[0m")
+        print("      mancano le wordlist SecLists.")
+    else:
+        print(f"\n  \033[93m[!] SecLists non trovato (directory {_SECLISTS_BASE} assente).\033[0m")
+    print("      wordfind si basa su SecLists: senza di essa i comandi generati fallirebbero.")
+
+    try:
+        raw = input("  Vuoi scaricarlo ora in /usr/share/seclists? [S/n]: ").strip().lower()
+    except (EOFError, KeyboardInterrupt):
+        print()
+        return False
+    if raw in {"n", "no"}:
+        print("  \033[90mContinuo senza SecLists — le wordlist mancanti verranno segnalate alla fine.\033[0m")
+        return False
+
+    print()
+    if _install_seclists():
+        _wlsearch.clear_cache()
+        base = _wlsearch.seclists_base()
+        if base:
+            print(f"\n  \033[92m✓ SecLists pronto in {base}\033[0m")
+            return True
+    print("  \033[91mInstallazione non riuscita — continuo comunque.\033[0m")
+    return False
+
+
+_USER_WL_MENU = [
+    ("user_top", "top-usernames-shortlist.txt  (17 — i più comuni)"),
+    ("user_cirt", "cirt-default-usernames.txt  (827 — credenziali default)"),
+    ("user_names", "names.txt  (10k — nomi comuni)"),
+    ("user_unix", "unix_users.txt  (167 — utenti UNIX tipici)"),
+    ("user_xato", "xato-net-10-million-usernames.txt  (8.3M — esaustiva)"),
+]
+
+
+def _wf_ask_username() -> tuple[str, str | None] | None:
+    """Step "Qual è lo username?" per lo scope password.
+
+    Ritorna (username, user_wl_key):
+      ("admin", None)  → scelta 1 / invio (default)
+      (nome, None)     → scelta 3, oppure testo libero digitato al prompt
+      ("", chiave)     → scelta 2: wordlist username
+    None se l'utente annulla (Ctrl+C / EOF).
+    """
+    print("\n  \033[1mQual è lo username?\033[0m\n")
+    print("    [1] Usa admin (default)")
+    print("    [2] Usa una wordlist")
+    print("    [3] Scrivilo tu")
+    print()
+    while True:
+        try:
+            raw = input("  Scelta [1]: ").strip()
+        except (EOFError, KeyboardInterrupt):
+            print()
+            return None
+        if not raw or raw == "1":
+            return ("admin", None)
+        if raw == "2":
+            uwl = _wf_ask("Quale wordlist username?", _USER_WL_MENU)
+            if uwl == -1:
+                return None
+            return ("", _USER_WL_MENU[uwl - 1][0])
+        if raw == "3":
+            print()
+            name = _wf_ask_text("Username (vuoto = admin)", default="admin")
+            return (name or "admin", None)
+        # qualsiasi altro testo → è già lo username da usare
+        return (raw, None)
+
+
 def _parse_target(url: str) -> dict:
     from urllib.parse import urlparse
     parsed = urlparse(url)
@@ -338,6 +439,42 @@ def _parse_target(url: str) -> dict:
         "path": path, "domain": domain, "base": base,
         "base_path": base_with_path,
     }
+
+
+def _is_ip_address(host: str) -> bool:
+    import ipaddress
+    try:
+        ipaddress.ip_address(host)
+        return True
+    except ValueError:
+        return False
+
+
+def _ensure_domain(target: dict) -> tuple[dict | None, str | None]:
+    """Garantisce un dominio reale per gli scope sottodomini/vhost.
+
+    Se il target è un indirizzo IP, chiede il dominio da usare (es.
+    target.htb). Ritorna (target aggiornato, nota /etc/hosts) oppure
+    (None, None) se l'utente annulla lo scope.
+    """
+    host = target["domain"]
+    if not _is_ip_address(host):
+        return target, None
+    print(f"\n  \033[93m[!] {host} è un indirizzo IP\033[0m — sottodomini e vhost")
+    print("      vanno enumerati su un nome di dominio, non sull'IP.")
+    raw = _wf_ask_text("  Dominio da usare (es. target.htb — vuoto = salta scope)", default="")
+    domain = raw.strip().lower().strip("*.")
+    if not domain:
+        print("  \033[90mScope saltato.\033[0m")
+        return None, None
+    if _is_ip_address(domain):
+        print("  \033[91mAnche questo è un IP — scope saltato.\033[0m")
+        return None, None
+    t = dict(target)
+    t["domain"] = domain
+    note = (f"aggiungi '{host} {domain}' a /etc/hosts per i comandi "
+            f"che contattano il dominio direttamente")
+    return t, note
 
 
 def _build_dir_result(target: dict, tech_key: str, tech_exts: list[str], intensity: str) -> dict:
@@ -433,9 +570,17 @@ def _build_vhost_result(target: dict, intensity: str) -> dict:
     else:
         wordlists = ["sub_full", "sub_bitquark"]
 
+    # con target IP + dominio sovrascritto, --append-domain prenderebbe l'IP:
+    # gobuster deve puntare all'URL del dominio (richiede la riga in /etc/hosts)
+    if _is_ip_address(target["host"]) and domain != target["host"]:
+        port = f":{target['port']}" if target.get("port") else ""
+        gb_url = f"{target['scheme']}://{domain}{port}"
+    else:
+        gb_url = base
+
     main_wl = wordlists[0]
     commands = []
-    commands.append(("gobuster", f"gobuster vhost -u {base} -w {_wl_path(main_wl)} --append-domain -t 50"))
+    commands.append(("gobuster", f"gobuster vhost -u {gb_url} -w {_wl_path(main_wl)} --append-domain -t 50"))
     commands.append(("ffuf", f'ffuf -u {base} -H "Host: FUZZ.{domain}" -w {_wl_path(main_wl)} -c -ac'))
     commands.append(("wfuzz", f'wfuzz -u {base} -H "Host: FUZZ.{domain}" -w {_wl_path(main_wl)} --hc 404 -t 50'))
 
@@ -545,6 +690,11 @@ def _build_api_result(target: dict, api_type: str, intensity: str) -> dict:
 
 def _print_wordfind_result(result: dict) -> None:
     print(f"\n  \033[92m┌─ Risultato ────────────────────────────────┐\033[0m\n")
+
+    if result.get("notes"):
+        for n in result["notes"]:
+            print(f"  \033[93m[!]\033[0m {n}")
+        print()
 
     if result.get("wordlists"):
         print("  \033[1mWordlist consigliate:\033[0m")
@@ -707,6 +857,8 @@ def _launch_commands(commands: list[tuple[str, str]]) -> None:
 
 
 def cmd_wordfind_full(args: argparse.Namespace) -> int:
+    _ensure_seclists()
+
     url = getattr(args, "url", None) or ""
     if not url:
         try:
@@ -740,9 +892,19 @@ def cmd_wordfind_full(args: argparse.Namespace) -> int:
         if scope_key == "dir":
             result = _build_dir_result(target, "generic", [], intensity)
         elif scope_key == "sub":
-            result = _build_sub_result(target, intensity)
+            t2, note = _ensure_domain(target)
+            if t2 is None:
+                continue
+            result = _build_sub_result(t2, intensity)
+            if note:
+                result.setdefault("notes", []).append(note)
         elif scope_key == "vhost":
-            result = _build_vhost_result(target, intensity)
+            t2, note = _ensure_domain(target)
+            if t2 is None:
+                continue
+            result = _build_vhost_result(t2, intensity)
+            if note:
+                result.setdefault("notes", []).append(note)
         elif scope_key == "param":
             result = _build_param_result(target, intensity)
         elif scope_key == "user":
@@ -752,7 +914,12 @@ def cmd_wordfind_full(args: argparse.Namespace) -> int:
             if ctx_choice == -1:
                 return 0
             context = _PASS_CONTEXT_MENU[ctx_choice - 1][0]
-            result = _build_pass_result(target, context, "en", "admin", intensity)
+            user_ans = _wf_ask_username()
+            if user_ans is None:
+                return 0
+            username, user_wl_key = user_ans
+            result = _build_pass_result(target, context, "en", username, intensity,
+                                        user_wl_key=user_wl_key)
         elif scope_key == "api":
             result = _build_api_result(target, "rest", intensity)
         else:
@@ -856,6 +1023,8 @@ def cmd_wordfind(args: argparse.Namespace, state=None) -> int:
 """)
         return 0
 
+    _ensure_seclists()
+
     if not url:
         try:
             url = input("\n  Target URL: ").strip()
@@ -897,20 +1066,30 @@ def cmd_wordfind(args: argparse.Namespace, state=None) -> int:
         result = _build_dir_result(target, tech_key, tech_exts, intensity)
 
     elif scope_key == "sub":
+        t2, note = _ensure_domain(target)
+        if t2 is None:
+            return 0
         int_choice = _wf_ask("[2] Intensità?", _INTENSITY_SUB, default=2)
         if int_choice == -1:
             return 0
         intensity = _INTENSITY_SUB[int_choice - 1][0]
 
-        result = _build_sub_result(target, intensity)
+        result = _build_sub_result(t2, intensity)
+        if note:
+            result.setdefault("notes", []).append(note)
 
     elif scope_key == "vhost":
+        t2, note = _ensure_domain(target)
+        if t2 is None:
+            return 0
         int_choice = _wf_ask("[2] Intensità?", _INTENSITY_GENERIC, default=2)
         if int_choice == -1:
             return 0
         intensity = _INTENSITY_GENERIC[int_choice - 1][0]
 
-        result = _build_vhost_result(target, intensity)
+        result = _build_vhost_result(t2, intensity)
+        if note:
+            result.setdefault("notes", []).append(note)
 
     elif scope_key == "param":
         int_choice = _wf_ask("[2] Intensità?", _INTENSITY_GENERIC, default=2)
@@ -961,32 +1140,12 @@ def cmd_wordfind(args: argparse.Namespace, state=None) -> int:
             return 0
         lang = _LANG_MENU[lang_choice - 1][0]
 
-        # Step 4: Username
-        _USER_MODE_WF = [
-            ("single", "Username singolo (lo scrivo io)"),
-            ("wordlist", "Wordlist username (non conosco lo username)"),
-        ]
-        user_mode = _wf_ask("[4] Username?", _USER_MODE_WF, default=2)
-        if user_mode == -1:
+        # Step 4: Username — [1] admin (default) · [2] wordlist · [3] scrivilo
+        # (qualsiasi altro testo digitato viene usato direttamente come username)
+        user_ans = _wf_ask_username()
+        if user_ans is None:
             return 0
-
-        username = "admin"
-        user_wl_key = None
-        if user_mode == 1:
-            print()
-            username = _wf_ask_text("[4b] Username (vuoto = admin)", default="admin")
-        else:
-            _USER_WL_WF = [
-                ("user_top", "top-usernames-shortlist.txt  (17 — i più comuni)"),
-                ("user_cirt", "cirt-default-usernames.txt  (827 — credenziali default)"),
-                ("user_names", "names.txt  (10k — nomi comuni)"),
-                ("user_unix", "unix_users.txt  (167 — utenti UNIX tipici)"),
-                ("user_xato", "xato-net-10-million-usernames.txt  (8.3M — esaustiva)"),
-            ]
-            uwl = _wf_ask("[4b] Quale wordlist username?", _USER_WL_WF)
-            if uwl == -1:
-                return 0
-            user_wl_key = _USER_WL_WF[uwl - 1][0]
+        username, user_wl_key = user_ans
 
         if context == "service" and svc_proto:
             _PF_PASS_WL_WF = [

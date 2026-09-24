@@ -29,9 +29,21 @@ def _wl(path: str, *fallbacks: str) -> str:
     return path
 
 
+def _is_ip(host: str | None) -> bool:
+    if not host:
+        return False
+    import ipaddress
+    try:
+        ipaddress.ip_address(host)
+        return True
+    except ValueError:
+        return False
+
+
 def _print_recon_info(profile: str, target: str | None, phase: str | None = None) -> None:
     """Print the resolved recon pipeline without executing it."""
     shown_target = shlex.quote(target) if target else "<target>"
+    vhost_domain = "<dominio.htb>" if _is_ip(target) else shown_target
     nmap_target = f"[-Pn] {shown_target}"
     selected_phase = phase or ("wordlists" if profile == "wordlists" else "all")
 
@@ -93,6 +105,11 @@ def _print_recon_info(profile: str, target: str | None, phase: str | None = None
 
     if selected_phase in {"all", "web", "wordlists"}:
         web_commands: list[str] = []
+        if _is_ip(target):
+            web_commands.append(
+                "  ↳ target è un IP: il vhost fuzzing viene saltato — "
+                "SLRECON_VHOST_DOMAIN=<dominio.htb> per abilitarlo"
+            )
         if selected_phase == "wordlists" or profile == "wordlists":
             web_commands.extend([
                 f"nc -z -w 2 {shown_target} <80|443|8080|8443|8000|3000|8888>",
@@ -145,7 +162,7 @@ def _print_recon_info(profile: str, target: str | None, phase: str | None = None
                     f"feroxbuster -u <base> -w {directory_wordlist} -t 15 -d 2 -k --auto-tune -C 404 [--filter-size <size>]",
                     "  ↳ preferito; ricorsivo; auto-calibra dimensione errore",
                     f"gobuster dir -u <base> -w {directory_wordlist} -t 15 [--exclude-length <size>]  # fallback",
-                    f"ffuf -u <base>/ -H 'Host: FUZZ.{shown_target}' -w {vhost_wordlist} -ac -mc 200,302,301,401,403 -t 15 -c -s",
+                    f"ffuf -u <base>/ -H 'Host: FUZZ.{vhost_domain}' -w {vhost_wordlist} -ac -mc 200,302,301,401,403 -t 15 -c -s",
                     "  ↳ auto-calibration; thread ridotti per concorrenza",
                     f"timeout -k 5s {arjun_limit}s arjun -u <base>/ -q -t 10",
                     f"timeout -k 5s {nikto_limit}s nikto -h <base> -nointeractive -maxtime {nikto_limit}s -Tuning 123bde",
@@ -162,7 +179,7 @@ def _print_recon_info(profile: str, target: str | None, phase: str | None = None
                     f"gobuster dir -u <base> -w {directory_wordlist} -t 50 [--exclude-length <size>]",
                     "  ↳ nessun limite globale; output live; INVIO ferma e continua",
                     "curl -sk -m 5 -H 'Host: nonexistent.xyz' <base>/  # baseline VHost",
-                    f"ffuf -u <base>/ -H 'Host: FUZZ.{shown_target}' -w {vhost_wordlist} -fs <size> -mc 200,302,301,401,403 -t 50 -c -s",
+                    f"ffuf -u <base>/ -H 'Host: FUZZ.{vhost_domain}' -w {vhost_wordlist} -fs <size> -mc 200,302,301,401,403 -t 50 -c -s",
                     "  ↳ nessun limite globale; output live; INVIO ferma e continua",
                     f"timeout -k 5s {arjun_limit}s arjun -u <base>/ -q -t 10",
                     f"timeout -k 5s {nikto_limit}s nikto -h <base> -nointeractive -maxtime {nikto_limit}s -Tuning 123bde",

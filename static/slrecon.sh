@@ -105,6 +105,9 @@ GOBUSTER_WORDLIST="${SLRECON_DIR_WORDLIST:-}"
 GOBUSTER_MEDIUM_WORDLIST="${SLRECON_MEDIUM_DIR_WORDLIST:-}"
 [ -z "$GOBUSTER_MEDIUM_WORDLIST" ] && GOBUSTER_MEDIUM_WORDLIST=$(_find_wordlist "/usr/share/seclists/Discovery/Web-Content/common.txt")
 [ -z "$GOBUSTER_MEDIUM_WORDLIST" ] && GOBUSTER_MEDIUM_WORDLIST="/usr/share/seclists/Discovery/Web-Content/common.txt"
+# Dominio usato per il VHost fuzzing: su target IP va fornito esplicitamente
+# (es. SLRECON_VHOST_DOMAIN=target.htb), altrimenti il VHost scan viene saltato.
+VHOST_DOMAIN="${SLRECON_VHOST_DOMAIN:-}"
 SUDO_READY=0
 PRIV_CMD=""
 SUDO_KEEPALIVE_PID=""
@@ -159,12 +162,21 @@ Phases:
   wordlists     Solo scansioni con wordlist (dirs, vhosts, wpscan, nikto, arjun)
   report        Generate report from existing scan data
 
+Environment:
+  SLRECON_VHOST_DOMAIN   Dominio per il VHost fuzzing quando il target è un IP
+                         (es. SLRECON_VHOST_DOMAIN=target.htb); senza di esso
+                         il VHost scan su target IP viene saltato
+  SLRECON_DIR_WORDLIST   Wordlist directory scan (default: ricerca automatica)
+  SLRECON_VHOST_WORDLIST Wordlist VHost scan (default: ricerca automatica)
+  SECLISTS_PATH          Radice di un'installazione SecLists non standard
+
 Examples:
   ./slrecon.sh 10.129.14.128
   ./slrecon.sh 10.129.14.128 -o -l
   ./slrecon.sh 10.129.14.128 --fast
   ./slrecon.sh 10.129.14.128 --phase web
   ./slrecon.sh 10.129.14.128 --no-ping -o
+  SLRECON_VHOST_DOMAIN=target.htb ./slrecon.sh 10.129.14.128
 USAGE
   exit 0
 }
@@ -204,6 +216,21 @@ if [ -z "$TARGET" ]; then
   echo "Run slrecon.sh -h for help"
   exit 1
 fi
+
+# ── Target type ──────────────────────────────────────────────
+# Il VHost fuzzing (Host: FUZZ.<dominio>) è inutile contro un IP: in quel
+# caso serve un dominio esplicito via SLRECON_VHOST_DOMAIN (es. target.htb).
+TARGET_IS_IP=0
+case "$TARGET" in
+  *:*) TARGET_IS_IP=1 ;;  # IPv6
+  *.*.*.*)
+    case "$TARGET" in
+      *[!0-9.]*) TARGET_IS_IP=0 ;;  # contiene lettere → hostname
+      *) TARGET_IS_IP=1 ;;          # IPv4
+    esac
+    ;;
+esac
+[ -z "$VHOST_DOMAIN" ] && VHOST_DOMAIN="$TARGET"
 
 # ── Output engine ────────────────────────────────────────────
 _strip_colors() { sed 's/\x1b\[[0-9;]*m//g'; }
@@ -524,7 +551,7 @@ _run_ffuf_vhost() {
     info "No time limit"
   fi
 
-  ffuf -u "$_vh_base/" -H "Host: FUZZ.$TARGET" -w "$_vh_wordlist" \
+  ffuf -u "$_vh_base/" -H "Host: FUZZ.$VHOST_DOMAIN" -w "$_vh_wordlist" \
     -fs "$_vh_baseline_size" -mc 200,302,301,401,403 -t 50 -c -s \
     < /dev/null > "$_vh_fifo" 2>&1 &
   _vh_tool_pid=$!
@@ -1059,6 +1086,10 @@ phase_web() {
     if [ "$FAST" -eq 0 ] && [ "$WORDLIST_COMPANION" -eq 0 ]; then
     section "VHOST SCAN — :$_hp"
 
+    if [ "$TARGET_IS_IP" -eq 1 ] && [ -z "${SLRECON_VHOST_DOMAIN:-}" ]; then
+      warn "Target è un IP — VHost scan saltato (usa SLRECON_VHOST_DOMAIN=target.htb per abilitarlo)"
+      _rec "[INFO] VHost scan skipped on :$_hp (target is an IP; set SLRECON_VHOST_DOMAIN=<domain>)"
+    else
     _vhost_wl=""
     if [ "$MEDIUM" -eq 1 ]; then
       _vhost_wl=$(_find_wordlist "/usr/share/seclists/Discovery/DNS/subdomains-top1million-5000.txt")
@@ -1079,6 +1110,7 @@ phase_web() {
       _rec "[WARN] VHost scan skipped on :$_hp (subdomain wordlist missing)"
     else
       _run_ffuf_vhost "$_base" "$_hp" "$_vhost_wl"
+    fi
     fi
     fi
 
@@ -1267,7 +1299,10 @@ phase_wordlists() {
     fi
 
     _vhost_wl=""
-    if [ -n "${SLRECON_VHOST_WORDLIST:-}" ] && [ -f "$SLRECON_VHOST_WORDLIST" ]; then
+    if [ "$TARGET_IS_IP" -eq 1 ] && [ -z "${SLRECON_VHOST_DOMAIN:-}" ]; then
+      warn "Target è un IP — VHost scan saltato (usa SLRECON_VHOST_DOMAIN=target.htb per abilitarlo)"
+      _rec "[INFO] VHost scan skipped on :$_hp (target is an IP; set SLRECON_VHOST_DOMAIN=<domain>)"
+    elif [ -n "${SLRECON_VHOST_WORDLIST:-}" ] && [ -f "$SLRECON_VHOST_WORDLIST" ]; then
       _vhost_wl="$SLRECON_VHOST_WORDLIST"
     else
       _vhost_wl=$(_find_wordlist "/usr/share/seclists/Discovery/DNS/subdomains-top1million-5000.txt")
@@ -1281,14 +1316,16 @@ phase_wordlists() {
       fi
     fi
 
-    if [ -z "$_vhost_wl" ]; then
+    if [ "$TARGET_IS_IP" -eq 1 ] && [ -z "${SLRECON_VHOST_DOMAIN:-}" ]; then
+      : # già segnalato sopra: VHost scan saltato perché il target è un IP
+    elif [ -z "$_vhost_wl" ]; then
       warn "No subdomain wordlist — skipping VHost scan (installa con: sudo apt install seclists)"
       _rec "[WARN] VHost scan skipped on :$_hp (subdomain wordlist missing)"
     elif _has ffuf; then
       info "Queueing ffuf VHost scan on :$_hp with auto-calibration (no time limit)"
       _start_parallel_wordlist_job"vhost_${_hp}" "vhost:${_hp}" "$_hp" \
         "${OUTDIR:+$OUTDIR/ffuf_vhost_${_hp}.txt}" \
-        ffuf -u "$_base/" -H "Host: FUZZ.$TARGET" -w "$_vhost_wl" \
+        ffuf -u "$_base/" -H "Host: FUZZ.$VHOST_DOMAIN" -w "$_vhost_wl" \
           -ac -mc 200,302,301,401,403 -t 15 -c -s
     else
       warn "ffuf not installed — VHost scan skipped"
