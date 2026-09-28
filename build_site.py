@@ -497,15 +497,18 @@ def _page_report_static() -> str:
   Lo scrivi in <strong style="color:var(--text)">Markdown</strong> partendo dal template SLCtrl
   e lo compili in <strong style="color:var(--text)">PDF</strong> (pandoc + weasyprint).</p>
   <p style="font-size:13px;color:var(--text2);margin-bottom:8px">Tutto da <strong style="color:var(--text)">SLConsole</strong> (comando <code>report</code>):</p>
-  <div class="report-cmd">$ <span class="c">report new "Acme Corp"</span>&nbsp;&nbsp;<span style="color:var(--text2)"># crea il report in reports/acme-corp/</span></div>
+  <div class="report-cmd">$ <span class="c">report new</span>&nbsp;&nbsp;<span style="color:var(--text2)"># wizard: cliente, black/grey/white box, dominio, date</span></div>
+  <div class="report-cmd">$ <span class="c">report add acme-corp</span>&nbsp;&nbsp;<span style="color:var(--text2)"># wizard finding: severity e tabelle si aggiornano da sole</span></div>
   <div class="report-cmd">$ <span class="c">report edit acme-corp</span>&nbsp;&nbsp;<span style="color:var(--text2)"># lo apre direttamente in VS Code (o derivati)</span></div>
-  <div class="report-cmd">$ <span class="c">report list</span>&nbsp;&nbsp;<span style="color:var(--text2)"># elenca i tuoi report</span></div>
   <div class="report-cmd">$ <span class="c">report build acme-corp</span>&nbsp;&nbsp;<span style="color:var(--text2)"># genera il PDF finale</span></div>
   <p style="font-size:12px;color:var(--text2);margin-top:8px">Gli screenshot vanno in <code>reports/&lt;cliente&gt;/evidence/</code>.
   Severit&agrave;: <span class="sev sev-critical">Critica</span> <span class="sev sev-high">Alta</span>
   <span class="sev sev-medium">Media</span> <span class="sev sev-low">Bassa</span> <span class="sev sev-info">Info</span></p>
+  <p style="font-size:12px;color:var(--text2);margin-top:6px">I blocchi <code>@@AUTO@@</code> del .md (cliente, approccio, perimetro,
+  conteggi severity, finding) sono generati automaticamente dai dati in <code>meta.json</code>; i blocchi <code>@@SEZ@@</code> sono testo libero.</p>
   <p style="font-size:12px;color:var(--text2);margin-top:6px">Con <strong style="color:var(--text)">SLWeb attivo</strong> (<code>serve on</code>) la pagina
-  <code>/report</code> permette anche di creare report, vederne l'anteprima e generare il PDF dal browser.</p>
+  <code>/report</code> offre un <strong>wizard guidato</strong> che compila il report una sezione alla volta:
+  Cliente &amp; Test, Approccio, Perimetro, Finding, Walkthrough, Remediation, Considerazioni finali — con anteprima e PDF dal browser.</p>
 </div>
 
 <div class="report-section">

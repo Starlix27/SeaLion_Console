@@ -108,7 +108,8 @@ slconsole> wordfind http://target # Wizard wordlist per fuzzing/bruteforce
 slconsole> passfind               # Wizard password cracking
 slconsole> wordgen                # Wizard per creare e trasformare wordlist
 slconsole> burp                   # Profiler di password basato sul target
-slconsole> report new "Cliente"   # Crea un report di pentest dal template
+slconsole> report new             # Wizard: cliente, box, date → report dal template
+slconsole> report add <nome>      # Wizard: aggiungi un finding (severity auto)
 slconsole> report edit <nome>     # Apre il report in VS Code
 slconsole> report build <nome>    # Genera il PDF del report
 slconsole> pet                    # Il tuo sealion virtuale
@@ -410,21 +411,26 @@ Il profiler BURP è disponibile anche in SLWeb all'indirizzo `/burp`.
 `report` crea e gestisce **report di pentest professionali** partendo dal template SLCtrl (Markdown → PDF, stile sample report HackTheBox, contenuti in italiano). I report vivono in `reports/<cliente>/` dentro il progetto, con una sottocartella `evidence/` per screenshot e prove.
 
 ```bash
-slconsole> report new "Acme Corp"                          # Crea il report (cover pre-compilata)
-slconsole> report new "Acme Corp" "Web App Penetration Test"  # Con tipo di test personalizzato
-slconsole> report list                                     # Elenca i report esistenti
-slconsole> report edit acme-corp                           # Apre la cartella del report in VS Code (o derivati)
-slconsole> report build acme-corp                          # Compila il PDF (pandoc + weasyprint)
-slconsole> report path acme-corp                           # Mostra il percorso del file .md
+slconsole> report new                 # Wizard: nome cliente → inserito automaticamente ovunque
+slconsole> report add acme-corp       # Wizard: aggiungi un finding (titolo, severity, CWE, CVSS...)
+slconsole> report list                # Elenca i report (box, n. finding, PDF)
+slconsole> report sync acme-corp      # Rigenera i blocchi automatici dal meta.json
+slconsole> report edit acme-corp      # Apre la cartella del report in VS Code (o derivati)
+slconsole> report build acme-corp     # Compila il PDF (pandoc + weasyprint)
+slconsole> report path acme-corp      # Mostra il percorso del file .md
 ```
 
+**Wizard di creazione** — `report new` chiede in sequenza: nome del cliente (inserito automaticamente in cover e in tutto il documento), tipo di test, approccio **black / grey / white box** (il testo della sezione Approccio si adatta da solo), dominio target (derivato automaticamente, es. `ACME.LOCAL`) e date del test.
+
+**Finding e severity automatiche** — `report add` guida nell'inserimento di ogni finding (titolo, severità, CWE, CVSS, descrizione, impatto, asset, remediation, evidenze). I conteggi per severità, la tabella di riepilogo e il testo dell'Executive Summary ("*N* finding... *1* a rischio critico...") **si aggiornano automaticamente** nel .md a ogni aggiunta.
+
+**Dati dinamici nel .md** — i blocchi racchiusi tra i marcatori `@@AUTO:nome@@` ... `@@/AUTO:nome@@` sono generati automaticamente (cliente, approccio, perimetro, riepilogo severity, schede finding) e non vanno modificati a mano: vengono rigenerati dal sync. I blocchi `@@SEZ:nome@@` ... `@@/SEZ:nome@@` contengono invece testo libero, editabile in VS Code o dal wizard SLWeb. I dati strutturati vivono in `reports/<cliente>/meta.json`.
+
 - `report edit` cerca nel PATH `code`, `codium`, `vscodium`, `code-insiders` e `cursor`: il report si apre direttamente in VS Code per editarlo velocemente (funziona anche da WSL).
-- La cover è pre-compilata automaticamente: cliente, data odierna, autrice. Nel corpo del testo basta trova/sostituisci "Cliente" / "CLIENTE.LOCAL".
-- **Severità** nei finding: `<span class="sev sev-high">Alta</span>` (`sev-critical`, `sev-high`, `sev-medium`, `sev-low`, `sev-info`).
 - **Evidenze**: salva gli screenshot in `reports/<cliente>/evidence/` e referenziali con path relativi alla root del progetto.
 - **Dipendenze per il PDF**: `pandoc` e `weasyprint` (`sudo apt install pandoc weasyprint` oppure `pip install weasyprint`).
 
-I report sono gestibili anche da **SLWeb** alla pagina `/report`: creazione guidata dal form, **anteprima** del documento renderizzata nel browser, build del PDF e download di `.md` / `.pdf`.
+I report si creano e compilano interamente anche da **SLWeb** alla pagina `/report`: creazione dal form (con scelta del box) e **wizard guidato** che compila il report **una sezione alla volta** — Cliente & Test, Approccio, Perimetro, Finding (con severity e conteggi live), Walkthrough, Remediation, Considerazioni finali — con anteprima renderizzata nel browser e generazione del PDF.
 
 ---
 
@@ -446,7 +452,7 @@ I report sono gestibili anche da **SLWeb** alla pagina `/report`: creazione guid
 | **Catch** | `/catch` | Stato e log live dei listener OOB TCP, DNS, FTP e SMB |
 | **Logs** | `/logs` | Log delle richieste gestite dal server |
 | **BURP** | `/burp` | Profiler visuale per generare wordlist mirate |
-| **Report** | `/report` | Crea report di pentest, anteprima nel browser, build e download PDF |
+| **Report** | `/report` | Wizard guidato sezione per sezione, finding con severity auto, anteprima e PDF |
 | **Pet** | `/pet` | SeaLion virtuale, statistiche, azioni e minigiochi |
 | **Search** | `/search` | Ricerca unificata in notes, vulnerabilità e tool |
 
