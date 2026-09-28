@@ -74,7 +74,7 @@ class ConsoleState:
     _find_query: str = ""
 
 
-REPO_URL = "https://github.com/Starlix27/SeaLion.git"
+REPO_URL = "https://github.com/Starlix27/SeaLion_Console.git"
 
 
 def auto_update() -> None:
