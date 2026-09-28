@@ -438,7 +438,7 @@ slconsole> report path acme-corp      # Mostra il percorso del file .md
 - **Evidenze**: salva gli screenshot in `reports/<cliente>/evidence/` e referenziali con path relativi alla root del progetto.
 - **Dipendenze per il PDF**: `pandoc` e `weasyprint` (`sudo apt install pandoc weasyprint` oppure `pip install weasyprint`).
 
-I report si creano e compilano interamente anche da **SLWeb** alla pagina `/report`: creazione dal form (con scelta del box) e **wizard guidato** che compila il report **una sezione alla volta** — Cliente & Test, Approccio, Perimetro, Finding (con ricerca CVE/Metasploit offline, severity e conteggi live, immagini con didascalia), Walkthrough, Remediation, Appendici, Stile (colori, logo, autore, firma), Considerazioni finali — con anteprima renderizzata nel browser e generazione del PDF.
+I report si creano e compilano interamente anche da **SLWeb** alla pagina `/report`: creazione dal form (con scelta del box) e **wizard guidato** che compila il report **una sezione alla volta** — Cliente & Test, Approccio, Perimetro, Finding (con ricerca CVE/Metasploit offline, severity e conteggi live, immagini con didascalia), Walkthrough, Remediation, Appendici, Stile (colori, logo, autore, firma), Considerazioni finali — con **anteprima live affiancata** (copertina inclusa, colori dello Stile applicati in tempo reale) e generazione del PDF. C'è anche uno step **Markdown** per modificare direttamente il file .md vedendo le modifiche in tempo reale.
 
 ---
 
