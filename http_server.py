@@ -848,6 +848,7 @@ def _base_html(title: str, body: str, active: str = "") -> str:
     return f"""<!DOCTYPE html>
 <html lang="it"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🦭</text></svg>">
 <title>{html.escape(title)} — SeaLion_Web</title>
 <link rel="stylesheet" href="{_CSS_HLJS}">
 <style>{_CSS}</style>
@@ -2332,7 +2333,7 @@ function buildReport(slug, btn) {{
   }}).then(r => r.json()).then(d => {{
     btn.disabled = false; btn.textContent = 'Build PDF';
     if (d.ok) {{ alert('PDF generato!'); location.reload(); }}
-    else alert('Build fallito:\n' + (d.error || 'errore'));
+    else alert('Build fallito:\\n' + (d.error || 'errore'));
   }}).catch(() => {{ btn.disabled = false; btn.textContent = 'Build PDF'; alert('Errore di rete'); }});
 }}
 function deleteReport(slug) {{
@@ -2384,7 +2385,7 @@ function buildReport(slug, btn) {{
   }}).then(r => r.json()).then(d => {{
     btn.disabled = false; btn.textContent = 'Build PDF';
     if (d.ok) {{ alert('PDF generato!'); location.reload(); }}
-    else alert('Build fallito:\n' + (d.error || 'errore'));
+    else alert('Build fallito:\\n' + (d.error || 'errore'));
   }}).catch(() => {{ btn.disabled = false; btn.textContent = 'Build PDF'; alert('Errore di rete'); }});
 }}
 </script>"""
@@ -2510,7 +2511,7 @@ function renderStep(){{
       '<div id="w-findings"></div>'+
       '<div id="w-finding-form"></div>';
   }} else if(s==='walkthrough'){{
-    h='<h3>Walkthrough</h3><div class="wiz-hint">Testo libero (Markdown): racconta la compromissione e i passaggi dell\'attacco.</div>'+
+    h='<h3>Walkthrough</h3><div class="wiz-hint">Testo libero (Markdown): racconta la compromissione e i passaggi dell’attacco.</div>'+
       textarea('w-compromissione','Compromissione della rete (introduzione)',sec.compromissione,110)+
       textarea('w-walkthrough','Percorso di attacco dettagliato',sec.walkthrough,220);
   }} else if(s==='remediation'){{
@@ -2544,7 +2545,7 @@ function sevSelectBox(val){{
 }}
 function updateApproachPreview(){{
   var el=document.getElementById('w-approach-preview');
-  if(el)el.textContent='Il testo dell\'approccio verrà rigenerato al salvataggio in base al box selezionato.';
+  if(el)el.textContent='Il testo dell’approccio verrà rigenerato al salvataggio in base al box selezionato.';
 }}
 
 // ---- Perimetro ----
@@ -2643,7 +2644,7 @@ function buildPdf(btn){{
       body:JSON.stringify({{slug:SLUG}})
     }}).then(r=>r.json()).then(d=>{{
       btn.disabled=false;btn.textContent='Genera PDF';
-      if(d.ok){{alert('PDF generato!');loadData();}}else alert('Build fallito:\n'+(d.error||'errore'));
+      if(d.ok){{alert('PDF generato!');loadData();}}else alert('Build fallito:\\n'+(d.error||'errore'));
     }}).catch(()=>{{btn.disabled=false;btn.textContent='Genera PDF';alert('Errore di rete');}});
   }});
 }}
