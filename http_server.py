@@ -16,6 +16,7 @@ import random
 import re
 import socket
 import socketserver
+import shutil
 import subprocess
 import threading
 from pathlib import Path
@@ -841,6 +842,8 @@ def _base_html(title: str, body: str, active: str = "") -> str:
     nav_html += f'<a href="/pet"{pet_cls}>Pet</a>'
     burp_cls = ' class="active"' if active == "burp" else ""
     nav_html += f'<a href="/burp"{burp_cls}>BURP</a>'
+    report_cls = ' class="active"' if active == "report" else ""
+    nav_html += f'<a href="/report"{report_cls}>Report</a>'
 
     return f"""<!DOCTYPE html>
 <html lang="it"><head>
@@ -966,6 +969,7 @@ def _page_home() -> str:
     <ul class="cat-list">
       <li><a href="/pet">Pet</a><span class="cnt">sealion virtuale</span></li>
       <li><a href="/burp">BURP</a><span class="cnt">password profiler</span></li>
+      <li><a href="/report">Report</a><span class="cnt">report di pentest</span></li>
     </ul>
   </div>
   <div class="info-box home-pet" id="pet-widget" style="display:none">
@@ -1008,6 +1012,7 @@ def _page_home() -> str:
     {{name:'pet',label:'Pet',cnt:'sealion virtuale',href:'/pet'}},
     {{name:'minigame',label:'Minigame',cnt:'quiz pentesting',href:'/pet/minigame'}},
     {{name:'burp',label:'BURP',cnt:'password profiler',href:'/burp'}},
+    {{name:'report',label:'Report',cnt:'report di pentest',href:'/report'}},
   ];
   const input=document.getElementById('term-input');
   const box=document.getElementById('suggestions');
@@ -1038,7 +1043,8 @@ def _page_home() -> str:
     '  <span class="t-accent">pet</span>         <span class="t-line">Pet Portal — nutri, gioca e cura il tuo sealion</span>\\n'+
     '              <span class="t-line">Feed, play, spin, annoy + mini-games (blackjack, wordle, 8ball)</span>\\n'+
     '  <span class="t-accent">minigame</span>    <span class="t-line">Quiz fullscreen con 500 domande di pentesting</span>\\n'+
-    '  <span class="t-accent">burp</span>        <span class="t-line">BURP — Profiler password avanzato (sostituisce CUPP)</span>\\n\\n'+
+    '  <span class="t-accent">burp</span>        <span class="t-line">BURP — Profiler password avanzato (sostituisce CUPP)</span>\\n'+
+    '  <span class="t-accent">report</span>      <span class="t-line">Report di penetration test — crea, anteprima e PDF dal template</span>\\n\\n'+
     '  <span class="t-section">— Wordlists</span>\\n'+
     '  <span class="t-accent">wordfind</span>    <span class="t-line">Wizard wordlist — suggerisce liste e comandi per fuzzing/brute-force</span>\\n'+
     '  <span class="t-accent">wordgen</span>     <span class="t-line">Wizard creazione wordlist personalizzate (cewl, crunch, ecc.)</span>\\n'+
@@ -1146,6 +1152,15 @@ def _page_home() -> str:
       '<span class="t-line">Compila il form con info su target, famiglia, animali, azienda e keyword.</span>\\\\n\\\\n'+
       '<span class="t-line">Livelli: <span class="t-accent">fast</span> (~2k), <span class="t-accent">medium</span> (~15k), <span class="t-accent">full</span> (~100k+)</span>\\\\n\\\\n'+
       '<span class="t-line">Digitando <span class="t-accent">burp</span> verrai portato al BURP profiler.</span>',
+    report:
+      '<span class="t-head">report — Report di Penetration Test</span>\\\\n\\\\n'+
+      '<span class="t-line">Crea e gestisci report di pentest dal template SLCtrl (Markdown → PDF).</span>\\\\n'+
+      '<span class="t-line">Da qui puoi creare un report, vederne l\\'anteprima e generare il PDF.</span>\\\\n\\\\n'+
+      '<span class="t-line">In SLConsole:</span>\\\\n'+
+      '<span class="t-accent">  report new "Cliente"</span>  <span class="t-line">Crea un nuovo report</span>\\\\n'+
+      '<span class="t-accent">  report edit &lt;nome&gt;</span>  <span class="t-line">Lo apre in VS Code per editarlo</span>\\\\n'+
+      '<span class="t-accent">  report build &lt;nome&gt;</span> <span class="t-line">Genera il PDF finale</span>\\\\n\\\\n'+
+      '<span class="t-line">Digitando <span class="t-accent">report</span> verrai portato alla pagina Report.</span>',
     help:
       '<span class="t-head">help — Aiuto Comandi</span>\\n\\n'+
       '<span class="t-line">Mostra la lista dei comandi disponibili nel terminale SLWeb.</span>\\n\\n'+
@@ -2155,6 +2170,212 @@ def _page_burp() -> str:
 </script>
 """
     return _base_html("BURP", body, active="burp")
+
+
+# ---------------------------------------------------------------------------
+# Report — pagine SLWeb
+# ---------------------------------------------------------------------------
+
+def _report_sev_css() -> str:
+    return """
+.sev{padding:1px 8px;border-radius:4px;font-size:11px;font-weight:700;white-space:nowrap}
+.sev-critical{background:rgba(248,81,73,.18);color:#ff7b72;border:1px solid rgba(248,81,73,.4)}
+.sev-high{background:rgba(248,81,73,.12);color:#f85149;border:1px solid rgba(248,81,73,.35)}
+.sev-medium{background:rgba(210,153,34,.12);color:#d29922;border:1px solid rgba(210,153,34,.35)}
+.sev-low{background:rgba(88,166,255,.12);color:#58a6ff;border:1px solid rgba(88,166,255,.35)}
+.sev-info{background:rgba(63,185,80,.12);color:#3fb950;border:1px solid rgba(63,185,80,.35)}
+.report-section{border:1px solid var(--border);border-radius:8px;padding:18px 20px;margin-bottom:20px;background:var(--surface)}
+.report-section-title{font-size:14px;font-weight:700;color:var(--accent);margin-bottom:12px}
+.report-field{display:flex;gap:8px;margin-bottom:10px;align-items:center}
+.report-field label{width:130px;flex-shrink:0;color:var(--text2);font-size:13px}
+.report-field input[type="text"]{flex:1;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:8px 10px;font-family:inherit;font-size:13px;outline:none}
+.report-field input:focus{border-color:var(--accent)}
+.report-row{display:flex;align-items:center;gap:10px;padding:10px 12px;border:1px solid var(--border);border-radius:6px;margin-bottom:8px;background:var(--bg);flex-wrap:wrap}
+.report-row .rname{font-weight:700;color:var(--text)}
+.report-row .rclient{color:var(--text2);font-size:12px;flex:1;min-width:120px}
+.report-row .tag{font-size:11px;padding:1px 8px;border-radius:4px;border:1px solid var(--border);color:var(--text2)}
+.report-row .tag.pdf{color:var(--green);border-color:rgba(63,185,80,.4)}
+.report-msg{margin-top:10px;font-size:13px;min-height:18px}
+.report-msg.ok{color:var(--green)}
+.report-msg.err{color:var(--red)}
+.report-preview{border:1px solid var(--border);border-radius:8px;background:#fff;color:#1a1a1a;padding:28px 32px;max-height:600px;overflow-y:auto;font-family:Georgia,'Times New Roman',serif;font-size:14px;line-height:1.55}
+.report-preview h1,.report-preview h2,.report-preview h3{color:#0F4068;font-family:'Segoe UI',Arial,sans-serif;margin:18px 0 8px}
+.report-preview h1{font-size:20px;border-bottom:2px solid #0F4068;padding-bottom:4px}
+.report-preview h2{font-size:16px}
+.report-preview h3{font-size:14px}
+.report-preview table{border-collapse:collapse;width:100%;margin:10px 0;font-size:12px}
+.report-preview th,.report-preview td{border:1px solid #ccc;padding:5px 8px;text-align:left;vertical-align:top}
+.report-preview th{background:#0F4068;color:#fff;font-family:'Segoe UI',Arial,sans-serif}
+.report-preview tr:nth-child(even) td{background:#f2f6fa}
+.report-preview code{background:#eef1f4;padding:1px 5px;border-radius:3px;font-size:12px;color:#b03a48}
+.report-preview pre{background:#f4f6f8;border:1px solid #dde3e9;border-radius:6px;padding:10px 14px;overflow-x:auto}
+.report-preview pre code{background:none;color:#333;padding:0}
+.report-preview blockquote{border-left:3px solid #0F4068;margin:10px 0;padding:4px 14px;color:#555;background:#f7f9fb}
+.report-preview img{max-width:100%}
+.report-preview .sev-critical{background:#b91c1c;color:#fff;border:none}
+.report-preview .sev-high{background:#dc2626;color:#fff;border:none}
+.report-preview .sev-medium{background:#d97706;color:#fff;border:none}
+.report-preview .sev-low{background:#2563eb;color:#fff;border:none}
+.report-preview .sev-info{background:#059669;color:#fff;border:none}
+.report-cmd{background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:10px 14px;font-size:13px;margin:6px 0}
+.report-cmd .c{color:var(--accent)}
+"""
+
+
+def _page_report() -> str:
+    from lib.report import list_reports, TEMPLATE_MD
+    reports = list_reports()
+
+    rows = ""
+    for r in reports:
+        slug = html.escape(r["slug"])
+        client = html.escape(r["client"] or r["slug"])
+        pdf_tag = '<span class="tag pdf">PDF pronto</span>' if r["pdf"] else '<span class="tag">nessun PDF</span>'
+        ev_tag = f'<span class="tag">{r["evidence"]} evidenze</span>' if r["evidence"] else ""
+        pdf_btn = f'<a class="btn" href="/report/pdf/{slug}" target="_blank">PDF</a>' if r["pdf"] else ""
+        rows += f"""<div class="report-row" data-slug="{slug}">
+<span class="rname">{slug}</span><span class="rclient">{client}</span>{pdf_tag}{ev_tag}
+<a class="btn" href="/report/view/{slug}">Anteprima</a>
+{pdf_btn}
+<button class="btn" onclick="buildReport('{slug}',this)">Build PDF</button>
+<button class="btn btn-danger" onclick="deleteReport('{slug}')">Elimina</button>
+</div>"""
+    if not rows:
+        rows = '<p style="color:var(--text2);padding:8px 0">Nessun report ancora. Creane uno dal form qui sopra &mdash; oppure da console con <code>report new "Cliente"</code>.</p>'
+
+    try:
+        template_md = TEMPLATE_MD.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        template_md = "# Template non trovato"
+    safe_md = (template_md.replace("\\", "\\\\").replace("`", "\\`")
+               .replace("$", "\\$").replace("</", "<\\/"))
+
+    body = f"""<div class="container">
+<div class="breadcrumb"><a href="/">Home</a> <span>/</span> Report</div>
+<div class="page-title">Report</div>
+<div class="page-sub">Report di penetration test in Markdown &rarr; PDF (template SLCtrl)</div>
+<style>{_report_sev_css()}</style>
+
+<div class="report-section">
+  <div class="report-section-title">Come funziona</div>
+  <p style="font-size:13px;color:var(--text2);margin-bottom:8px">
+  Un <strong style="color:var(--text)">report</strong> &egrave; il documento finale del tuo penetration test:
+  executive summary, walkthrough della compromissione, finding con severit&agrave; e remediation.
+  Lo scrivi in <strong style="color:var(--text)">Markdown</strong> partendo dal template SLCtrl e lo compili in
+  <strong style="color:var(--text)">PDF</strong> con un click (pandoc + weasyprint).</p>
+  <div class="report-cmd">$ <span class="c">report new "Acme Corp"</span>&nbsp;&nbsp;<span style="color:var(--text2)"># crea il report</span></div>
+  <div class="report-cmd">$ <span class="c">report edit acme-corp</span>&nbsp;&nbsp;<span style="color:var(--text2)"># lo apre in VS Code per editarlo</span></div>
+  <div class="report-cmd">$ <span class="c">report build acme-corp</span>&nbsp;&nbsp;<span style="color:var(--text2)"># genera il PDF finale</span></div>
+  <p style="font-size:12px;color:var(--text2);margin-top:8px">Gli screenshot vanno in <code>reports/&lt;cliente&gt;/evidence/</code>.
+  Severit&agrave;: <span class="sev sev-critical">Critica</span> <span class="sev sev-high">Alta</span>
+  <span class="sev sev-medium">Media</span> <span class="sev sev-low">Bassa</span> <span class="sev sev-info">Info</span></p>
+</div>
+
+<div class="report-section">
+  <div class="report-section-title">Nuovo report</div>
+  <div class="report-field"><label>Cliente *</label><input type="text" id="r-client" placeholder='es. Acme Corp'></div>
+  <div class="report-field"><label>Tipo di test</label><input type="text" id="r-type" placeholder="Penetration Test Interno"></div>
+  <button class="btn btn-primary" onclick="createReport()">+ Crea report</button>
+  <span style="font-size:12px;color:var(--text2);margin-left:10px">poi aprilo con <code>report edit &lt;nome&gt;</code> in VS Code</span>
+  <div class="report-msg" id="r-msg"></div>
+</div>
+
+<div class="report-section">
+  <div class="report-section-title">I tuoi report ({len(reports)})</div>
+  <div id="r-list">{rows}</div>
+</div>
+
+<div class="report-section">
+  <div class="report-section-title">Anteprima del template</div>
+  <p style="font-size:12px;color:var(--text2);margin-bottom:10px">Questo &egrave; il documento da cui parte ogni nuovo report (stile semplificato; il PDF finale usa il tema SLCtrl completo).</p>
+  <div class="report-preview" id="r-preview"></div>
+</div>
+</div>
+<script>
+var TEMPLATE_MD = `{safe_md}`;
+document.getElementById('r-preview').innerHTML = marked.parse(TEMPLATE_MD.replace(/^---[\\s\\S]*?---\\n/, ''));
+
+function msg(t, ok) {{
+  var el = document.getElementById('r-msg');
+  el.textContent = t; el.className = 'report-msg ' + (ok ? 'ok' : 'err');
+}}
+function createReport() {{
+  var client = document.getElementById('r-client').value.trim();
+  var rtype = document.getElementById('r-type').value.trim();
+  if (!client) {{ msg('Inserisci il nome del cliente.', false); return; }}
+  fetch('/api/report/new', {{
+    method: 'POST', headers: {{'Content-Type': 'application/json'}},
+    body: JSON.stringify({{client: client, rtype: rtype}})
+  }}).then(r => r.json()).then(d => {{
+    if (d.ok) {{ msg('Report creato: ' + d.slug + ' — aprilo con: report edit ' + d.slug, true); setTimeout(() => location.reload(), 1200); }}
+    else msg(d.error || 'Errore', false);
+  }}).catch(() => msg('Errore di rete', false));
+}}
+function buildReport(slug, btn) {{
+  btn.disabled = true; btn.textContent = 'Build…';
+  fetch('/api/report/build', {{
+    method: 'POST', headers: {{'Content-Type': 'application/json'}},
+    body: JSON.stringify({{slug: slug}})
+  }}).then(r => r.json()).then(d => {{
+    btn.disabled = false; btn.textContent = 'Build PDF';
+    if (d.ok) {{ alert('PDF generato!'); location.reload(); }}
+    else alert('Build fallito:\n' + (d.error || 'errore'));
+  }}).catch(() => {{ btn.disabled = false; btn.textContent = 'Build PDF'; alert('Errore di rete'); }});
+}}
+function deleteReport(slug) {{
+  if (!confirm('Eliminare il report "' + slug + '"? (file .md, PDF ed evidenze)')) return;
+  fetch('/api/report/delete', {{
+    method: 'POST', headers: {{'Content-Type': 'application/json'}},
+    body: JSON.stringify({{slug: slug}})
+  }}).then(r => r.json()).then(d => {{
+    if (d.ok) location.reload(); else alert(d.error || 'Errore');
+  }}).catch(() => alert('Errore di rete'));
+}}
+</script>"""
+    return _base_html("Report", body, active="report")
+
+
+def _page_report_view(slug: str) -> str:
+    from lib.report import find_report
+    rep = find_report(slug)
+    if rep is None:
+        return _base_html("Report non trovato", '<div class="container"><div class="page-title">Report non trovato</div><p style="margin-top:12px"><a href="/report">Torna ai report</a></p></div>', active="report")
+    md_text = Path(rep["md"]).read_text(encoding="utf-8", errors="replace")
+    safe_md = (md_text.replace("\\", "\\\\").replace("`", "\\`")
+               .replace("$", "\\$").replace("</", "<\\/"))
+    title = html.escape(rep["client"] or rep["slug"])
+    slug_e = html.escape(rep["slug"])
+    pdf = rep["pdf"]
+    pdf_btn = f'<a class="btn" href="/report/pdf/{slug_e}" target="_blank">Apri PDF</a>' if pdf else ""
+    body = f"""<div class="container" style="max-width:1000px">
+<div class="breadcrumb"><a href="/">Home</a> <span>/</span> <a href="/report">Report</a> <span>/</span> {slug_e}</div>
+<div class="page-title">{title}</div>
+<div class="page-sub">Anteprima del report &mdash; modifica con <code>report edit {slug_e}</code> (VS Code)</div>
+<style>{_report_sev_css()}</style>
+<div class="btn-group">
+<a class="btn" href="/report">← Tutti i report</a>
+<a class="btn" href="/report/raw/{slug_e}">Scarica .md</a>
+{pdf_btn}
+<button class="btn btn-primary" onclick="buildReport('{slug_e}',this)">Build PDF</button>
+</div>
+<div class="report-preview" id="r-preview" style="max-height:none"></div>
+</div>
+<script>
+var MD = `{safe_md}`;
+document.getElementById('r-preview').innerHTML = marked.parse(MD.replace(/^---[\\s\\S]*?---\\n/, ''));
+function buildReport(slug, btn) {{
+  btn.disabled = true; btn.textContent = 'Build…';
+  fetch('/api/report/build', {{
+    method: 'POST', headers: {{'Content-Type': 'application/json'}},
+    body: JSON.stringify({{slug: slug}})
+  }}).then(r => r.json()).then(d => {{
+    btn.disabled = false; btn.textContent = 'Build PDF';
+    if (d.ok) {{ alert('PDF generato!'); location.reload(); }}
+    else alert('Build fallito:\n' + (d.error || 'errore'));
+  }}).catch(() => {{ btn.disabled = false; btn.textContent = 'Build PDF'; alert('Errore di rete'); }});
+}}
+</script>"""
+    return _base_html(title, body, active="report")
 
 
 def _page_pet() -> str:
@@ -3543,6 +3764,18 @@ class SlRequestHandler(http.server.BaseHTTPRequestHandler):
             self._send_html(_page_minigame())
         elif path == "/burp":
             self._send_html(_page_burp())
+        elif path == "/report":
+            self._send_html(_page_report())
+        elif path.startswith("/report/view/"):
+            slug = path[13:]
+            if ".." in slug or "/" in slug:
+                self.send_error(403)
+            else:
+                self._send_html(_page_report_view(slug))
+        elif path.startswith("/report/raw/"):
+            self._serve_report_raw(path[12:])
+        elif path.startswith("/report/pdf/"):
+            self._serve_report_pdf(path[12:])
         elif path.startswith("/loot/view/"):
             name = path[11:]
             if ".." in name or "/" in name:
@@ -3664,6 +3897,12 @@ class SlRequestHandler(http.server.BaseHTTPRequestHandler):
             self._api_burp_generate()
         elif path == "/api/burp/estimate":
             self._api_burp_estimate()
+        elif path == "/api/report/new":
+            self._api_report_new()
+        elif path == "/api/report/build":
+            self._api_report_build()
+        elif path == "/api/report/delete":
+            self._api_report_delete()
         else:
             self.send_error(404)
 
@@ -3858,6 +4097,106 @@ class SlRequestHandler(http.server.BaseHTTPRequestHandler):
             self._send_json({"ok": True, "counts": counts})
         except Exception as e:
             self._send_json({"ok": False, "error": str(e)}, status=500)
+
+    # ------------------------------------------------------------------
+    # Report API + file serving
+    # ------------------------------------------------------------------
+
+    def _api_report_new(self) -> None:
+        try:
+            body = json.loads(self._read_body())
+            client = str(body.get("client", "")).strip()
+            rtype = str(body.get("rtype", "")).strip() or "Penetration Test Interno"
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            self._send_json({"ok": False, "error": "JSON non valido"}, status=400)
+            return
+        if not client:
+            self._send_json({"ok": False, "error": "Nome cliente mancante"}, status=400)
+            return
+        try:
+            from lib.report import create_report
+            out = create_report(client, rtype)
+            self._send_json({"ok": True, "slug": out.parent.name, "path": str(out)})
+        except (ValueError, FileExistsError, FileNotFoundError) as e:
+            self._send_json({"ok": False, "error": str(e)}, status=400)
+        except Exception as e:
+            self._send_json({"ok": False, "error": str(e)}, status=500)
+
+    def _api_report_build(self) -> None:
+        try:
+            body = json.loads(self._read_body())
+            slug = str(body.get("slug", "")).strip()
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            self._send_json({"ok": False, "error": "JSON non valido"}, status=400)
+            return
+        from lib.report import build_report
+        ok, msg = build_report(slug)
+        if ok:
+            self._send_json({"ok": True, "pdf": msg})
+        else:
+            self._send_json({"ok": False, "error": msg}, status=400)
+
+    def _api_report_delete(self) -> None:
+        try:
+            body = json.loads(self._read_body())
+            slug = str(body.get("slug", "")).strip()
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            self._send_json({"ok": False, "error": "JSON non valido"}, status=400)
+            return
+        from lib.report import find_report
+        rep = find_report(slug)
+        if rep is None:
+            self._send_json({"ok": False, "error": "Report non trovato"}, status=404)
+            return
+        try:
+            shutil.rmtree(Path(rep["md"]).parent)
+            self._send_json({"ok": True})
+        except OSError as e:
+            self._send_json({"ok": False, "error": str(e)}, status=500)
+
+    def _serve_report_raw(self, slug: str) -> None:
+        if ".." in slug or "/" in slug:
+            self.send_error(403)
+            return
+        from lib.report import find_report
+        rep = find_report(slug)
+        if rep is None:
+            self.send_error(404, "Report non trovato")
+            return
+        try:
+            data = Path(rep["md"]).read_bytes()
+        except OSError:
+            self.send_error(500)
+            return
+        fname = Path(rep["md"]).name
+        self.send_response(200)
+        self.send_header("Content-Type", "text/markdown; charset=utf-8")
+        self.send_header("Content-Length", str(len(data)))
+        self.send_header("Content-Disposition", f'attachment; filename="{fname}"')
+        self.end_headers()
+        self.wfile.write(data)
+
+    def _serve_report_pdf(self, slug: str) -> None:
+        if ".." in slug or "/" in slug:
+            self.send_error(403)
+            return
+        from lib.report import find_report
+        rep = find_report(slug)
+        if rep is None or not rep["pdf"]:
+            self.send_error(404, "PDF non trovato — genera prima il PDF con Build")
+            return
+        try:
+            data = Path(rep["pdf"]).read_bytes()
+        except OSError:
+            self.send_error(500)
+            return
+        fname = Path(rep["pdf"]).name
+        self.send_response(200)
+        self.send_header("Content-Type", "application/pdf")
+        self.send_header("Content-Length", str(len(data)))
+        self.send_header("Content-Disposition", f'inline; filename="{fname}"')
+        self.end_headers()
+        self.wfile.write(data)
 
     def _serve_linseal(self, qs: dict) -> None:
         script_path = STATIC_ROOT / "linseal.sh"
