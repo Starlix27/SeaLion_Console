@@ -2227,14 +2227,18 @@ def _page_report() -> str:
     reports = list_reports()
 
     rows = ""
+    from lib.report import BOX_LABEL
     for r in reports:
         slug = html.escape(r["slug"])
         client = html.escape(r["client"] or r["slug"])
         pdf_tag = '<span class="tag pdf">PDF pronto</span>' if r["pdf"] else '<span class="tag">nessun PDF</span>'
         ev_tag = f'<span class="tag">{r["evidence"]} evidenze</span>' if r["evidence"] else ""
+        box_tag = f'<span class="tag">{html.escape(BOX_LABEL.get(r["box"], ""))}</span>' if r["box"] else ""
+        f_tag = f'<span class="tag">{r["n_findings"]} finding</span>' if r["n_findings"] else ""
         pdf_btn = f'<a class="btn" href="/report/pdf/{slug}" target="_blank">PDF</a>' if r["pdf"] else ""
         rows += f"""<div class="report-row" data-slug="{slug}">
-<span class="rname">{slug}</span><span class="rclient">{client}</span>{pdf_tag}{ev_tag}
+<span class="rname">{slug}</span><span class="rclient">{client}</span>{box_tag}{f_tag}{pdf_tag}{ev_tag}
+<a class="btn btn-primary" href="/report/wizard/{slug}">Compila</a>
 <a class="btn" href="/report/view/{slug}">Anteprima</a>
 {pdf_btn}
 <button class="btn" onclick="buildReport('{slug}',this)">Build PDF</button>
@@ -2275,8 +2279,15 @@ def _page_report() -> str:
   <div class="report-section-title">Nuovo report</div>
   <div class="report-field"><label>Cliente *</label><input type="text" id="r-client" placeholder='es. Acme Corp'></div>
   <div class="report-field"><label>Tipo di test</label><input type="text" id="r-type" placeholder="Penetration Test Interno"></div>
+  <div class="report-field"><label>Tipo di box</label>
+    <select id="r-box" style="flex:1;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:8px 10px;font-family:inherit;font-size:13px">
+      <option value="black">Black box — nessuna conoscenza preliminare</option>
+      <option value="grey">Grey box — conoscenza/credenziali parziali</option>
+      <option value="white">White box — piena visibilità sull'ambiente</option>
+    </select></div>
+  <div class="report-field"><label>Dominio</label><input type="text" id="r-domain" placeholder="vuoto = derivato dal cliente (es. ACME.LOCAL)"></div>
   <button class="btn btn-primary" onclick="createReport()">+ Crea report</button>
-  <span style="font-size:12px;color:var(--text2);margin-left:10px">poi aprilo con <code>report edit &lt;nome&gt;</code> in VS Code</span>
+  <span style="font-size:12px;color:var(--text2);margin-left:10px">poi compilalo sezione per sezione con il <strong>wizard</strong> (pulsante Compila)</span>
   <div class="report-msg" id="r-msg"></div>
 </div>
 
@@ -2305,9 +2316,11 @@ function createReport() {{
   if (!client) {{ msg('Inserisci il nome del cliente.', false); return; }}
   fetch('/api/report/new', {{
     method: 'POST', headers: {{'Content-Type': 'application/json'}},
-    body: JSON.stringify({{client: client, rtype: rtype}})
+    body: JSON.stringify({{client: client, rtype: rtype,
+                          box: document.getElementById('r-box').value,
+                          domain: document.getElementById('r-domain').value.trim()}})
   }}).then(r => r.json()).then(d => {{
-    if (d.ok) {{ msg('Report creato: ' + d.slug + ' — aprilo con: report edit ' + d.slug, true); setTimeout(() => location.reload(), 1200); }}
+    if (d.ok) {{ msg('Report creato: ' + d.slug + ' — apro il wizard…', true); setTimeout(() => location.href = '/report/wizard/' + d.slug, 800); }}
     else msg(d.error || 'Errore', false);
   }}).catch(() => msg('Errore di rete', false));
 }}
@@ -2376,6 +2389,323 @@ function buildReport(slug, btn) {{
 }}
 </script>"""
     return _base_html(title, body, active="report")
+
+
+
+def _page_report_wizard(slug: str) -> str:
+    """Wizard guidato: compila il report una sezione alla volta."""
+    from lib.report import find_report
+    rep = find_report(slug)
+    if rep is None:
+        return _base_html("Report non trovato", '<div class="container"><div class="page-title">Report non trovato</div><p style="margin-top:12px"><a href="/report">Torna ai report</a></p></div>', active="report")
+    slug_e = html.escape(rep["slug"])
+    client_e = html.escape(rep["client"] or rep["slug"])
+
+    body = f"""<div class="container" style="max-width:1000px">
+<div class="breadcrumb"><a href="/">Home</a> <span>/</span> <a href="/report">Report</a> <span>/</span> {slug_e} <span>/</span> Wizard</div>
+<div class="page-title">Wizard — {client_e}</div>
+<div class="page-sub">Compila il report una sezione alla volta. I conteggi delle severit&agrave; e le tabelle si aggiornano da soli.</div>
+<style>{_report_sev_css()}
+.wiz-layout{{display:grid;grid-template-columns:210px 1fr;gap:20px;margin-top:8px}}
+.wiz-nav{{display:flex;flex-direction:column;gap:4px}}
+.wiz-step-btn{{text-align:left;background:var(--surface);border:1px solid var(--border);color:var(--text2);padding:9px 12px;border-radius:6px;cursor:pointer;font-family:inherit;font-size:13px;display:flex;gap:8px;align-items:center}}
+.wiz-step-btn:hover{{border-color:var(--accent);color:var(--text)}}
+.wiz-step-btn.active{{background:rgba(88,166,255,.1);border-color:var(--accent);color:var(--accent)}}
+.wiz-step-btn.done .wiz-dot{{background:var(--green);color:var(--bg)}}
+.wiz-dot{{width:20px;height:20px;border-radius:50%;background:var(--surface2);border:1px solid var(--border);display:inline-flex;align-items:center;justify-content:center;font-size:11px;flex-shrink:0}}
+.wiz-panel{{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:20px;min-height:300px}}
+.wiz-panel h3{{margin-bottom:4px;font-size:15px}}
+.wiz-hint{{font-size:12px;color:var(--text2);margin-bottom:14px}}
+.wiz-actions{{display:flex;justify-content:space-between;margin-top:18px}}
+.wiz-field{{margin-bottom:12px}}
+.wiz-field label{{display:block;font-size:12px;color:var(--text2);margin-bottom:4px;font-weight:600}}
+.wiz-field input[type=text],.wiz-field select,.wiz-field textarea{{width:100%;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:8px 10px;font-family:inherit;font-size:13px;outline:none;box-sizing:border-box}}
+.wiz-field textarea{{min-height:140px;resize:vertical}}
+.wiz-field input:focus,.wiz-field select:focus,.wiz-field textarea:focus{{border-color:var(--accent)}}
+.wiz-grid2{{display:grid;grid-template-columns:1fr 1fr;gap:12px}}
+.finding-item{{border:1px solid var(--border);border-radius:6px;padding:10px 14px;margin-bottom:8px;background:var(--bg);display:flex;align-items:center;gap:10px;flex-wrap:wrap}}
+.finding-item .ft{{font-weight:600;flex:1;min-width:150px}}
+.scope-row{{display:flex;gap:8px;margin-bottom:6px}}
+.scope-row input{{background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:7px 10px;font-family:inherit;font-size:13px;outline:none}}
+@media(max-width:800px){{.wiz-layout{{grid-template-columns:1fr}}.wiz-nav{{flex-direction:row;flex-wrap:wrap}}}}
+</style>
+
+<div class="wiz-layout">
+<div class="wiz-nav" id="wiz-nav"></div>
+<div class="wiz-panel" id="wiz-panel"></div>
+</div>
+</div>
+<script>
+var SLUG = '{slug_e}';
+var DATA = null;
+var CUR = 0;
+var EDIT_IDX = -1;
+
+var STEPS = [
+  {{id:'info',     label:'Cliente & Test'}},
+  {{id:'approccio',label:'Approccio'}},
+  {{id:'perimetro',label:'Perimetro'}},
+  {{id:'findings', label:'Finding'}},
+  {{id:'walkthrough', label:'Walkthrough'}},
+  {{id:'remediation', label:'Remediation'}},
+  {{id:'finale',   label:'Considerazioni & PDF'}},
+];
+
+function esc(s){{var d=document.createElement('div');d.textContent=s||'';return d.innerHTML;}}
+
+function renderNav(){{
+  document.getElementById('wiz-nav').innerHTML = STEPS.map(function(s,i){{
+    return '<button class="wiz-step-btn'+(i===CUR?' active':'')+'" onclick="go('+i+')">'+
+      '<span class="wiz-dot">'+(i+1)+'</span>'+esc(s.label)+'</button>';
+  }}).join('');
+}}
+
+function go(i){{ CUR=i; EDIT_IDX=-1; renderNav(); renderStep(); window.scrollTo({{top:0,behavior:'smooth'}}); }}
+
+function field(id,label,val,ph){{
+  return '<div class="wiz-field"><label>'+label+'</label>'+
+    '<input type="text" id="'+id+'" value="'+esc(val||'')+'" placeholder="'+esc(ph||'')+'"></div>';
+}}
+function textarea(id,label,val,h){{
+  return '<div class="wiz-field"><label>'+label+'</label>'+
+    '<textarea id="'+id+'" style="'+(h?'min-height:'+h+'px':'')+'">'+esc(val||'')+'</textarea></div>';
+}}
+function gv(id){{var e=document.getElementById(id);return e?e.value.trim():'';}}
+
+function sevSelect(id,val){{
+  var opts=[['critical','Critica'],['high','Alta'],['medium','Media'],['low','Bassa'],['info','Info']];
+  return '<select id="'+id+'">'+opts.map(function(o){{
+    return '<option value="'+o[0]+'"'+(o[0]===val?' selected':'')+'>'+o[1]+'</option>';
+  }}).join('')+'</select>';
+}}
+
+function sevBadge(sev){{
+  var labels={{critical:'Critica',high:'Alta',medium:'Media',low:'Bassa',info:'Info'}};
+  return '<span class="sev sev-'+sev+'">'+(labels[sev]||sev)+'</span>';
+}}
+
+function renderStep(){{
+  var p=document.getElementById('wiz-panel');
+  var s=STEPS[CUR].id;
+  var m=DATA.meta, sec=DATA.sections;
+  var h='';
+  if(s==='info'){{
+    h='<h3>Cliente &amp; Test</h3><div class="wiz-hint">Nome del cliente e tipo di test: vengono inseriti automaticamente nella cover e in tutto il documento.</div>'+
+      field('w-client','Nome del cliente *',m.client,'es. Acme Corp')+
+      field('w-rtype','Tipo di test',m.rtype,'Penetration Test Interno')+
+      field('w-domain','Dominio target',m.domain,'es. ACME.LOCAL');
+  }} else if(s==='approccio'){{
+    h='<h3>Approccio</h3><div class="wiz-hint">Il testo della sezione Approccio viene generato in automatico in base al tipo di box e alle date.</div>'+
+      '<div class="wiz-field"><label>Tipo di box</label>'+sevSelectBox(m.box)+'</div>'+
+      '<div class="wiz-grid2">'+
+      field('w-dstart','Data inizio test',m.date_start,'es. 12 gennaio 2026')+
+      field('w-dend','Data fine test',m.date_end,'es. 23 gennaio 2026')+'</div>'+
+      '<div class="wiz-hint" id="w-approach-preview"></div>';
+  }} else if(s==='perimetro'){{
+    h='<h3>Perimetro</h3><div class="wiz-hint">Gli asset in scope: finiscono nella tabella "Dettagli del Perimetro".</div>'+
+      '<div id="w-scope"></div>'+
+      '<button class="btn" onclick="addScopeRow()">+ Aggiungi riga</button>';
+  }} else if(s==='findings'){{
+    h='<h3>Finding</h3><div class="wiz-hint">Ogni finding ha una severit&agrave;: i conteggi nel riepilogo e le tabelle si aggiornano automaticamente.</div>'+
+      '<div id="w-findings"></div>'+
+      '<div id="w-finding-form"></div>';
+  }} else if(s==='walkthrough'){{
+    h='<h3>Walkthrough</h3><div class="wiz-hint">Testo libero (Markdown): racconta la compromissione e i passaggi dell\'attacco.</div>'+
+      textarea('w-compromissione','Compromissione della rete (introduzione)',sec.compromissione,110)+
+      textarea('w-walkthrough','Percorso di attacco dettagliato',sec.walkthrough,220);
+  }} else if(s==='remediation'){{
+    h='<h3>Piano di Remediation</h3><div class="wiz-hint">Elenca le azioni correttive divise per orizzonte temporale (una per riga, con "- ").</div>'+
+      textarea('w-rem-breve','Breve termine',sec.remediation_breve,90)+
+      textarea('w-rem-medio','Medio termine',sec.remediation_medio,90)+
+      textarea('w-rem-lungo','Lungo termine',sec.remediation_lungo,90);
+  }} else if(s==='finale'){{
+    h='<h3>Considerazioni Finali &amp; PDF</h3><div class="wiz-hint">Osservazioni conclusive, poi genera il PDF finale.</div>'+
+      textarea('w-considerazioni','Considerazioni finali',sec.considerazioni,150)+
+      '<div id="w-summary"></div>';
+  }}
+  h+='<div class="wiz-actions">'+
+     (CUR>0?'<button class="btn" onclick="go('+(CUR-1)+')">← Indietro</button>':'<span></span>')+
+     '<div>'+
+     '<button class="btn btn-primary" onclick="saveStep(false)">Salva</button> '+
+     (CUR<STEPS.length-1?'<button class="btn btn-primary" onclick="saveStep(true)">Salva e continua →</button>':'')+
+     '</div></div>';
+  p.innerHTML=h;
+  if(s==='perimetro')renderScope();
+  if(s==='findings'){{renderFindings();renderFindingForm();}}
+  if(s==='finale')renderSummary();
+  if(s==='approccio')updateApproachPreview();
+}}
+
+function sevSelectBox(val){{
+  var opts=[['black','Black box — nessuna conoscenza preliminare'],['grey','Grey box — conoscenza/credenziali parziali'],['white','White box — piena visibilità']];
+  return '<select id="w-box" onchange="updateApproachPreview()">'+opts.map(function(o){{
+    return '<option value="'+o[0]+'"'+(o[0]===val?' selected':'')+'>'+o[1]+'</option>';
+  }}).join('')+'</select>';
+}}
+function updateApproachPreview(){{
+  var el=document.getElementById('w-approach-preview');
+  if(el)el.textContent='Il testo dell\'approccio verrà rigenerato al salvataggio in base al box selezionato.';
+}}
+
+// ---- Perimetro ----
+function renderScope(){{
+  var w=document.getElementById('w-scope');
+  w.innerHTML=DATA.meta.scope.map(function(r,i){{
+    return '<div class="scope-row">'+
+      '<input type="text" style="width:220px" value="'+esc(r.host)+'" placeholder="IP / host / URL" onchange="DATA.meta.scope['+i+'].host=this.value">'+
+      '<input type="text" style="flex:1" value="'+esc(r.desc)+'" placeholder="Descrizione" onchange="DATA.meta.scope['+i+'].desc=this.value">'+
+      '<button class="btn btn-danger" onclick="DATA.meta.scope.splice('+i+',1);renderScope()">×</button></div>';
+  }}).join('') || '<p style="color:var(--text2);font-size:12px;margin-bottom:8px">Nessun asset in scope.</p>';
+}}
+function addScopeRow(){{DATA.meta.scope.push({{host:'',desc:''}});renderScope();}}
+
+// ---- Findings ----
+function renderFindings(){{
+  var w=document.getElementById('w-findings');
+  var fs=DATA.meta.findings;
+  if(!fs.length){{w.innerHTML='<p style="color:var(--text2);font-size:12px;margin-bottom:10px">Nessun finding ancora. Aggiungine uno qui sotto.</p>';return;}}
+  w.innerHTML=fs.map(function(f,i){{
+    return '<div class="finding-item"><span style="color:var(--text2);font-size:12px">SLC-'+String(i+1).padStart(2,'0')+'</span>'+
+      sevBadge(f.severity)+'<span class="ft">'+esc(f.title)+'</span>'+
+      '<button class="btn" onclick="editFinding('+i+')">Modifica</button>'+
+      '<button class="btn btn-danger" onclick="delFinding('+i+')">×</button></div>';
+  }}).join('');
+}}
+function renderFindingForm(){{
+  var f = EDIT_IDX>=0 ? DATA.meta.findings[EDIT_IDX] : {{}};
+  var t = EDIT_IDX>=0 ? 'Modifica finding SLC-'+String(EDIT_IDX+1).padStart(2,'0') : 'Nuovo finding';
+  document.getElementById('w-finding-form').innerHTML =
+    '<div style="border:1px solid var(--border);border-radius:8px;padding:16px;margin-top:10px;background:var(--surface2)">'+
+    '<div style="font-weight:700;margin-bottom:10px;color:var(--accent)">'+t+'</div>'+
+    field('f-title','Titolo *',f.title,'es. LLMNR/NBT-NS Response Spoofing')+
+    '<div class="wiz-grid2">'+
+    '<div class="wiz-field"><label>Severità</label>'+sevSelect('f-sev',f.severity||'high')+'</div>'+
+    field('f-cvss','CVSS 3.1',f.cvss,'es. 9.5')+'</div>'+
+    '<div class="wiz-grid2">'+
+    field('f-cwe','CWE (solo numero)',f.cwe,'es. 522')+
+    field('f-assets','Asset interessati',f.assets,DATA.meta.domain)+'</div>'+
+    textarea('f-desc','Descrizione (incl. causa)',f.description,70)+
+    textarea('f-impact','Impatto',f.impact,60)+
+    textarea('f-remediation','Remediation',f.remediation,60)+
+    field('f-refs','Riferimenti (URL)',f.refs,'https://attack.mitre.org/...')+
+    textarea('f-evidence','Evidenze (output comandi / path screenshot)',f.evidence,70)+
+    '<button class="btn btn-primary" onclick="saveFinding()">'+(EDIT_IDX>=0?'Salva modifica':'+ Aggiungi finding')+'</button> '+
+    (EDIT_IDX>=0?'<button class="btn" onclick="EDIT_IDX=-1;renderFindingForm()">Annulla</button>':'')+
+    '</div>';
+}}
+function editFinding(i){{EDIT_IDX=i;renderFindingForm();window.scrollTo({{top:document.getElementById('w-finding-form').offsetTop-60,behavior:'smooth'}});}}
+function saveFinding(){{
+  var title=gv('f-title');
+  if(!title){{alert('Inserisci il titolo del finding.');return;}}
+  var f={{title:title,severity:gv('f-sev'),cvss:gv('f-cvss'),cwe:gv('f-cwe'),
+         assets:gv('f-assets'),description:document.getElementById('f-desc').value,
+         impact:document.getElementById('f-impact').value,
+         remediation:document.getElementById('f-remediation').value,
+         refs:gv('f-refs'),evidence:document.getElementById('f-evidence').value}};
+  fetch('/api/report/finding',{{method:'POST',headers:{{'Content-Type':'application/json'}},
+    body:JSON.stringify({{slug:SLUG,index:EDIT_IDX>=0?EDIT_IDX:null,finding:f}})
+  }}).then(r=>r.json()).then(d=>{{
+    if(d.ok){{EDIT_IDX=-1;loadData();}}
+    else alert(d.error||'Errore');
+  }}).catch(()=>alert('Errore di rete'));
+}}
+function delFinding(i){{
+  if(!confirm('Eliminare il finding SLC-'+String(i+1).padStart(2,'0')+'?'))return;
+  fetch('/api/report/finding/delete',{{method:'POST',headers:{{'Content-Type':'application/json'}},
+    body:JSON.stringify({{slug:SLUG,index:i}})
+  }}).then(r=>r.json()).then(d=>{{if(d.ok)loadData();else alert(d.error||'Errore');}})
+  .catch(()=>alert('Errore di rete'));
+}}
+
+// ---- Sommario finale ----
+function renderSummary(){{
+  var fs=DATA.meta.findings;
+  var c={{critical:0,high:0,medium:0,low:0,info:0}};
+  fs.forEach(function(f){{if(c[f.severity]!==undefined)c[f.severity]++;}});
+  document.getElementById('w-summary').innerHTML=
+    '<div style="border:1px solid var(--border);border-radius:8px;padding:14px;margin-top:8px;background:var(--bg)">'+
+    '<div style="font-size:12px;color:var(--text2);margin-bottom:8px">Riepilogo automatico — '+fs.length+' finding totali:</div>'+
+    '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">'+
+    sevBadge('critical')+' '+c.critical+' &nbsp; '+sevBadge('high')+' '+c.high+' &nbsp; '+
+    sevBadge('medium')+' '+c.medium+' &nbsp; '+sevBadge('low')+' '+c.low+' &nbsp; '+
+    sevBadge('info')+' '+c.info+'</div>'+
+    '<div style="margin-top:14px;display:flex;gap:8px;flex-wrap:wrap">'+
+    '<a class="btn" href="/report/view/'+SLUG+'" target="_blank">Anteprima completa</a>'+
+    (DATA.pdf?'<a class="btn" href="/report/pdf/'+SLUG+'" target="_blank">Apri PDF</a>':'')+
+    '<button class="btn btn-primary" onclick="buildPdf(this)">Genera PDF</button></div>'+
+    '<div style="font-size:12px;color:var(--text2);margin-top:10px">Da console: <code>report edit '+SLUG+'</code> (VS Code) · <code>report build '+SLUG+'</code> (PDF)</div>'+
+    '</div>';
+}}
+function buildPdf(btn){{
+  btn.disabled=true;btn.textContent='Build…';
+  saveStep(false,function(){{
+    fetch('/api/report/build',{{method:'POST',headers:{{'Content-Type':'application/json'}},
+      body:JSON.stringify({{slug:SLUG}})
+    }}).then(r=>r.json()).then(d=>{{
+      btn.disabled=false;btn.textContent='Genera PDF';
+      if(d.ok){{alert('PDF generato!');loadData();}}else alert('Build fallito:\n'+(d.error||'errore'));
+    }}).catch(()=>{{btn.disabled=false;btn.textContent='Genera PDF';alert('Errore di rete');}});
+  }});
+}}
+
+// ---- Salvataggio step ----
+function saveStep(advance,cb){{
+  var s=STEPS[CUR].id;
+  var done=function(ok,msg){{
+    if(cb){{cb();return;}}
+    if(ok&&advance&&CUR<STEPS.length-1)go(CUR+1);
+    else if(ok)loadData(true);
+    else if(msg)alert(msg);
+  }};
+  if(s==='info'){{
+    var client=gv('w-client');
+    if(!client){{alert('Il nome del cliente è obbligatorio.');return;}}
+    DATA.meta.client=client;DATA.meta.rtype=gv('w-rtype');DATA.meta.domain=gv('w-domain');
+    postMeta(done);
+  }} else if(s==='approccio'){{
+    DATA.meta.box=gv('w-box');DATA.meta.date_start=gv('w-dstart');DATA.meta.date_end=gv('w-dend');
+    postMeta(done);
+  }} else if(s==='perimetro'){{
+    DATA.meta.scope=DATA.meta.scope.filter(function(r){{return r.host.trim()||r.desc.trim();}});
+    postMeta(done);
+  }} else if(s==='findings'){{
+    done(true); // i finding si salvano singolarmente
+  }} else if(s==='walkthrough'){{
+    saveSection('compromissione',document.getElementById('w-compromissione').value,function(){{
+      saveSection('walkthrough',document.getElementById('w-walkthrough').value,function(){{done(true);}});
+    }});
+  }} else if(s==='remediation'){{
+    saveSection('remediation_breve',document.getElementById('w-rem-breve').value,function(){{
+      saveSection('remediation_medio',document.getElementById('w-rem-medio').value,function(){{
+        saveSection('remediation_lungo',document.getElementById('w-rem-lungo').value,function(){{done(true);}});
+      }});
+    }});
+  }} else if(s==='finale'){{
+    saveSection('considerazioni',document.getElementById('w-considerazioni').value,function(){{done(true);}});
+  }}
+}}
+function postMeta(done){{
+  fetch('/api/report/meta',{{method:'POST',headers:{{'Content-Type':'application/json'}},
+    body:JSON.stringify({{slug:SLUG,meta:DATA.meta}})
+  }}).then(r=>r.json()).then(d=>done(d.ok,d.error)).catch(()=>done(false,'Errore di rete'));
+}}
+function saveSection(name,content,done){{
+  fetch('/api/report/section',{{method:'POST',headers:{{'Content-Type':'application/json'}},
+    body:JSON.stringify({{slug:SLUG,section:name,content:content}})
+  }}).then(r=>r.json()).then(d=>done(d.ok,d.error)).catch(()=>done(false,'Errore di rete'));
+}}
+
+function loadData(stay){{
+  fetch('/api/report/data?slug='+encodeURIComponent(SLUG))
+  .then(r=>r.json()).then(d=>{{
+    if(!d.ok){{document.getElementById('wiz-panel').innerHTML='<p style="color:var(--red)">'+esc(d.error)+'</p>';return;}}
+    DATA=d;
+    if(!stay)renderNav(),renderStep();
+  }});
+}}
+loadData();
+</script>"""
+    return _base_html(f"Wizard — {client_e}", body, active="report")
 
 
 def _page_pet() -> str:
@@ -3766,6 +4096,14 @@ class SlRequestHandler(http.server.BaseHTTPRequestHandler):
             self._send_html(_page_burp())
         elif path == "/report":
             self._send_html(_page_report())
+        elif path.startswith("/report/wizard/"):
+            slug = path[15:]
+            if ".." in slug or "/" in slug:
+                self.send_error(403)
+            else:
+                self._send_html(_page_report_wizard(slug))
+        elif path == "/api/report/data":
+            self._api_report_data(qs.get("slug", [""])[0])
         elif path.startswith("/report/view/"):
             slug = path[13:]
             if ".." in slug or "/" in slug:
@@ -3903,6 +4241,14 @@ class SlRequestHandler(http.server.BaseHTTPRequestHandler):
             self._api_report_build()
         elif path == "/api/report/delete":
             self._api_report_delete()
+        elif path == "/api/report/meta":
+            self._api_report_meta()
+        elif path == "/api/report/finding":
+            self._api_report_finding()
+        elif path == "/api/report/finding/delete":
+            self._api_report_finding_delete()
+        elif path == "/api/report/section":
+            self._api_report_section()
         else:
             self.send_error(404)
 
@@ -4107,6 +4453,8 @@ class SlRequestHandler(http.server.BaseHTTPRequestHandler):
             body = json.loads(self._read_body())
             client = str(body.get("client", "")).strip()
             rtype = str(body.get("rtype", "")).strip() or "Penetration Test Interno"
+            box = str(body.get("box", "black")).strip()
+            domain = str(body.get("domain", "")).strip()
         except (json.JSONDecodeError, UnicodeDecodeError):
             self._send_json({"ok": False, "error": "JSON non valido"}, status=400)
             return
@@ -4115,7 +4463,7 @@ class SlRequestHandler(http.server.BaseHTTPRequestHandler):
             return
         try:
             from lib.report import create_report
-            out = create_report(client, rtype)
+            out = create_report(client, rtype, box=box, domain=domain)
             self._send_json({"ok": True, "slug": out.parent.name, "path": str(out)})
         except (ValueError, FileExistsError, FileNotFoundError) as e:
             self._send_json({"ok": False, "error": str(e)}, status=400)
@@ -4153,6 +4501,101 @@ class SlRequestHandler(http.server.BaseHTTPRequestHandler):
             self._send_json({"ok": True})
         except OSError as e:
             self._send_json({"ok": False, "error": str(e)}, status=500)
+
+    def _api_report_data(self, slug: str) -> None:
+        from lib.report import find_report, load_meta, get_sections
+        rep = find_report(slug)
+        if rep is None:
+            self._send_json({"ok": False, "error": "Report non trovato"}, status=404)
+            return
+        meta = load_meta(rep["slug"])
+        if meta is None:
+            self._send_json({"ok": False, "error": "meta.json mancante — report in vecchio formato"}, status=400)
+            return
+        md_text = Path(rep["md"]).read_text(encoding="utf-8", errors="replace")
+        self._send_json({"ok": True, "slug": rep["slug"], "meta": meta,
+                         "sections": get_sections(md_text),
+                         "pdf": bool(rep["pdf"])})
+
+    def _api_report_meta(self) -> None:
+        try:
+            body = json.loads(self._read_body())
+            slug = str(body.get("slug", "")).strip()
+            meta = body.get("meta", {})
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            self._send_json({"ok": False, "error": "JSON non valido"}, status=400)
+            return
+        from lib.report import find_report, load_meta, save_meta, sync_report
+        rep = find_report(slug)
+        if rep is None or not isinstance(meta, dict):
+            self._send_json({"ok": False, "error": "Report non trovato"}, status=404)
+            return
+        old = load_meta(rep["slug"]) or {}
+        for key in ("client", "rtype", "box", "domain", "date_start", "date_end", "scope"):
+            if key in meta:
+                old[key] = meta[key]
+        if not str(old.get("client", "")).strip():
+            self._send_json({"ok": False, "error": "Nome cliente obbligatorio"}, status=400)
+            return
+        save_meta(rep["slug"], old)
+        ok, msg = sync_report(rep["slug"])
+        self._send_json({"ok": ok, "error": None if ok else msg})
+
+    def _api_report_finding(self) -> None:
+        try:
+            body = json.loads(self._read_body())
+            slug = str(body.get("slug", "")).strip()
+            index = body.get("index")
+            finding = body.get("finding", {})
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            self._send_json({"ok": False, "error": "JSON non valido"}, status=400)
+            return
+        if not isinstance(finding, dict) or not str(finding.get("title", "")).strip():
+            self._send_json({"ok": False, "error": "Titolo del finding obbligatorio"}, status=400)
+            return
+        from lib.report import find_report, add_finding
+        rep = find_report(slug)
+        if rep is None:
+            self._send_json({"ok": False, "error": "Report non trovato"}, status=404)
+            return
+        idx = int(index) if isinstance(index, int) else None
+        ok, msg = add_finding(rep["slug"], finding, idx)
+        self._send_json({"ok": ok, "message": msg, "error": None if ok else msg},
+                        status=200 if ok else 400)
+
+    def _api_report_finding_delete(self) -> None:
+        try:
+            body = json.loads(self._read_body())
+            slug = str(body.get("slug", "")).strip()
+            index = int(body.get("index", -1))
+        except (json.JSONDecodeError, UnicodeDecodeError, ValueError):
+            self._send_json({"ok": False, "error": "JSON non valido"}, status=400)
+            return
+        from lib.report import find_report, delete_finding
+        rep = find_report(slug)
+        if rep is None:
+            self._send_json({"ok": False, "error": "Report non trovato"}, status=404)
+            return
+        ok, msg = delete_finding(rep["slug"], index)
+        self._send_json({"ok": ok, "error": None if ok else msg}, status=200 if ok else 400)
+
+    def _api_report_section(self) -> None:
+        try:
+            body = json.loads(self._read_body())
+            slug = str(body.get("slug", "")).strip()
+            section = str(body.get("section", "")).strip()
+            content = str(body.get("content", ""))
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            self._send_json({"ok": False, "error": "JSON non valido"}, status=400)
+            return
+        from lib.report import find_report, update_section
+        rep = find_report(slug)
+        if rep is None:
+            self._send_json({"ok": False, "error": "Report non trovato"}, status=404)
+            return
+        ok = update_section(rep["slug"], section, content)
+        self._send_json({"ok": ok, "error": None if ok else "Sezione non trovata nel .md"},
+                        status=200 if ok else 400)
 
     def _serve_report_raw(self, slug: str) -> None:
         if ".." in slug or "/" in slug:
