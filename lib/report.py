@@ -809,6 +809,42 @@ def import_evidence(slug: str, src: str) -> str:
     return str(dst.relative_to(PROJECT_ROOT))
 
 
+def apply_meta(text: str, meta: dict, slug: str) -> str:
+    """Applica i dati del meta al testo markdown (blocchi @@AUTO@@ + YAML)."""
+    text = _update_yaml(text, meta)
+    for name, fn in _RENDERERS.items():
+        text = _replace_block(text, name, fn(meta), kind="AUTO")
+    # sostituzioni globali del testo libero
+    text = text.replace("{{DOMAIN}}", meta.get("domain", "CLIENTE.LOCAL"))
+    text = text.replace("{{SLUG}}", slug)
+    return text
+
+
+def preview_md(slug: str, meta: dict | None = None,
+               sections: dict | None = None) -> str | None:
+    """Markdown finale (filtrato) per l'anteprima live, SENZA toccare i file.
+
+    meta/sections sono bozze provenienti dal wizard: vengono applicate
+    in memoria sopra il contenuto salvato.
+    """
+    md = report_md_path(slug)
+    if not md.is_file():
+        return None
+    text = md.read_text(encoding="utf-8", errors="replace")
+    stored = load_meta(slug) or {}
+    if meta:
+        for key in ("client", "rtype", "box", "domain", "date_start",
+                    "date_end", "scope", "findings", "style"):
+            if key in meta:
+                stored[key] = meta[key]
+    if sections:
+        for name, content in sections.items():
+            if re.fullmatch(r"[a-z_]+", name):
+                text = _replace_block(text, name, str(content), kind="SEZ")
+    text = apply_meta(text, stored, slug)
+    return filter_empty_sections(text)
+
+
 def sync_report(slug: str) -> tuple[bool, str]:
     """Rigenera i blocchi @@AUTO@@ del .md dai dati in meta.json."""
     meta = load_meta(slug)
@@ -821,12 +857,7 @@ def sync_report(slug: str) -> tuple[bool, str]:
     if "@@AUTO:" not in text:
         return False, ("Questo report non ha blocchi dinamici (vecchio formato). "
                        "Ricrealo con 'report new'.")
-    text = _update_yaml(text, meta)
-    for name, fn in _RENDERERS.items():
-        text = _replace_block(text, name, fn(meta), kind="AUTO")
-    # sostituzioni globali del testo libero
-    text = text.replace("{{DOMAIN}}", meta.get("domain", "CLIENTE.LOCAL"))
-    text = text.replace("{{SLUG}}", slug)
+    text = apply_meta(text, meta, slug)
     md.write_text(text, encoding="utf-8")
     return True, "Blocchi dinamici aggiornati"
 

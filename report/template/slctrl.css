@@ -124,13 +124,14 @@ table caption, caption {
 }
 
 /* card del finding: prima colonna = etichetta */
-.finding table { table-layout: fixed; }
+.finding table { table-layout: fixed; font-size: 8.5pt; margin: 2mm 0 1mm 0; }
 .finding table thead { display: none; }
+.finding table td { padding: 1.2mm 2mm; }
 .finding table td:first-child {
   background: #0F4068;
   color: #FFFFFF;
   font-weight: bold;
-  width: 28%;
+  width: 26%;
 }
 .finding table td:first-child strong { color: #FFFFFF; }
 th strong { color: #FFFFFF; }

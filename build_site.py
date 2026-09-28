@@ -521,8 +521,12 @@ def _page_report_static() -> str:
 </div>
 <script>
 {http_server._JS_REPORT_PREPROCESS}
+{http_server._JS_REPORT_STYLE}
 var TEMPLATE_MD = `{safe_md}`;
-document.getElementById('r-preview').innerHTML = marked.parse(preprocessReportMd(TEMPLATE_MD));
+var _rpEl = document.getElementById('r-preview');
+_rpEl.innerHTML = reportCoverHtml({{client:'Nome Cliente', rtype:'Penetration Test Interno', date_end:'', style:{{}}}}) +
+  marked.parse(preprocessReportMd(TEMPLATE_MD));
+applyReportStyleTo(_rpEl, null);
 </script>"""
     return _base_html_static("Report", body, active="report")
 

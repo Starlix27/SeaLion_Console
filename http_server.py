@@ -2200,25 +2200,45 @@ def _report_sev_css() -> str:
 .report-msg{margin-top:10px;font-size:13px;min-height:18px}
 .report-msg.ok{color:var(--green)}
 .report-msg.err{color:var(--red)}
-.report-preview{border:1px solid var(--border);border-radius:8px;background:#fff;color:#1a1a1a;padding:28px 32px;max-height:600px;overflow-y:auto;font-family:Georgia,'Times New Roman',serif;font-size:14px;line-height:1.55}
-.report-preview h1,.report-preview h2,.report-preview h3{color:#0F4068;font-family:'Segoe UI',Arial,sans-serif;margin:18px 0 8px}
-.report-preview h1{font-size:20px;border-bottom:2px solid #0F4068;padding-bottom:4px}
-.report-preview h2{font-size:16px}
-.report-preview h3{font-size:14px}
-.report-preview table{border-collapse:collapse;width:100%;margin:10px 0;font-size:12px}
-.report-preview th,.report-preview td{border:1px solid #ccc;padding:5px 8px;text-align:left;vertical-align:top}
-.report-preview th{background:#0F4068;color:#fff;font-family:'Segoe UI',Arial,sans-serif}
-.report-preview tr:nth-child(even) td{background:#f2f6fa}
-.report-preview code{background:#eef1f4;padding:1px 5px;border-radius:3px;font-size:12px;color:#b03a48}
-.report-preview pre{background:#f4f6f8;border:1px solid #dde3e9;border-radius:6px;padding:10px 14px;overflow-x:auto}
+.report-preview{--rpc:#0F4068;--rpc2:#2D5F8A;--rpdark:#0F2A44;--rpborder:#D5DEE8;--rpbg:#E9F0F7;--rpzebra:#F3F6FA;border:1px solid var(--border);border-radius:8px;background:#fff;color:#1a1a1a;padding:16px 20px;max-height:600px;overflow-y:auto;font-family:Georgia,'Times New Roman',serif;font-size:13px;line-height:1.45}
+.report-preview h1,.report-preview h2,.report-preview h3{color:var(--rpc);font-family:'Segoe UI',Arial,sans-serif;margin:12px 0 6px}
+.report-preview h1{font-size:18px;border-bottom:2px solid var(--rpc);padding-bottom:3px}
+.report-preview h2{font-size:15px}
+.report-preview h3{font-size:13px;color:var(--rpc2)}
+.report-preview p{margin:0 0 6px}
+.report-preview a{color:var(--rpc2)}
+.report-preview strong{color:var(--rpdark)}
+.report-preview table{border-collapse:collapse;width:100%;margin:6px 0;font-size:11px}
+.report-preview th,.report-preview td{border:1px solid var(--rpborder);padding:3px 6px;text-align:left;vertical-align:top}
+.report-preview th{background:var(--rpc);color:#fff;font-family:'Segoe UI',Arial,sans-serif}
+.report-preview tr:nth-child(even) td{background:var(--rpzebra)}
+.report-preview code{background:var(--rpbg);padding:1px 4px;border-radius:3px;font-size:11px;color:#b03a48}
+.report-preview pre{background:#f4f6f8;border:1px solid var(--rpborder);border-left:3px solid var(--rpc);border-radius:5px;padding:6px 10px;overflow-x:auto;margin:6px 0;font-size:11px}
 .report-preview pre code{background:none;color:#333;padding:0}
-.report-preview blockquote{border-left:3px solid #0F4068;margin:10px 0;padding:4px 14px;color:#555;background:#f7f9fb}
+.report-preview blockquote{border-left:3px solid var(--rpc);margin:8px 0;padding:2px 12px;color:#555;background:#f7f9fb}
 .report-preview img{max-width:100%}
+.report-preview hr{border:none;border-top:1px dashed var(--rpborder);margin:10px 0}
 .report-preview .sev-critical{background:#b91c1c;color:#fff;border:none}
 .report-preview .sev-high{background:#dc2626;color:#fff;border:none}
 .report-preview .sev-medium{background:#d97706;color:#fff;border:none}
 .report-preview .sev-low{background:#2563eb;color:#fff;border:none}
 .report-preview .sev-info{background:#059669;color:#fff;border:none}
+.report-preview .fcard{border:1px solid var(--rpborder);border-left:3px solid var(--rpc);border-radius:6px;margin:8px 0;font-family:'Segoe UI',Arial,sans-serif;font-size:11.5px;overflow:hidden}
+.report-preview .frow{display:flex;border-bottom:1px solid var(--rpborder)}
+.report-preview .frow:last-child{border-bottom:none}
+.report-preview .frow:nth-child(even){background:var(--rpzebra)}
+.report-preview .fk{width:140px;flex-shrink:0;background:var(--rpc);color:#fff;font-weight:700;padding:4px 8px}
+.report-preview .frow:nth-child(even) .fk{background:var(--rpc)}
+.report-preview .fv{padding:4px 8px;flex:1;min-width:0;word-wrap:break-word}
+.report-preview figure{margin:8px 0;text-align:center}
+.report-preview figcaption{font-style:italic;font-size:11px;color:#5A6B7C;margin-top:3px}
+.rp-cover{position:relative;background:linear-gradient(160deg,#fdfdff 60%,var(--rpbg));border:1px solid var(--rpborder);border-radius:6px;padding:36px 28px 60px;margin-bottom:18px;text-align:center;font-family:'Segoe UI',Arial,sans-serif}
+.rp-cover-client{display:inline-block;background:var(--rpbg);color:var(--rpc);padding:8px 22px;font-size:14px;font-weight:700;letter-spacing:3px;text-transform:uppercase}
+.rp-cover-title{margin-top:22px;font-size:19px;font-weight:700;color:var(--rpc);line-height:1.5}
+.rp-cover-meta{position:absolute;bottom:26px;right:20px;text-align:right;font-size:11px;color:#44576B}
+.rp-cover-meta strong{color:var(--rpc);font-size:12px}
+.rp-cover-foot{position:absolute;bottom:0;left:0;right:0;border-top:1px dotted var(--rpborder);padding:5px;font-size:9px;color:#5A6B7C}
+.rp-cover-foot strong{color:var(--rpc)}
 .report-cmd{background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:10px 14px;font-size:13px;margin:6px 0}
 .report-cmd .c{color:var(--accent)}
 .msf-result{border:1px solid var(--border);border-radius:6px;padding:8px 12px;margin-bottom:6px;background:var(--bg);font-size:12px}
@@ -2237,6 +2257,19 @@ _JS_REPORT_PREPROCESS = r"""
 function preprocessReportMd(md){
   md = md.replace(/^---[\s\S]*?---\n/, '');
   md = md.replace(/\{\{[A-Z_]+\}\}/g, '');
+  // card finding ::: {.finding} -> tabella compatta HTML
+  md = md.replace(/^[ \t]*:::[ \t]*\{\.finding\}[ \t]*\n([\s\S]*?)^[ \t]*:::[ \t]*$/gm,
+    function(m, inner){
+      var rows = [];
+      inner.split('\n').forEach(function(l){
+        var mm = /^\|\s*\*\*([^*]+)\*\*\s*\|\s*([\s\S]*?)\s*\|\s*$/.exec(l);
+        if (mm){
+          var v = (typeof marked !== 'undefined') ? marked.parseInline(mm[2]) : mm[2];
+          rows.push('<div class="frow"><span class="fk">'+mm[1]+'</span><span class="fv">'+v+'</span></div>');
+        }
+      });
+      return '\n\n<div class="fcard">'+rows.join('')+'</div>\n\n';
+    });
   md = md.replace(/^\s*:::.*$/gm, '');
   md = md.replace(/^:[ \t]+((?:Tabella|Figura)\b[^\n]*)$/gm, '\n*$1*\n');
   md = md.replace(/\]\(reports\/([^)\/]+)\/evidence\/([^)\s]+)\)/g, '](/report/img/$1/$2)');
@@ -2267,6 +2300,65 @@ function preprocessReportMd(md){
   }
   md = md.replace(/\n{3,}/g, '\n\n');
   return md + firma;
+}
+"""
+
+
+# Stile live per le anteprime: applica i colori scelti (sezione Stile) e
+# genera la copertina sopra l'anteprima.
+_JS_REPORT_STYLE = r"""
+function _rpEsc(s){ var d = document.createElement('div'); d.textContent = s || ''; return d.innerHTML; }
+function _rpShade(hex, d){
+  hex = (hex || '#0F4068').replace('#', '');
+  if (hex.length === 3) hex = hex.replace(/./g, '$&$&');
+  var r = parseInt(hex.substr(0,2),16)/255, g = parseInt(hex.substr(2,2),16)/255, b = parseInt(hex.substr(4,2),16)/255;
+  var mx = Math.max(r,g,b), mn = Math.min(r,g,b), l = (mx+mn)/2, h = 0, s = 0;
+  if (mx !== mn){
+    var dd = mx-mn;
+    s = l > 0.5 ? dd/(2-mx-mn) : dd/(mx+mn);
+    if (mx === r) h = (g-b)/dd + (g < b ? 6 : 0);
+    else if (mx === g) h = (b-r)/dd + 2;
+    else h = (r-g)/dd + 4;
+    h /= 6;
+  }
+  l = Math.min(1, Math.max(0, l + d));
+  function hue(p, q, t){ if(t<0)t+=1; if(t>1)t-=1; if(t<1/6)return p+(q-p)*6*t; if(t<1/2)return q; if(t<2/3)return p+(q-p)*(2/3-t)*6; return p; }
+  var q = l < 0.5 ? l*(1+s) : l+s-l*s, p = 2*l-q;
+  r = hue(p,q,h+1/3); g = hue(p,q,h); b = hue(p,q,h-1/3);
+  function tc(x){ return ('0'+Math.round(x*255).toString(16)).slice(-2); }
+  return '#'+tc(r)+tc(g)+tc(b);
+}
+var _RP_PRESETS = {navy:'#0F4068', red:'#8B1A1A', black:'#1F2429', green:'#1E5B38', yellow:'#8A6200'};
+function reportColors(meta){
+  var st = (meta && meta.style) || {};
+  var c1 = (st.preset === 'custom' && st.color) ? st.color : (_RP_PRESETS[st.preset] || _RP_PRESETS.navy);
+  var c2 = st.color2 || _rpShade(c1, 0.12);
+  return {c1: c1, c2: c2};
+}
+function applyReportStyleTo(el, meta){
+  var c = reportColors(meta);
+  el.style.setProperty('--rpc', c.c1);
+  el.style.setProperty('--rpc2', c.c2);
+  el.style.setProperty('--rpdark', _rpShade(c.c1, -0.12));
+  el.style.setProperty('--rpborder', _rpShade(c.c1, 0.66));
+  el.style.setProperty('--rpbg', _rpShade(c.c1, 0.84));
+  el.style.setProperty('--rpzebra', _rpShade(c.c1, 0.9));
+}
+function reportCoverHtml(meta){
+  var m = meta || {}, st = m.style || {};
+  var logo = (st.logo || '').replace(/^reports\/([^\/]+)\/evidence\//, '/report/img/$1/');
+  var company = st.company || 'SLCtrl';
+  var date = m.date_end || m.date_start || '';
+  return '<div class="rp-cover">'+
+    (logo ? '<img src="'+logo+'" style="max-width:150px;max-height:70px;margin-bottom:14px">' : '')+
+    '<div class="rp-cover-client">'+_rpEsc(m.client || 'Cliente')+'</div>'+
+    '<div class="rp-cover-title">'+_rpEsc(m.rtype || 'Penetration Test')+'<br>'+
+    '<span style="font-size:13px;font-weight:400">Report Finale</span></div>'+
+    '<div class="rp-cover-meta"><strong>'+_rpEsc(m.client || '')+'</strong><br>'+
+    (st.author ? 'Redatto da: '+_rpEsc(st.author)+'<br>' : '')+
+    (date ? _rpEsc(date)+'<br>' : '')+'<em>Versione 1.0</em></div>'+
+    '<div class="rp-cover-foot"><strong>'+_rpEsc(company)+' — Riservato</strong> · '+
+    'Nessuna parte di questo documento può essere divulgata a soggetti esterni</div></div>';
 }
 """
 
@@ -2358,8 +2450,12 @@ def _page_report() -> str:
 </div>
 <script>
 {_JS_REPORT_PREPROCESS}
+{_JS_REPORT_STYLE}
 var TEMPLATE_MD = `{safe_md}`;
-document.getElementById('r-preview').innerHTML = marked.parse(preprocessReportMd(TEMPLATE_MD));
+var _rpEl = document.getElementById('r-preview');
+_rpEl.innerHTML = reportCoverHtml({{client:'Nome Cliente', rtype:'Penetration Test Interno', date_end:'', style:{{}}}}) +
+  marked.parse(preprocessReportMd(TEMPLATE_MD));
+applyReportStyleTo(_rpEl, null);
 
 function msg(t, ok) {{
   var el = document.getElementById('r-msg');
@@ -2430,8 +2526,17 @@ def _page_report_view(slug: str) -> str:
 </div>
 <script>
 {_JS_REPORT_PREPROCESS}
+{_JS_REPORT_STYLE}
 var MD = `{safe_md}`;
-document.getElementById('r-preview').innerHTML = marked.parse(preprocessReportMd(MD));
+var _rpEl = document.getElementById('r-preview');
+function renderView(meta) {{
+  _rpEl.innerHTML = reportCoverHtml(meta) + marked.parse(preprocessReportMd(MD));
+  applyReportStyleTo(_rpEl, meta);
+}}
+renderView({{client: '{title}', rtype: '', date_end: '', style: {{}}}});
+fetch('/api/report/data?slug={slug_e}').then(r => r.json()).then(d => {{
+  if (d.ok) renderView(d.meta);
+}}).catch(() => {{}});
 function buildReport(slug, btn) {{
   btn.disabled = true; btn.textContent = 'Build…';
   fetch('/api/report/build', {{
@@ -2460,9 +2565,9 @@ def _page_report_wizard(slug: str) -> str:
     body = f"""<div class="container" style="max-width:1000px">
 <div class="breadcrumb"><a href="/">Home</a> <span>/</span> <a href="/report">Report</a> <span>/</span> {slug_e} <span>/</span> Wizard</div>
 <div class="page-title">Wizard — {client_e}</div>
-<div class="page-sub">Compila il report una sezione alla volta. I conteggi delle severit&agrave; e le tabelle si aggiornano da soli.</div>
+<div class="page-sub">Compila il report una sezione alla volta — l’anteprima a destra (copertina inclusa) si aggiorna in tempo reale con colori e stile scelti.</div>
 <style>{_report_sev_css()}
-.wiz-layout{{display:grid;grid-template-columns:210px 1fr;gap:20px;margin-top:8px}}
+.wiz-layout{{display:grid;grid-template-columns:190px minmax(0,1fr) minmax(0,1fr);gap:16px;margin-top:8px}}
 .wiz-nav{{display:flex;flex-direction:column;gap:4px}}
 .wiz-step-btn{{text-align:left;background:var(--surface);border:1px solid var(--border);color:var(--text2);padding:9px 12px;border-radius:6px;cursor:pointer;font-family:inherit;font-size:13px;display:flex;gap:8px;align-items:center}}
 .wiz-step-btn:hover{{border-color:var(--accent);color:var(--text)}}
@@ -2473,6 +2578,9 @@ def _page_report_wizard(slug: str) -> str:
 .wiz-panel h3{{margin-bottom:4px;font-size:15px}}
 .wiz-hint{{font-size:12px;color:var(--text2);margin-bottom:14px}}
 .wiz-actions{{display:flex;justify-content:space-between;margin-top:18px}}
+.wiz-side{{position:sticky;top:8px;align-self:start}}
+.wiz-side-title{{font-size:12px;font-weight:700;color:var(--text2);margin-bottom:6px;text-transform:uppercase;letter-spacing:1px}}
+#wiz-preview{{max-height:82vh;font-size:12px}}
 .wiz-field{{margin-bottom:12px}}
 .wiz-field label{{display:block;font-size:12px;color:var(--text2);margin-bottom:4px;font-weight:600}}
 .wiz-field input[type=text],.wiz-field select,.wiz-field textarea{{width:100%;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:8px 10px;font-family:inherit;font-size:13px;outline:none;box-sizing:border-box}}
@@ -2483,15 +2591,23 @@ def _page_report_wizard(slug: str) -> str:
 .finding-item .ft{{font-weight:600;flex:1;min-width:150px}}
 .scope-row{{display:flex;gap:8px;margin-bottom:6px}}
 .scope-row input{{background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:7px 10px;font-family:inherit;font-size:13px;outline:none}}
+#w-md{{font-family:'JetBrains Mono',monospace;font-size:12px;min-height:60vh}}
+@media(max-width:1200px){{.wiz-layout{{grid-template-columns:190px minmax(0,1fr)}}.wiz-side{{display:none}}}}
 @media(max-width:800px){{.wiz-layout{{grid-template-columns:1fr}}.wiz-nav{{flex-direction:row;flex-wrap:wrap}}}}
 </style>
 
 <div class="wiz-layout">
 <div class="wiz-nav" id="wiz-nav"></div>
 <div class="wiz-panel" id="wiz-panel"></div>
+<div class="wiz-side">
+  <div class="wiz-side-title">Anteprima live</div>
+  <div class="report-preview" id="wiz-preview"></div>
+</div>
 </div>
 </div>
 <script>
+{_JS_REPORT_PREPROCESS}
+{_JS_REPORT_STYLE}
 var SLUG = '{slug_e}';
 var DATA = null;
 var CUR = 0;
@@ -2506,6 +2622,7 @@ var STEPS = [
   {{id:'remediation', label:'Remediation'}},
   {{id:'appendici', label:'Appendici'}},
   {{id:'stile',    label:'Stile'}},
+  {{id:'markdown', label:'Markdown'}},
   {{id:'finale',   label:'Considerazioni & PDF'}},
 ];
 var STYLE_PRESETS = {{navy:'Blu navy (default)',red:'Rosso',black:'Nero',green:'Verde',yellow:'Giallo / ambra',custom:'Personalizzato'}};
@@ -2601,6 +2718,10 @@ function renderStep(){{
       '<div class="wiz-field"><label>Firma (immagine)</label><input type="file" id="w-sig-file" accept="image/*" onchange="uploadAsset(this,\\'signature\\')">'+
       '<div id="w-sig-cur" style="font-size:12px;color:var(--text2);margin-top:4px">'+(st.signature?'Attuale: '+esc(st.signature):'Firma di default (report/assets/firma.png)')+'</div></div></div>'+
       '<div class="wiz-hint">Se autore e azienda sono vuoti, il blocco firma non compare nel PDF.</div>';
+  }} else if(s==='markdown'){{
+    h='<h3>Markdown (modifica diretta)</h3><div class="wiz-hint">Modifica il file .md direttamente: l’anteprima a destra si aggiorna in tempo reale. '+
+      'Attenzione: i blocchi <code>@@AUTO@@</code> vengono rigenerati dal sync (meta/wizard) — modifica piuttosto i dati dagli altri step.</div>'+
+      '<textarea id="w-md" spellcheck="false">'+esc(DATA.raw||'')+'</textarea>';
   }} else if(s==='finale'){{
     h='<h3>Considerazioni Finali &amp; PDF</h3><div class="wiz-hint">Osservazioni conclusive, poi genera il PDF finale.</div>'+
       textarea('w-considerazioni','Considerazioni finali',sec.considerazioni,150)+
@@ -2617,6 +2738,58 @@ function renderStep(){{
   if(s==='findings'){{renderFindings();renderFindingForm();}}
   if(s==='finale')renderSummary();
   if(s==='approccio')updateApproachPreview();
+  if(s==='markdown'){{
+    document.getElementById('w-md').addEventListener('input',function(){{schedulePreview();}});
+  }}
+  p.querySelectorAll('input,textarea,select').forEach(function(el){{
+    el.addEventListener('input',function(){{schedulePreview();}});
+    el.addEventListener('change',function(){{schedulePreview();}});
+  }});
+  refreshPreview();
+}}
+
+// ---- Anteprima live ----
+var PV_TIMER=null;
+function schedulePreview(){{clearTimeout(PV_TIMER);PV_TIMER=setTimeout(refreshPreview,500);}}
+function collectDraft(){{
+  var meta=JSON.parse(JSON.stringify(DATA.meta));
+  var sections={{}};
+  var s=STEPS[CUR].id;
+  if(s==='info'){{meta.client=gv('w-client');meta.rtype=gv('w-rtype');meta.domain=gv('w-domain');}}
+  else if(s==='approccio'){{meta.box=gv('w-box');meta.date_start=gv('w-dstart');meta.date_end=gv('w-dend');}}
+  else if(s==='perimetro'){{meta.scope=(meta.scope||[]).filter(function(r){{return (r.host||'').trim()||(r.desc||'').trim();}});}}
+  else if(s==='walkthrough'){{sections.compromissione=document.getElementById('w-compromissione').value;sections.walkthrough=document.getElementById('w-walkthrough').value;}}
+  else if(s==='remediation'){{sections.remediation_breve=document.getElementById('w-rem-breve').value;sections.remediation_medio=document.getElementById('w-rem-medio').value;sections.remediation_lungo=document.getElementById('w-rem-lungo').value;}}
+  else if(s==='appendici'){{sections.appendice_host=document.getElementById('w-app-host').value;sections.appendice_utenti=document.getElementById('w-app-utenti').value;sections.appendice_bonifica=document.getElementById('w-app-bonifica').value;sections.appendice_password=document.getElementById('w-app-password').value;}}
+  else if(s==='stile'){{
+    meta.style=meta.style||{{}};
+    meta.style.preset=gv('w-preset');
+    meta.style.color=(gv('w-preset')==='custom')?gv('w-color1'):'';
+    meta.style.color2=document.getElementById('w-color2-on').checked?gv('w-color2'):'';
+    meta.style.author=gv('w-author');meta.style.company=gv('w-company');meta.style.role=gv('w-role');
+  }}
+  else if(s==='finale'){{sections.considerazioni=document.getElementById('w-considerazioni').value;}}
+  return {{meta:meta,sections:sections}};
+}}
+function renderPreviewMd(md,meta){{
+  var el=document.getElementById('wiz-preview');
+  if(!el)return;
+  el.innerHTML=reportCoverHtml(meta)+marked.parse(preprocessReportMd(md));
+  applyReportStyleTo(el,meta);
+}}
+function refreshPreview(){{
+  var s=STEPS[CUR].id;
+  var d=collectDraft();
+  if(s==='markdown'){{
+    var t=document.getElementById('w-md').value;
+    renderPreviewMd(t,d.meta);
+    return;
+  }}
+  fetch('/api/report/preview',{{method:'POST',headers:{{'Content-Type':'application/json'}},
+    body:JSON.stringify({{slug:SLUG,meta:d.meta,sections:d.sections}})
+  }}).then(r=>r.json()).then(function(res){{
+    if(res.ok)renderPreviewMd(res.md,d.meta);
+  }}).catch(()=>{{}});
 }}
 
 function sevSelectBox(val){{
@@ -2880,6 +3053,10 @@ function saveStep(advance,cb){{
     DATA.meta.style.company=gv('w-company');
     DATA.meta.style.role=gv('w-role');
     postMeta(done);
+  }} else if(s==='markdown'){{
+    fetch('/api/report/raw',{{method:'POST',headers:{{'Content-Type':'application/json'}},
+      body:JSON.stringify({{slug:SLUG,content:document.getElementById('w-md').value}})
+    }}).then(r=>r.json()).then(d=>done(d.ok,d.error)).catch(()=>done(false,'Errore di rete'));
   }} else if(s==='finale'){{
     saveSection('considerazioni',document.getElementById('w-considerazioni').value,function(){{done(true);}});
   }}
@@ -2901,6 +3078,7 @@ function loadData(stay){{
     if(!d.ok){{document.getElementById('wiz-panel').innerHTML='<p style="color:var(--red)">'+esc(d.error)+'</p>';return;}}
     DATA=d;
     if(!stay)renderNav(),renderStep();
+    else refreshPreview();
   }});
 }}
 loadData();
@@ -4462,6 +4640,10 @@ class SlRequestHandler(http.server.BaseHTTPRequestHandler):
             self._api_report_section()
         elif path == "/api/report/asset":
             self._api_report_asset()
+        elif path == "/api/report/preview":
+            self._api_report_preview()
+        elif path == "/api/report/raw":
+            self._api_report_raw()
         else:
             self.send_error(404)
 
@@ -4729,7 +4911,7 @@ class SlRequestHandler(http.server.BaseHTTPRequestHandler):
         sections = {k: re.sub(r"<!--.*?-->", "", v, flags=re.S).strip()
                     for k, v in get_sections(md_text).items()}
         self._send_json({"ok": True, "slug": rep["slug"], "meta": meta,
-                         "sections": sections,
+                         "sections": sections, "raw": md_text,
                          "pdf": bool(rep["pdf"])})
 
     def _api_report_meta(self) -> None:
@@ -4866,6 +5048,53 @@ class SlRequestHandler(http.server.BaseHTTPRequestHandler):
             self._send_json({"ok": False, "error": str(e)}, status=500)
             return
         self._send_json({"ok": True, "path": str(dst.relative_to(_PR))})
+
+    def _api_report_preview(self) -> None:
+        """Anteprima live: markdown finale calcolato in memoria (nessun file toccato)."""
+        try:
+            body = json.loads(self._read_body())
+            slug = str(body.get("slug", "")).strip()
+            meta = body.get("meta")
+            sections = body.get("sections")
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            self._send_json({"ok": False, "error": "JSON non valido"}, status=400)
+            return
+        from lib.report import find_report, preview_md
+        rep = find_report(slug)
+        if rep is None:
+            self._send_json({"ok": False, "error": "Report non trovato"}, status=404)
+            return
+        md = preview_md(rep["slug"],
+                        meta if isinstance(meta, dict) else None,
+                        sections if isinstance(sections, dict) else None)
+        if md is None:
+            self._send_json({"ok": False, "error": "File .md non trovato"}, status=404)
+            return
+        self._send_json({"ok": True, "md": md})
+
+    def _api_report_raw(self) -> None:
+        """Salvataggio del markdown grezzo (editor Markdown nel wizard)."""
+        try:
+            body = json.loads(self._read_body())
+            slug = str(body.get("slug", "")).strip()
+            content = str(body.get("content", ""))
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            self._send_json({"ok": False, "error": "JSON non valido"}, status=400)
+            return
+        from lib.report import find_report, report_md_path
+        rep = find_report(slug)
+        if rep is None:
+            self._send_json({"ok": False, "error": "Report non trovato"}, status=404)
+            return
+        if not content.strip():
+            self._send_json({"ok": False, "error": "Contenuto vuoto"}, status=400)
+            return
+        try:
+            report_md_path(rep["slug"]).write_text(content, encoding="utf-8")
+        except OSError as e:
+            self._send_json({"ok": False, "error": str(e)}, status=500)
+            return
+        self._send_json({"ok": True})
 
     def _serve_report_image(self, slug: str, fname: str) -> None:
         if ".." in fname or "/" in fname:
