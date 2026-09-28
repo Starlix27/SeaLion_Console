@@ -198,7 +198,7 @@ def build_report(name: str | None) -> tuple[bool, str]:
              "--template", str(TEMPLATE_HTML),
              "--css", str(TEMPLATE_CSS),
              "--toc", "--toc-depth=2",
-             "--syntax-highlighting=none",
+             "--no-highlight",
              "-o", str(tmp_path)],
             cwd=PROJECT_ROOT, capture_output=True, text=True, timeout=120,
         )

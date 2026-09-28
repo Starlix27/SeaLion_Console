@@ -78,6 +78,8 @@ REPO_URL = "https://github.com/Starlix27/SeaLion.git"
 
 
 def auto_update() -> None:
+    if os.environ.get("SEALION_NO_UPDATE"):
+        return
     if not (PROJECT_ROOT / ".git").is_dir():
         return
     try:
