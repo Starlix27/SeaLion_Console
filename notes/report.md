@@ -42,8 +42,17 @@ slconsole> report add acme-corp
   Usa il modulo n. (invio per nessuno): 1
 ```
 
-Scegliendo un modulo, **titolo, descrizione, severità (dal rank), CVE e
-riferimenti** vengono precompilati e finiscono nei *Dettagli Tecnici dei Finding*.
+Scegliendo un modulo, **tutti i campi** del finding vengono precompilati dai
+dati offline di Metasploit: titolo, descrizione, severità (dal rank), CVE,
+**CWE** (dai riferimenti del modulo, altrimenti stimata dal tipo di
+vulnerabilità), **CVSS 3.1 stimato** (dal rank MSF — segnato come *stima*, da
+verificare su NVD), **impatto**, **remediation**, **asset** (dal perimetro) e
+**riferimenti** (NVD, bollettini Microsoft, Exploit-DB, URL del modulo).
+
+Lo stesso riempimento automatico (`autofill_finding`) avviene anche **in fase
+di build/anteprima** per i finding con campi lasciati vuoti: nel PDF le
+caselle dei *Dettagli Tecnici* non restano mai vuote. Il testo inserito a mano
+non viene mai sovrascritto.
 
 ## Immagini con didascalia
 
@@ -62,8 +71,8 @@ senza lasciare spazi vuoti.
 
 Dal wizard SLWeb, sezione **Stile**:
 
-- **Colore**: blu navy (default), rosso, nero, verde, giallo/ambra oppure
-  personalizzato (hex), con eventuale **secondo colore** d'accento
+- **Colore principale**: blu navy (default), rosso, nero, verde,
+  giallo/ambra — tutta la palette del report deriva da questa scelta
 - **Logo** del report (mostrato in cover)
 - **Autore** e **azienda** che eseguono il test (cover, footer e testi dinamici)
 - **Firma** (immagine): blocco firma generato automaticamente a fine report;
@@ -129,13 +138,22 @@ Con SLWeb attivo (`serve on`), la pagina `/report` permette di creare il report
 1. **Cliente & Test** — nome cliente, tipo di test, dominio
 2. **Approccio** — tipo di box (black/grey/white) e date: il testo si genera da solo
 3. **Perimetro** — tabella degli asset in scope
-4. **Finding (CVE/MSF)** — ricerca offline nel db di Metasploit, severity e
-   conteggi live, immagini con didascalia
+4. **Finding (CVE/MSF)** — ricerca offline nel db di Metasploit: "Usa"
+   compila **tutti** i campi del finding (CWE, CVSS stimato, impatto,
+   remediation, asset, riferimenti); severity e conteggi live, immagini con
+   didascalia
 5. **Walkthrough** — compromissione e percorso di attacco (Markdown libero)
 6. **Remediation** — breve / medio / lungo termine
 7. **Appendici** — host compromessi, utenti compromessi, bonifica, analisi password
 8. **Stile** — colori, logo, autore/azienda, firma
-9. **Considerazioni finali & PDF** — sommario severity, anteprima e generazione PDF
+9. **Markdown** — editor vero del file `.md` (syntax highlight, Tab per
+   indentare, liste che continuano con Invio, scorciatoie Ctrl+B/I/E/K,
+   status bar riga/colonna) con anteprima che segue il cursore
+10. **Considerazioni finali & PDF** — sommario severity, anteprima e generazione PDF
+
+L'**anteprima live** a destra del wizard (copertina inclusa, con i colori dello
+stile scelto) si aggiorna mentre scrivi e **si riposiziona** sulla sezione che
+stai modificando (step corrente o posizione del cursore nel markdown).
 
 Ogni passo ha "Salva" e "Salva e continua". Dalla pagina `/report` anche
 anteprima completa, download `.md` / `.pdf` ed eliminazione.

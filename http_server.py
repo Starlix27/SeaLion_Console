@@ -2304,6 +2304,97 @@ function preprocessReportMd(md){
 """
 
 
+# Editor Markdown "vero" (textarea con syntax highlight sovrapposto, scorciatoie
+# da tastiera, status bar) — nessuna dipendenza esterna, funziona offline.
+_JS_MD_EDITOR = r"""
+function _mdHlEsc(s){ return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function mdHighlight(src){
+  var lines = src.split('\n'), out = [], inFence = false, inCom = false;
+  for (var i = 0; i < lines.length; i++){
+    var raw = lines[i], l = _mdHlEsc(raw);
+    if (inFence){
+      out.push('<span class="tk-fence">' + l + '</span>');
+      if (/^\s*```/.test(raw)) inFence = false;
+      continue;
+    }
+    if (/^\s*```/.test(raw)){ inFence = true; out.push('<span class="tk-fence">' + l + '</span>'); continue; }
+    if (inCom){
+      out.push('<span class="tk-com">' + l + '</span>');
+      if (raw.indexOf('-->') >= 0) inCom = false;
+      continue;
+    }
+    if (/^\s*<!--/.test(raw) && raw.indexOf('-->') < 0){ inCom = true; out.push('<span class="tk-com">' + l + '</span>'); continue; }
+    l = l.replace(/(`+)([^`]*?)\1/g, '<span class="tk-code">$1$2$1</span>');
+    l = l.replace(/!\[([^\]]*)\]\(([^)]*)\)/g, '<span class="tk-link">![$1]($2)</span>');
+    l = l.replace(/\[([^\]]+)\]\(([^)]*)\)/g, '<span class="tk-link">[$1]($2)</span>');
+    l = l.replace(/\*\*([^*]+)\*\*/g, '<span class="tk-b">**$1**</span>');
+    l = l.replace(/(^|[^*])\*([^*\n]+)\*(?!\*)/g, '$1<span class="tk-i">*$2*</span>');
+    if (/^\s*<!--/.test(raw)) l = '<span class="tk-com">' + l + '</span>';
+    else if (/^\s*#{1,6}\s/.test(raw)) l = '<span class="tk-h">' + l + '</span>';
+    else if (/^\s*(\|.*\|)\s*$/.test(raw)) l = '<span class="tk-tbl">' + l + '</span>';
+    else if (/^\s*([-*+]|\d+\.)\s/.test(raw)) l = l.replace(/^(\s*)([-*+]|\d+\.)/, '$1<span class="tk-list">$2</span>');
+    else if (/^\s*:\s+(Tabella|Figura)/.test(raw)) l = '<span class="tk-cap">' + l + '</span>';
+    else if (/^\s*(---|\*\*\*|___)\s*$/.test(raw)) l = '<span class="tk-h">' + l + '</span>';
+    out.push(l);
+  }
+  return out.join('\n');
+}
+function mdSyncScroll(){
+  var ta = document.getElementById('w-md'), hl = document.getElementById('w-md-hl');
+  if (!ta || !hl) return;
+  hl.scrollTop = ta.scrollTop; hl.scrollLeft = ta.scrollLeft;
+}
+function mdStatus(){
+  var ta = document.getElementById('w-md'), st = document.getElementById('w-md-status');
+  if (!ta || !st) return;
+  var pos = ta.selectionStart || 0, upto = ta.value.substring(0, pos);
+  var line = upto.split('\n').length, col = pos - upto.lastIndexOf('\n');
+  st.textContent = 'Riga ' + line + ', Col ' + col + ' · ' + ta.value.length + ' caratteri';
+}
+function mdSyncEditor(){
+  var ta = document.getElementById('w-md'), code = document.getElementById('w-md-code');
+  if (!ta || !code) return;
+  code.innerHTML = mdHighlight(ta.value) + '\n';
+  mdSyncScroll(); mdStatus();
+}
+function mdKeydown(e){
+  var ta = e.target;
+  if (e.key === 'Tab'){
+    e.preventDefault();
+    var s = ta.selectionStart;
+    ta.value = ta.value.substring(0, s) + '  ' + ta.value.substring(ta.selectionEnd);
+    ta.selectionStart = ta.selectionEnd = s + 2;
+    mdSyncEditor(); schedulePreview();
+  } else if (e.key === 'Enter'){
+    var s2 = ta.selectionStart, upto = ta.value.substring(0, s2);
+    var cur = upto.substring(upto.lastIndexOf('\n') + 1);
+    var m = /^(\s*)([-*+]|\d+\.)\s+/.exec(cur);
+    if (m){
+      e.preventDefault();
+      var marker = m[2];
+      if (cur.trim() === marker){
+        var ns = s2 - cur.length;
+        ta.value = ta.value.substring(0, ns) + '\n' + ta.value.substring(s2);
+        ta.selectionStart = ta.selectionEnd = ns + 1;
+      } else {
+        var next = /\d+\./.test(marker) ? (parseInt(marker, 10) + 1) + '.' : marker;
+        var ins = '\n' + m[1] + next + ' ';
+        ta.value = ta.value.substring(0, s2) + ins + ta.value.substring(ta.selectionEnd);
+        ta.selectionStart = ta.selectionEnd = s2 + ins.length;
+      }
+      mdSyncEditor(); schedulePreview();
+    }
+  } else if ((e.ctrlKey || e.metaKey) && !e.shiftKey){
+    var k = e.key.toLowerCase();
+    if (k === 'b'){ e.preventDefault(); mdInsert('w-md', '**', '**', 'grassetto'); }
+    else if (k === 'i'){ e.preventDefault(); mdInsert('w-md', '*', '*', 'corsivo'); }
+    else if (k === 'e'){ e.preventDefault(); mdInsert('w-md', '`', '`', 'comando'); }
+    else if (k === 'k'){ e.preventDefault(); mdInsert('w-md', '[', '](https://)', 'testo link'); }
+  }
+}
+"""
+
+
 # Stile live per le anteprime: applica i colori scelti (sezione Stile) e
 # genera la copertina sopra l'anteprima.
 _JS_REPORT_STYLE = r"""
@@ -2562,43 +2653,63 @@ def _page_report_wizard(slug: str) -> str:
     slug_e = html.escape(rep["slug"])
     client_e = html.escape(rep["client"] or rep["slug"])
 
-    body = f"""<div class="container" style="max-width:1000px">
+    body = f"""<div class="container" style="max-width:1560px">
 <div class="breadcrumb"><a href="/">Home</a> <span>/</span> <a href="/report">Report</a> <span>/</span> {slug_e} <span>/</span> Wizard</div>
 <div class="page-title">Wizard — {client_e}</div>
 <div class="page-sub">Compila il report una sezione alla volta — l’anteprima a destra (copertina inclusa) si aggiorna in tempo reale con colori e stile scelti.</div>
 <style>{_report_sev_css()}
-.wiz-layout{{display:grid;grid-template-columns:190px minmax(0,1fr) minmax(0,1fr);gap:16px;margin-top:8px}}
-.wiz-nav{{display:flex;flex-direction:column;gap:4px}}
-.wiz-step-btn{{text-align:left;background:var(--surface);border:1px solid var(--border);color:var(--text2);padding:9px 12px;border-radius:6px;cursor:pointer;font-family:inherit;font-size:13px;display:flex;gap:8px;align-items:center}}
+.wiz-layout{{display:grid;grid-template-columns:150px minmax(0,1.15fr) minmax(0,1fr);gap:14px;margin-top:8px}}
+.wiz-nav{{display:flex;flex-direction:column;gap:4px;min-width:0}}
+.wiz-step-btn{{text-align:left;background:var(--surface);border:1px solid var(--border);color:var(--text2);padding:8px 10px;border-radius:6px;cursor:pointer;font-family:inherit;font-size:12.5px;display:flex;gap:7px;align-items:center;min-width:0}}
+.wiz-step-btn span:last-child{{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}}
 .wiz-step-btn:hover{{border-color:var(--accent);color:var(--text)}}
 .wiz-step-btn.active{{background:rgba(88,166,255,.1);border-color:var(--accent);color:var(--accent)}}
 .wiz-step-btn.done .wiz-dot{{background:var(--green);color:var(--bg)}}
 .wiz-dot{{width:20px;height:20px;border-radius:50%;background:var(--surface2);border:1px solid var(--border);display:inline-flex;align-items:center;justify-content:center;font-size:11px;flex-shrink:0}}
-.wiz-panel{{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:20px;min-height:300px}}
+.wiz-panel{{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:20px;min-height:300px;min-width:0;overflow-wrap:break-word}}
 .wiz-panel h3{{margin-bottom:4px;font-size:15px}}
 .wiz-hint{{font-size:12px;color:var(--text2);margin-bottom:14px}}
 .wiz-actions{{display:flex;justify-content:space-between;margin-top:18px}}
-.wiz-side{{position:sticky;top:8px;align-self:start}}
+.wiz-side{{position:sticky;top:8px;align-self:start;min-width:0}}
 .wiz-side-title{{font-size:12px;font-weight:700;color:var(--text2);margin-bottom:6px;text-transform:uppercase;letter-spacing:1px}}
 #wiz-preview{{max-height:82vh;font-size:12px}}
-.wiz-field{{margin-bottom:12px}}
+.wiz-field{{margin-bottom:12px;min-width:0}}
 .wiz-field label{{display:block;font-size:12px;color:var(--text2);margin-bottom:4px;font-weight:600}}
 .wiz-field input[type=text],.wiz-field select,.wiz-field textarea{{width:100%;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:8px 10px;font-family:inherit;font-size:13px;outline:none;box-sizing:border-box}}
 .wiz-field textarea{{min-height:140px;resize:vertical}}
 .wiz-field input:focus,.wiz-field select:focus,.wiz-field textarea:focus{{border-color:var(--accent)}}
 .wiz-grid2{{display:grid;grid-template-columns:1fr 1fr;gap:12px}}
 .finding-item{{border:1px solid var(--border);border-radius:6px;padding:10px 14px;margin-bottom:8px;background:var(--bg);display:flex;align-items:center;gap:10px;flex-wrap:wrap}}
-.finding-item .ft{{font-weight:600;flex:1;min-width:150px}}
+.finding-item .ft{{font-weight:600;flex:1;min-width:150px;overflow-wrap:anywhere}}
+.msf-result{{overflow-wrap:anywhere}}
 .scope-row{{display:flex;gap:6px;margin-bottom:6px;flex-wrap:wrap}}
 .scope-row input{{background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:7px 10px;font-family:inherit;font-size:13px;outline:none;min-width:0;box-sizing:border-box}}
 .scope-row .sc-host{{flex:0 1 160px}}
 .scope-row .sc-desc{{flex:1 1 120px}}
 .md-toolbar{{display:flex;gap:4px;flex-wrap:wrap;margin-bottom:8px}}
 .md-toolbar .btn{{padding:4px 10px;font-size:12px}}
-#w-md{{font-family:'JetBrains Mono',monospace;font-size:12px;min-height:55vh;line-height:1.5}}
+.md-editor{{position:relative;height:60vh;border:1px solid var(--border);border-radius:6px;background:var(--bg);overflow:hidden}}
+.md-editor:focus-within{{border-color:var(--accent)}}
+.md-hl,.md-src{{margin:0;padding:12px 14px;font-family:'JetBrains Mono',monospace;font-size:12.5px;line-height:1.55;white-space:pre-wrap;word-wrap:break-word;tab-size:2;box-sizing:border-box}}
+.md-hl{{position:absolute;inset:0;overflow:hidden;pointer-events:none;color:var(--text)}}
+.md-hl code{{font-family:inherit;font-size:inherit}}
+.md-src{{position:absolute;inset:0;width:100%;height:100%;background:transparent;color:transparent;caret-color:var(--accent);border:none;outline:none;resize:none;overflow:auto}}
+.md-src::selection{{background:rgba(88,166,255,.35);color:transparent}}
+.md-src:focus{{border:none}}
+.tk-h{{color:var(--accent);font-weight:700}}
+.tk-b{{font-weight:700}}
+.tk-i{{font-style:italic;color:#d2a8ff}}
+.tk-code{{color:#7ee787;background:rgba(110,118,129,.18);border-radius:3px}}
+.tk-fence{{color:#7ee787;background:rgba(110,118,129,.12)}}
+.tk-link{{color:#79c0ff;text-decoration:underline}}
+.tk-com{{color:#8b949e;font-style:italic}}
+.tk-list{{color:#d2a8ff;font-weight:700}}
+.tk-tbl{{color:#d2a8ff}}
+.tk-cap{{color:#e3b341;font-style:italic}}
+.md-status{{font-size:11px;color:var(--text2);margin-top:6px;font-family:'JetBrains Mono',monospace}}
 .md-legend{{font-size:11px;color:var(--text2);margin-top:8px;line-height:1.6}}
-@media(max-width:1200px){{.wiz-layout{{grid-template-columns:190px minmax(0,1fr)}}.wiz-side{{display:none}}}}
-@media(max-width:800px){{.wiz-layout{{grid-template-columns:1fr}}.wiz-nav{{flex-direction:row;flex-wrap:wrap}}}}
+@media(max-width:1200px){{.wiz-layout{{grid-template-columns:150px minmax(0,1fr)}}.wiz-side{{display:none}}}}
+@media(max-width:800px){{.wiz-layout{{grid-template-columns:1fr}}.wiz-nav{{flex-direction:row;flex-wrap:wrap}}.md-editor{{height:45vh}}}}
 </style>
 
 <div class="wiz-layout">
@@ -2613,6 +2724,7 @@ def _page_report_wizard(slug: str) -> str:
 <script>
 {_JS_REPORT_PREPROCESS}
 {_JS_REPORT_STYLE}
+{_JS_MD_EDITOR}
 var SLUG = '{slug_e}';
 var DATA = null;
 var CUR = 0;
@@ -2638,7 +2750,7 @@ function esc(s){{var d=document.createElement('div');d.textContent=s||'';return 
 function renderNav(){{
   document.getElementById('wiz-nav').innerHTML = STEPS.map(function(s,i){{
     return '<button class="wiz-step-btn'+(i===CUR?' active':'')+'" onclick="go('+i+')">'+
-      '<span class="wiz-dot">'+(i+1)+'</span>'+esc(s.label)+'</button>';
+      '<span class="wiz-dot">'+(i+1)+'</span><span>'+esc(s.label)+'</span></button>';
   }}).join('');
 }}
 
@@ -2731,10 +2843,15 @@ function renderStep(){{
       'Usa la toolbar per titoli, grassetto, blocchi di codice (payload) e immagini con didascalia. '+
       '<strong>Attenzione</strong>: i blocchi <code>@@AUTO@@</code> sono generati dai dati del wizard — modificali dagli altri step.</div>'+
       mdToolbar('w-md')+
-      '<textarea id="w-md" spellcheck="false">'+esc(DATA.raw||'')+'</textarea>'+
+      '<div class="md-editor">'+
+      '<pre class="md-hl" id="w-md-hl" aria-hidden="true"><code id="w-md-code"></code></pre>'+
+      '<textarea id="w-md" class="md-src" spellcheck="false" wrap="soft">'+esc(DATA.raw||'')+'</textarea>'+
+      '</div>'+
+      '<div class="md-status" id="w-md-status">Riga 1, Col 1 · 0 caratteri</div>'+
       '<div class="md-legend">Legenda: <code>@@SEZ:nome@@</code> = testo libero (editabile qui) · '+
       '<code>@@AUTO:nome@@</code> = generato dal wizard · <code>: Tabella N: …</code> = didascalia tabella · '+
-      '<code>![testo](percorso)</code> = immagine · <code>```</code> = blocco codice</div>';
+      '<code>![testo](percorso)</code> = immagine · <code>```</code> = blocco codice · '+
+      'scorciatoie: <code>Ctrl+B</code> grassetto, <code>Ctrl+I</code> corsivo, <code>Ctrl+E</code> codice, <code>Ctrl+K</code> link, <code>Tab</code> indenta</div>';
   }} else if(s==='finale'){{
     h='<h3>Considerazioni Finali &amp; PDF</h3><div class="wiz-hint">Osservazioni conclusive, poi genera il PDF finale.</div>'+
       textarea('w-considerazioni','Considerazioni finali',sec.considerazioni,150)+
@@ -2753,9 +2870,12 @@ function renderStep(){{
   if(s==='approccio')updateApproachPreview();
   if(s==='markdown'){{
     var _md=document.getElementById('w-md');
-    _md.addEventListener('input',function(){{schedulePreview();}});
-    _md.addEventListener('keyup',function(){{maybeScrollPreview();}});
-    _md.addEventListener('click',function(){{maybeScrollPreview();}});
+    _md.addEventListener('input',function(){{mdSyncEditor();schedulePreview();}});
+    _md.addEventListener('keyup',function(){{mdStatus();maybeScrollPreview();}});
+    _md.addEventListener('click',function(){{mdStatus();maybeScrollPreview();}});
+    _md.addEventListener('scroll',mdSyncScroll);
+    _md.addEventListener('keydown',mdKeydown);
+    mdSyncEditor();
   }}
   p.querySelectorAll('input,textarea,select').forEach(function(el){{
     el.addEventListener('input',function(){{schedulePreview();}});
@@ -2788,7 +2908,9 @@ function mdInsert(id,before,after,placeholder){{
   el.value=el.value.substring(0,s)+before+sel+after+el.value.substring(e);
   var ns=Math.min(el.value.length,s+before.length+sel.length+after.length);
   el.selectionStart=el.selectionEnd=ns;
-  el.focus();schedulePreview();
+  el.focus();
+  if(typeof mdSyncEditor==='function')mdSyncEditor();
+  schedulePreview();
 }}
 function mdCode(id){{mdInsert(id,'\\n\\n```\\n','\\n```\\n','payload o output del comando');}}
 function mdImage(id){{
@@ -2919,11 +3041,12 @@ function renderFindingForm(){{
   var f = EDIT_IDX>=0 ? DATA.meta.findings[EDIT_IDX] : {{}};
   F_IMAGES = (f.images||[]).map(function(im){{return {{path:im.path,caption:im.caption}};}});
   F_MSFCVES = (f.cves||[]).slice();
+  F_MSFMOD = f.msf||'';
   var t = EDIT_IDX>=0 ? 'Modifica finding SLC-'+String(EDIT_IDX+1).padStart(2,'0') : 'Nuovo finding';
   document.getElementById('w-finding-form').innerHTML =
     '<div style="border:1px solid var(--border);border-radius:8px;padding:16px;margin-top:10px;background:var(--surface2)">'+
     '<div style="font-weight:700;margin-bottom:10px;color:var(--accent)">'+t+'</div>'+
-    '<div class="wiz-field"><label>Cerca CVE / modulo in Metasploit (offline, db locale)</label>'+
+    '<div class="wiz-field"><label>Cerca CVE / modulo in Metasploit (offline — “Usa” compila <strong>tutti</strong> i campi)</label>'+
     '<div style="display:flex;gap:8px"><input type="text" id="f-msf-q" placeholder="es. CVE-2017-0143 oppure eternalblue" style="flex:1;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:8px 10px;font-family:inherit;font-size:13px">'+
     '<button class="btn" onclick="msfSearch()">Cerca in MSF</button></div></div>'+
     '<div id="f-msf-results"></div>'+
@@ -2955,6 +3078,7 @@ function renderFindingForm(){{
 // ---- Ricerca Metasploit (offline) ----
 var MSF_RESULTS = [];
 var F_MSFCVES = [];
+var F_MSFMOD = '';
 function msfSearch(){{
   var q=gv('f-msf-q');
   if(!q){{alert('Scrivi una CVE o un nome modulo da cercare.');return;}}
@@ -2980,11 +3104,21 @@ function msfUse(i){{
   document.getElementById('f-sev').value=r.severity;
   document.getElementById('f-desc').value=r.description||('Modulo Metasploit: '+r.fullname);
   F_MSFCVES=(r.cves||[]).slice();
+  F_MSFMOD=r.fullname||'';
   document.getElementById('f-cves').textContent=F_MSFCVES.join(', ');
-  document.getElementById('f-refs').value=F_MSFCVES.length?
+  // compila TUTTE le caselle con i dati offline del modulo MSF
+  if(r.cwe)document.getElementById('f-cwe').value=r.cwe;
+  if(r.cvss)document.getElementById('f-cvss').value=r.cvss+' (stima)';
+  if(r.impact)document.getElementById('f-impact').value=r.impact;
+  if(r.remediation)document.getElementById('f-remediation').value=r.remediation;
+  if(!gv('f-assets')){{
+    var hosts=(DATA.meta.scope||[]).map(function(x){{return (x.host||'').trim();}}).filter(function(x){{return x;}});
+    document.getElementById('f-assets').value=hosts.join(', ')||DATA.meta.domain||'';
+  }}
+  document.getElementById('f-refs').value=r.refs_fmt||(F_MSFCVES.length?
     F_MSFCVES.map(function(c){{return 'https://nvd.nist.gov/vuln/detail/'+c;}}).join(' '):
-    'https://www.rapid7.com/db/modules/'+r.fullname;
-  document.getElementById('f-msf-results').innerHTML='<p style="font-size:12px;color:var(--green)">✔ Campi compilati da '+esc(r.fullname)+' — completa impatto e remediation.</p>';
+    'https://www.rapid7.com/db/modules/'+r.fullname);
+  document.getElementById('f-msf-results').innerHTML='<p style="font-size:12px;color:var(--green)">✔ Tutti i campi compilati da '+esc(r.fullname)+' — controllali e adattali al caso specifico.</p>';
 }}
 
 // ---- Immagini evidenza ----
@@ -3040,7 +3174,7 @@ function saveFinding(){{
   var title=gv('f-title');
   if(!title){{alert('Inserisci il titolo del finding.');return;}}
   var f={{title:title,severity:gv('f-sev'),cvss:gv('f-cvss'),cwe:gv('f-cwe'),
-         cves:F_MSFCVES.slice(),
+         cves:F_MSFCVES.slice(),msf:F_MSFMOD,
          assets:gv('f-assets'),description:document.getElementById('f-desc').value,
          impact:document.getElementById('f-impact').value,
          remediation:document.getElementById('f-remediation').value,
