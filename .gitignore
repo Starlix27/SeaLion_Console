@@ -22,3 +22,4 @@ static/ligolo-proxy
 static/ligolo-agent
 static/ligolo-ng_*.tar.gz
 loot/
+reports/

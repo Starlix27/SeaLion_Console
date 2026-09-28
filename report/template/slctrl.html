@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="$lang$">
+<head>
+<meta charset="utf-8">
+<title>$title$</title>
+$for(css)$
+<link rel="stylesheet" href="$css$">
+$endfor$
+</head>
+<body>
+
+<div class="page-footer">SLCtrl &mdash; $client$</div>
+
+<section class="cover">
+  <div class="cover-center">
+    <div class="cover-client">$client$</div>
+    <div class="cover-title">$report-title$<br>$report-subtitle$</div>
+  </div>
+  <div class="cover-meta">
+    <div class="client">$client$</div>
+    <div class="author">Redatto da: $author$</div>
+    <div class="date">$date$</div>
+    <div class="version">Versione $version$</div>
+  </div>
+  <div class="cover-footer">
+    <strong>SLCtrl &mdash; $classification$</strong><br>
+    Nessuna parte di questo documento può essere divulgata a soggetti esterni
+    senza l'esplicita autorizzazione scritta di SLCtrl.
+  </div>
+</section>
+
+$if(toc)$
+<nav id="TOC" role="doc-toc">
+<div class="toc-heading">Indice</div>
+$toc$
+</nav>
+$endif$
+
+<main>
+$body$
+</main>
+
+</body>
+</html>
