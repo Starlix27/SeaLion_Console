@@ -80,6 +80,7 @@ slconsole vuln smb     # Cheatsheet vulnerabilità SMB
 slconsole vuln list    # Elenca tutti i protocolli per categoria
 slconsole recon <IP>   # Avvia la reconnaissance automatica
 slconsole reconfind 445 # Suggerisce tool e comandi per porta/servizio/task
+slconsole report new "Acme Corp" # Crea un report di pentest dal template
 slconsole --version    # Versione
 ```
 
@@ -107,6 +108,9 @@ slconsole> wordfind http://target # Wizard wordlist per fuzzing/bruteforce
 slconsole> passfind               # Wizard password cracking
 slconsole> wordgen                # Wizard per creare e trasformare wordlist
 slconsole> burp                   # Profiler di password basato sul target
+slconsole> report new "Cliente"   # Crea un report di pentest dal template
+slconsole> report edit <nome>     # Apre il report in VS Code
+slconsole> report build <nome>    # Genera il PDF del report
 slconsole> pet                    # Il tuo sealion virtuale
 slconsole> back                   # Torna alla console principale
 ```
@@ -401,6 +405,29 @@ Il profiler BURP è disponibile anche in SLWeb all'indirizzo `/burp`.
 
 ---
 
+## Report — Report di Penetration Test (`report`)
+
+`report` crea e gestisce **report di pentest professionali** partendo dal template SLCtrl (Markdown → PDF, stile sample report HackTheBox, contenuti in italiano). I report vivono in `reports/<cliente>/` dentro il progetto, con una sottocartella `evidence/` per screenshot e prove.
+
+```bash
+slconsole> report new "Acme Corp"                          # Crea il report (cover pre-compilata)
+slconsole> report new "Acme Corp" "Web App Penetration Test"  # Con tipo di test personalizzato
+slconsole> report list                                     # Elenca i report esistenti
+slconsole> report edit acme-corp                           # Apre la cartella del report in VS Code (o derivati)
+slconsole> report build acme-corp                          # Compila il PDF (pandoc + weasyprint)
+slconsole> report path acme-corp                           # Mostra il percorso del file .md
+```
+
+- `report edit` cerca nel PATH `code`, `codium`, `vscodium`, `code-insiders` e `cursor`: il report si apre direttamente in VS Code per editarlo velocemente (funziona anche da WSL).
+- La cover è pre-compilata automaticamente: cliente, data odierna, autrice. Nel corpo del testo basta trova/sostituisci "Cliente" / "CLIENTE.LOCAL".
+- **Severità** nei finding: `<span class="sev sev-high">Alta</span>` (`sev-critical`, `sev-high`, `sev-medium`, `sev-low`, `sev-info`).
+- **Evidenze**: salva gli screenshot in `reports/<cliente>/evidence/` e referenziali con path relativi alla root del progetto.
+- **Dipendenze per il PDF**: `pandoc` e `weasyprint` (`sudo apt install pandoc weasyprint` oppure `pip install weasyprint`).
+
+I report sono gestibili anche da **SLWeb** alla pagina `/report`: creazione guidata dal form, **anteprima** del documento renderizzata nel browser, build del PDF e download di `.md` / `.pdf`.
+
+---
+
 ## SLWeb — Piattaforma Web
 
 **SLWeb** (SeaLionWeb) è la piattaforma web integrata in SeaLion Console. Si avvia automaticamente insieme alla console sulla porta `2727` e permette di consultare tutti i contenuti dal browser.
@@ -419,6 +446,7 @@ Il profiler BURP è disponibile anche in SLWeb all'indirizzo `/burp`.
 | **Catch** | `/catch` | Stato e log live dei listener OOB TCP, DNS, FTP e SMB |
 | **Logs** | `/logs` | Log delle richieste gestite dal server |
 | **BURP** | `/burp` | Profiler visuale per generare wordlist mirate |
+| **Report** | `/report` | Crea report di pentest, anteprima nel browser, build e download PDF |
 | **Pet** | `/pet` | SeaLion virtuale, statistiche, azioni e minigiochi |
 | **Search** | `/search` | Ricerca unificata in notes, vulnerabilità e tool |
 
