@@ -19,14 +19,12 @@ classification: "Riservato"
            report build <nome> (genera il PDF)
      ------------------------------------------------------------
      DATI DINAMICI — LEGGIMI!
-     I blocchi racchiusi tra:
-       <!-- @@AUTO:nome@@ -->  ...  <!-- @@/AUTO:nome@@ -->
+     I blocchi racchiusi tra i marcatori  @@AUTO:nome@@ ... @@/AUTO:nome@@
      sono GENERATI AUTOMATICAMENTE da `report` / SLWeb (cliente,
      approccio, perimetro, conteggi severity, elenco e card finding).
      NON modificarli a mano: vengono sovrascritti a ogni sync.
      Per cambiarli usa `report add`, `report sync` o il wizard SLWeb.
-     I blocchi racchiusi tra:
-       <!-- @@SEZ:nome@@ -->  ...  <!-- @@/SEZ:nome@@ -->
+     I blocchi racchiusi tra  @@SEZ:nome@@ ... @@/SEZ:nome@@
      contengono TESTO LIBERO: editabili qui o dal wizard SLWeb.
      ------------------------------------------------------------
      SEVERITA': <span class="sev sev-high">Alta</span>
