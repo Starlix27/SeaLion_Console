@@ -424,13 +424,21 @@ slconsole> report path acme-corp      # Mostra il percorso del file .md
 
 **Finding e severity automatiche** — `report add` guida nell'inserimento di ogni finding (titolo, severità, CWE, CVSS, descrizione, impatto, asset, remediation, evidenze). I conteggi per severità, la tabella di riepilogo e il testo dell'Executive Summary ("*N* finding... *1* a rischio critico...") **si aggiornano automaticamente** nel .md a ogni aggiunta.
 
+**Finding da Metasploit (offline)** — sia da console (`report add`) sia dal wizard SLWeb puoi cercare CVE e moduli nel **database locale di Metasploit** (cache `~/.msf4/store/modules_metadata.json`, oppure `msfconsole` come fallback): nessuna chiamata a Internet. Scegliendo un modulo, titolo, descrizione, severità (dal rank), CVE e riferimenti vengono precompilati automaticamente e finiscono nei *Dettagli Tecnici dei Finding*.
+
+**Immagini con didascalia** — ogni finding può avere più immagini evidenza, ognuna con la propria descrizione sotto (caricabili dal wizard o copiate in `evidence/` da console).
+
+**Sezioni vuote nascoste** — le sezioni lasciate vuote nel wizard (walkthrough, remediation, appendici B–E, considerazioni...) **non compaiono nel PDF**: né il titolo né spazi vuoti.
+
+**Stile del report** — dalla sezione *Stile* del wizard SLWeb scegli il colore del documento (blu navy, rosso, nero, verde, giallo/ambra o personalizzato, con eventuale secondo colore d'accento), carichi il **logo** per la cover e imposti **autore, azienda e firma** (blocco firma generato in automatico a fine report).
+
 **Dati dinamici nel .md** — i blocchi racchiusi tra i marcatori `@@AUTO:nome@@` ... `@@/AUTO:nome@@` sono generati automaticamente (cliente, approccio, perimetro, riepilogo severity, schede finding) e non vanno modificati a mano: vengono rigenerati dal sync. I blocchi `@@SEZ:nome@@` ... `@@/SEZ:nome@@` contengono invece testo libero, editabile in VS Code o dal wizard SLWeb. I dati strutturati vivono in `reports/<cliente>/meta.json`.
 
 - `report edit` cerca nel PATH `code`, `codium`, `vscodium`, `code-insiders` e `cursor`: il report si apre direttamente in VS Code per editarlo velocemente (funziona anche da WSL).
 - **Evidenze**: salva gli screenshot in `reports/<cliente>/evidence/` e referenziali con path relativi alla root del progetto.
 - **Dipendenze per il PDF**: `pandoc` e `weasyprint` (`sudo apt install pandoc weasyprint` oppure `pip install weasyprint`).
 
-I report si creano e compilano interamente anche da **SLWeb** alla pagina `/report`: creazione dal form (con scelta del box) e **wizard guidato** che compila il report **una sezione alla volta** — Cliente & Test, Approccio, Perimetro, Finding (con severity e conteggi live), Walkthrough, Remediation, Considerazioni finali — con anteprima renderizzata nel browser e generazione del PDF.
+I report si creano e compilano interamente anche da **SLWeb** alla pagina `/report`: creazione dal form (con scelta del box) e **wizard guidato** che compila il report **una sezione alla volta** — Cliente & Test, Approccio, Perimetro, Finding (con ricerca CVE/Metasploit offline, severity e conteggi live, immagini con didascalia), Walkthrough, Remediation, Appendici, Stile (colori, logo, autore, firma), Considerazioni finali — con anteprima renderizzata nel browser e generazione del PDF.
 
 ---
 
@@ -452,7 +460,7 @@ I report si creano e compilano interamente anche da **SLWeb** alla pagina `/repo
 | **Catch** | `/catch` | Stato e log live dei listener OOB TCP, DNS, FTP e SMB |
 | **Logs** | `/logs` | Log delle richieste gestite dal server |
 | **BURP** | `/burp` | Profiler visuale per generare wordlist mirate |
-| **Report** | `/report` | Wizard guidato sezione per sezione, finding con severity auto, anteprima e PDF |
+| **Report** | `/report` | Wizard guidato sezione per sezione, finding da CVE Metasploit (offline), stile/logo/firma, anteprima e PDF |
 | **Pet** | `/pet` | SeaLion virtuale, statistiche, azioni e minigiochi |
 | **Search** | `/search` | Ricerca unificata in notes, vulnerabilità e tool |
 

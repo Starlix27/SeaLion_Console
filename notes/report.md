@@ -28,6 +28,49 @@ Funziona anche da WSL (usa il `code` di Windows via interop).
 4. **Dominio target** (derivato automaticamente, es. `ACME.LOCAL`)
 5. **Date** di inizio/fine test
 
+## Finding da Metasploit (offline)
+
+`report add` (e il wizard SLWeb) possono cercare CVE e moduli nel **database
+locale di Metasploit** — nessuna chiamata a Internet: viene letta la cache
+`~/.msf4/store/modules_metadata.json` (generata al primo avvio di `msfconsole`),
+con fallback su `msfconsole -q -x "search ..."`.
+
+```
+slconsole> report add acme-corp
+  Cerca in Metasploit (CVE o nome modulo, offline — invio per saltare): CVE-2017-0143
+    [1] exploit/windows/smb/ms17_010_eternalblue (average) [CVE-2017-0143, ...]
+  Usa il modulo n. (invio per nessuno): 1
+```
+
+Scegliendo un modulo, **titolo, descrizione, severità (dal rank), CVE e
+riferimenti** vengono precompilati e finiscono nei *Dettagli Tecnici dei Finding*.
+
+## Immagini con didascalia
+
+Ogni finding può avere **più immagini evidenza**, ciascuna con la propria
+didascalia sotto (contesto). Da console: `report add` chiede path + didascalia
+e copia il file in `evidence/`. Da SLWeb: upload diretto nel form del finding.
+
+## Sezioni vuote nascoste
+
+Le sezioni lasciate **vuote** nel wizard (walkthrough, remediation breve/medio/
+lungo, appendici B–E, considerazioni finali, finding, firma) **non compaiono
+nel PDF né nell'anteprima**: vengono rimossi sia il titolo sia il contenuto,
+senza lasciare spazi vuoti.
+
+## Stile del report
+
+Dal wizard SLWeb, sezione **Stile**:
+
+- **Colore**: blu navy (default), rosso, nero, verde, giallo/ambra oppure
+  personalizzato (hex), con eventuale **secondo colore** d'accento
+- **Logo** del report (mostrato in cover)
+- **Autore** e **azienda** che eseguono il test (cover, footer e testi dinamici)
+- **Firma** (immagine): blocco firma generato automaticamente a fine report;
+  se autore e azienda sono vuoti il blocco non compare
+
+Lo stile vive in `meta.json` (`style`) e viene applicato a ogni build del PDF.
+
 ## Dati dinamici nel .md
 
 I blocchi racchiusi tra `@@AUTO:nome@@` ... `@@/AUTO:nome@@` sono **generati
@@ -86,10 +129,13 @@ Con SLWeb attivo (`serve on`), la pagina `/report` permette di creare il report
 1. **Cliente & Test** — nome cliente, tipo di test, dominio
 2. **Approccio** — tipo di box (black/grey/white) e date: il testo si genera da solo
 3. **Perimetro** — tabella degli asset in scope
-4. **Finding** — aggiungi/modifica/elimina con severità: conteggi e tabelle live
+4. **Finding (CVE/MSF)** — ricerca offline nel db di Metasploit, severity e
+   conteggi live, immagini con didascalia
 5. **Walkthrough** — compromissione e percorso di attacco (Markdown libero)
 6. **Remediation** — breve / medio / lungo termine
-7. **Considerazioni finali & PDF** — sommario severity, anteprima e generazione PDF
+7. **Appendici** — host compromessi, utenti compromessi, bonifica, analisi password
+8. **Stile** — colori, logo, autore/azienda, firma
+9. **Considerazioni finali & PDF** — sommario severity, anteprima e generazione PDF
 
 Ogni passo ha "Salva" e "Salva e continua". Dalla pagina `/report` anche
 anteprima completa, download `.md` / `.pdf` ed eliminazione.

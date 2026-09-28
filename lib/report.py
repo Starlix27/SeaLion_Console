@@ -19,6 +19,7 @@ automaticamente a ogni modifica (sync).
 from __future__ import annotations
 
 import argparse
+import colorsys
 import datetime
 import json
 import re
@@ -46,6 +47,270 @@ SEV_RISK = {"critical": "critico", "high": "alto", "medium": "medio",
 
 BOX_TYPES = ("black", "grey", "white")
 BOX_LABEL = {"black": "Black box", "grey": "Grey box", "white": "White box"}
+
+# ---------------------------------------------------------------------------
+# Stile del report (presets colore)
+# ---------------------------------------------------------------------------
+
+STYLE_PRESETS = {
+    "navy":   {"label": "Blu navy (default)", "color": "#0F4068"},
+    "red":    {"label": "Rosso",              "color": "#8B1A1A"},
+    "black":  {"label": "Nero",               "color": "#1F2429"},
+    "green":  {"label": "Verde",              "color": "#1E5B38"},
+    "yellow": {"label": "Giallo / ambra",     "color": "#8A6200"},
+}
+DEFAULT_AUTHOR = "Santarella Martina"
+DEFAULT_COMPANY = "SLCtrl"
+DEFAULT_ROLE = "Penetration Tester"
+DEFAULT_SIGNATURE_IMG = "report/assets/firma.png"
+
+
+def default_style() -> dict:
+    return {
+        "preset": "navy",
+        "color": "",          # hex custom (vuoto = usa preset)
+        "color2": "",         # hex accento secondario (vuoto = derivato)
+        "author": "",
+        "company": "",
+        "role": "",
+        "logo": "",           # path relativo (es. reports/<slug>/evidence/logo.png)
+        "signature": "",      # path relativo immagine firma
+    }
+
+
+def style_colors(style: dict) -> tuple[str, str]:
+    """Ritorna (colore primario, colore accento) effettivi."""
+    style = style or {}
+    preset = STYLE_PRESETS.get(style.get("preset", "navy"), STYLE_PRESETS["navy"])
+    c1 = _norm_hex(style.get("color")) or preset["color"]
+    c2 = _norm_hex(style.get("color2")) or _shift_lightness(c1, +0.12)
+    return c1, c2
+
+
+def _norm_hex(c: str | None) -> str:
+    c = (c or "").strip().lstrip("#")
+    if re.fullmatch(r"[0-9a-fA-F]{6}", c):
+        return "#" + c.upper()
+    if re.fullmatch(r"[0-9a-fA-F]{3}", c):
+        return "#" + "".join(ch * 2 for ch in c).upper()
+    return ""
+
+
+def _shift_lightness(hex_color: str, delta: float) -> str:
+    """Schiarisce (delta>0) o scurisce (delta<0) un colore #RRGGBB."""
+    h = _norm_hex(hex_color) or "#0F4068"
+    r, g, b = (int(h[i:i + 2], 16) / 255.0 for i in (1, 3, 5))
+    hh, ll, ss = colorsys.rgb_to_hls(r, g, b)
+    ll = min(1.0, max(0.0, ll + delta))
+    r, g, b = colorsys.hls_to_rgb(hh, ll, ss)
+    return "#{:02X}{:02X}{:02X}".format(int(r * 255), int(g * 255), int(b * 255))
+
+
+def style_overrides_css(meta: dict) -> str:
+    """CSS aggiuntivo per applicare lo stile scelto (colori + logo)."""
+    style = (meta or {}).get("style") or {}
+    preset = style.get("preset", "navy")
+    has_custom = bool(_norm_hex(style.get("color")) or _norm_hex(style.get("color2")))
+    logo = (style.get("logo") or "").strip()
+    if preset == "navy" and not has_custom and not logo:
+        return ""
+    c1, c2 = style_colors(style)
+    dark = _shift_lightness(c1, -0.12)
+    border = _shift_lightness(c1, +0.66)
+    mid = _shift_lightness(c1, +0.42)
+    thead = _shift_lightness(c1, +0.82)
+    zebra = _shift_lightness(c1, +0.88)
+    codebg = _shift_lightness(c1, +0.84)
+    css = f"""
+/* ---- stile personalizzato (generato da meta.style) ---- */
+h1, h2, .toc-heading {{ color: {c1}; }}
+h3 {{ color: {c2}; }}
+a {{ color: {c2}; }}
+strong {{ color: {dark}; }}
+hr {{ border-top-color: {mid}; }}
+th {{ background: {c1}; }}
+td {{ border-bottom-color: {border}; }}
+tbody tr:nth-child(even) td {{ background: {zebra}; }}
+pre {{ border-left-color: {c1}; }}
+code {{ background: {codebg}; color: {c1}; }}
+.finding table td:first-child {{ background: {c1}; }}
+.finding table tbody tr:nth-child(even) td {{ background: {zebra}; }}
+.finding table tbody tr:nth-child(even) td:first-child {{ background: {c1}; }}
+.cover-client {{ color: {c1}; background: {thead}; }}
+.cover-title {{ color: {c1}; }}
+.cover-meta .client {{ color: {c1}; }}
+.cover-footer strong {{ color: {c1}; }}
+.signature .sig-name {{ color: {c1}; }}
+"""
+    if logo:
+        css += (".cover-center .cover-logo { max-width: 62mm; max-height: 28mm; "
+                "margin-bottom: 10mm; }\n")
+    return css
+
+
+# ---------------------------------------------------------------------------
+# Ricerca CVE / moduli in Metasploit (SOLO OFFLINE: db locale di msfconsole)
+# ---------------------------------------------------------------------------
+
+# rank numerico Metasploit -> severity del report
+_MSF_RANK_SEV = ((600, "critical"), (500, "high"), (400, "medium"),
+                 (300, "low"), (0, "info"))
+_MSF_RANK_NAME = {600: "excellent", 500: "great", 400: "good",
+                  300: "normal", 200: "average", 100: "low", 0: "manual"}
+_CVE_RE = re.compile(r"CVE-\d{4}-\d{4,7}", re.I)
+
+
+def _msf_rank_to_sev(rank) -> str:
+    try:
+        r = int(rank)
+    except (TypeError, ValueError):
+        r = _MSF_RANK_NAME_INV.get(str(rank).strip().lower(), 0)
+    for threshold, sev in _MSF_RANK_SEV:
+        if r >= threshold:
+            return sev
+    return "info"
+
+
+_MSF_RANK_NAME_INV = {v: k for k, v in _MSF_RANK_NAME.items()}
+
+
+def _msf_metadata_cache() -> Path | None:
+    """Cache JSON dei moduli generata da msfconsole (~/.msf4/store/)."""
+    home = Path.home()
+    for cand in (home / ".msf4" / "store" / "modules_metadata.json",
+                 home / ".msf4" / "store" / "modules_metadata_base.json"):
+        if cand.is_file():
+            return cand
+    return None
+
+
+def _msf_extract_cves(text: str, refs: list | None = None) -> list[str]:
+    found: list[str] = []
+    for src in ([text or ""] + [str(r) for r in (refs or [])]):
+        for m in _CVE_RE.finditer(src):
+            cve = m.group(0).upper()
+            if cve not in found:
+                found.append(cve)
+    return found
+
+
+def _msf_entry(name: str, fullname: str, mtype: str, rank, description: str,
+               refs: list | None = None, date: str = "") -> dict:
+    rank_name = str(rank).lower() if isinstance(rank, str) else \
+        _MSF_RANK_NAME.get(int(rank), str(rank))
+    try:
+        rank_int = int(rank)
+    except (TypeError, ValueError):
+        rank_int = _MSF_RANK_NAME_INV.get(str(rank).strip().lower(), 0)
+    cves = _msf_extract_cves(f"{name} {description}", refs)
+    return {
+        "name": name,
+        "fullname": fullname,
+        "type": mtype,
+        "rank": rank_name,
+        "severity": _msf_rank_to_sev(rank_int),
+        "cves": cves,
+        "description": (description or "").strip(),
+        "date": date or "",
+    }
+
+
+def _msf_search_cache(cache: Path, query: str, limit: int) -> list[dict]:
+    """Cerca nella cache modules_metadata.json (nessun processo, nessuna rete)."""
+    try:
+        data = json.loads(cache.read_text(encoding="utf-8", errors="replace"))
+    except (json.JSONDecodeError, OSError):
+        return []
+    if isinstance(data, dict):
+        entries = []
+        for key, val in data.items():
+            if isinstance(val, dict):
+                val = dict(val)
+                val.setdefault("path", key)
+                entries.append(val)
+    elif isinstance(data, list):
+        entries = [e for e in data if isinstance(e, dict)]
+    else:
+        return []
+    terms = [t.lower() for t in query.split() if t.strip()]
+    out: list[dict] = []
+    for e in entries:
+        path = str(e.get("path") or e.get("fullname") or e.get("ref_name") or "")
+        name = str(e.get("name") or path.rsplit("/", 1)[-1])
+        desc = str(e.get("description") or "")
+        refs = e.get("references") or e.get("refs") or []
+        if isinstance(refs, str):
+            refs = [refs]
+        haystack = " ".join([path, name, desc, " ".join(map(str, refs))]).lower()
+        if terms and not all(t in haystack for t in terms):
+            continue
+        mtype = str(e.get("type") or (path.split("/", 1)[0] if "/" in path else ""))
+        fullname = path if "/" in path else str(e.get("ref_name") or name)
+        date = str(e.get("disclosure_date") or e.get("date") or "")
+        out.append(_msf_entry(name, fullname, mtype, e.get("rank", 0), desc,
+                              refs, date))
+        if len(out) >= limit:
+            break
+    # exploit prima, poi rank decrescente
+    out.sort(key=lambda r: (r["type"] != "exploit", -_MSF_RANK_NAME_INV.get(r["rank"], 0)))
+    return out[:limit]
+
+
+_MSF_SEARCH_ROW_RE = re.compile(
+    r"^\s*\d+\s+(\S+)\s+(?:(\d{4}-\d{2}-\d{2})\s+)?(\w+)\s+(Yes|No)\s+(.*)$",
+    re.I)
+
+
+def _msf_search_console(query: str, limit: int) -> list[dict]:
+    """Fallback: interroga `msfconsole -q -x 'search ...'` (comunque offline)."""
+    exe = shutil.which("msfconsole")
+    if not exe:
+        return []
+    safe_q = query.replace('"', "").replace(";", " ").strip() or "cve"
+    try:
+        r = subprocess.run(
+            [exe, "-q", "-x", f"search {safe_q}; exit"],
+            capture_output=True, text=True, timeout=90,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return []
+    out: list[dict] = []
+    for line in (r.stdout or "").splitlines():
+        m = _MSF_SEARCH_ROW_RE.match(line)
+        if not m:
+            continue
+        fullname, date, rank, _check, desc = m.groups()
+        mtype = fullname.split("/", 1)[0] if "/" in fullname else ""
+        name = fullname.rsplit("/", 1)[-1]
+        out.append(_msf_entry(name, fullname, mtype, rank, desc, [], date))
+        if len(out) >= limit:
+            break
+    return out
+
+
+def msf_search(query: str, limit: int = 30) -> dict:
+    """Cerca CVE/moduli nel database LOCALE di Metasploit (mai online).
+
+    Ritorna {"ok": bool, "source": "cache"|"msfconsole"|None,
+             "results": [...], "error": str|None}.
+    """
+    cache = _msf_metadata_cache()
+    if cache is not None:
+        try:
+            return {"ok": True, "source": "cache",
+                    "results": _msf_search_cache(cache, query, limit),
+                    "error": None}
+        except Exception as e:  # noqa: BLE001
+            return {"ok": False, "source": "cache", "results": [],
+                    "error": f"cache MSF illeggibile: {e}"}
+    if shutil.which("msfconsole"):
+        return {"ok": True, "source": "msfconsole",
+                "results": _msf_search_console(query, limit), "error": None}
+    return {"ok": False, "source": None, "results": [],
+            "error": ("Metasploit non trovato: né la cache "
+                      "~/.msf4/store/modules_metadata.json né il comando "
+                      "msfconsole. Avvia msfconsole almeno una volta per "
+                      "generare la cache dei moduli.")}
 
 # ---------------------------------------------------------------------------
 # Testi dinamici
@@ -128,6 +393,7 @@ def default_meta(client: str, rtype: str, box: str, domain: str,
         "date_end": date_end,
         "scope": [{"host": "192.168.100.0/24", "desc": "Rete interna del Cliente"}],
         "findings": [],
+        "style": default_style(),
     }
 
 
@@ -143,6 +409,9 @@ def load_meta(slug: str) -> dict | None:
     meta.setdefault("scope", [])
     meta.setdefault("box", "black")
     meta.setdefault("domain", derive_domain(meta.get("client", "")))
+    style = default_style()
+    style.update(meta.get("style") or {})
+    meta["style"] = style
     return meta
 
 
@@ -213,11 +482,16 @@ def _fmt_date(d: str, fallback: str) -> str:
     return d.strip() if d and d.strip() else fallback
 
 
+def _company(meta: dict) -> str:
+    return ((meta.get("style") or {}).get("company") or "").strip() or DEFAULT_COMPANY
+
+
 def render_approccio(meta: dict) -> str:
     box = meta.get("box", "black")
     tpl = _BOX_APPROACH.get(box, _BOX_APPROACH["black"])
-    return tpl.format(start=_fmt_date(meta.get("date_start", ""), "*DATA INIZIO*"),
+    text = tpl.format(start=_fmt_date(meta.get("date_start", ""), "*DATA INIZIO*"),
                       end=_fmt_date(meta.get("date_end", ""), "*DATA FINE*"))
+    return text.replace(DEFAULT_COMPANY, _company(meta))
 
 
 def render_perimetro(meta: dict) -> str:
@@ -260,12 +534,9 @@ def render_panoramica(meta: dict) -> str:
     n = len(meta.get("findings", []))
     counts = _sev_counts(meta.get("findings", []))
     if n == 0:
-        return ("Durante il penetration test non è stato ancora inserito alcun "
-                "finding. Usa `report add` da console o il wizard SLWeb per "
-                "aggiungere i finding: questo testo e le tabelle di riepilogo "
-                "si aggiorneranno automaticamente.")
+        return ""  # sezione nascosta dal PDF/anteprima finché non ci sono finding
     breakdown = _counts_sentence(counts)
-    return (f"Durante il penetration test, SLCtrl ha identificato *{n}* finding "
+    return (f"Durante il penetration test, {_company(meta)} ha identificato *{n}* finding "
             "che minacciano la riservatezza, l'integrità e la disponibilità dei "
             "sistemi informativi del Cliente. I finding sono stati classificati "
             f"per livello di severità: {breakdown}.")
@@ -276,11 +547,8 @@ def render_riepilogo(meta: dict) -> str:
     counts = _sev_counts(findings)
     n = len(findings)
     if n == 0:
-        return ("Nessun finding ancora inserito. Aggiungi i finding con "
-                "`report add` da console o dal wizard SLWeb: questa sezione "
-                "(conteggi per severità ed elenco) si aggiornerà "
-                "automaticamente.")
-    intro = (f"Nel corso del test, SLCtrl ha rilevato un totale di *{n}* finding "
+        return ""  # niente titolo/contenuto nel PDF finché non ci sono finding
+    intro = (f"Nel corso del test, {_company(meta)} ha rilevato un totale di *{n}* finding "
              "che rappresentano un rischio concreto per i sistemi informativi "
              "del Cliente. La tabella seguente riassume i finding per livello "
              "di severità.")
@@ -316,13 +584,33 @@ def _fmt_cwe(cwe: str) -> str:
     return cwe
 
 
+def _render_images(images: list[dict]) -> str:
+    """Blocchi immagine con didascalia (pandoc implicit_figures -> figure+figcaption)."""
+    blocks = []
+    for im in images or []:
+        path = (im.get("path") or "").strip()
+        caption = (im.get("caption") or "").strip()
+        if not path:
+            continue
+        alt = caption or Path(path).stem
+        blocks.append(f"![{alt}]({path})")
+        if caption:
+            blocks.append(f"*Figura: {caption}*")
+    return "\n\n".join(blocks)
+
+
 def render_finding(idx: int, f: dict) -> str:
     sev = f.get("severity", "info")
     label = SEV_LABEL.get(sev, sev)
     head = f"## SLC-{idx:02d} – {f.get('title', 'Senza titolo')} – <span class=\"sev sev-{sev}\">{label}</span>"
+    cves = [c for c in (f.get("cves") or []) if str(c).strip()]
     rows = [
         ("CWE", _fmt_cwe(f.get("cwe", ""))),
         ("Punteggio CVSS 3.1", (f.get("cvss") or "*—*")),
+    ]
+    if cves:
+        rows.append(("CVE", ", ".join(str(c).upper() for c in cves)))
+    rows += [
         ("Descrizione (incl. causa)", f.get("description", "")),
         ("Impatto", f.get("impact", "")),
         ("Asset Interessati", f.get("assets", "")),
@@ -336,16 +624,36 @@ def render_finding(idx: int, f: dict) -> str:
             f"{body}\n:::\n")
     evidence = (f.get("evidence") or "").strip()
     ev_block = ("\n\n**Evidenze:**\n\n" + evidence) if evidence else ""
-    return head + card + ev_block
+    imgs = _render_images(f.get("images"))
+    imgs_block = ("\n\n" + imgs) if imgs else ""
+    return head + card + ev_block + imgs_block
 
 
 def render_findings(meta: dict) -> str:
     findings = meta.get("findings", [])
     if not findings:
-        return ("*Nessun finding ancora inserito. Usa `report add` da console o "
-                "il wizard SLWeb: le schede tecniche verranno generate qui "
-                "automaticamente.*")
+        return ""  # sezione nascosta finché non ci sono finding
     return "\n\n---\n\n".join(render_finding(i, f) for i, f in enumerate(findings, 1))
+
+
+def render_firma(meta: dict) -> str:
+    """Blocco firma finale: autore, azienda e immagine firma (sezione Stile)."""
+    style = meta.get("style") or {}
+    author = (style.get("author") or "").strip()
+    company = (style.get("company") or "").strip()
+    role = (style.get("role") or "").strip() or DEFAULT_ROLE
+    sig_img = (style.get("signature") or "").strip()
+    if not author and not company:
+        return ""  # niente blocco firma finché la sezione Stile è vuota
+    if not sig_img:
+        sig_img = DEFAULT_SIGNATURE_IMG
+    name = author or DEFAULT_AUTHOR
+    role_line = role if not company else f"{role} — {company}"
+    return ('<div class="signature">\n'
+            f'<img src="{sig_img}" alt="Firma"><br>\n'
+            f'<span class="sig-name">{name}</span><br>\n'
+            f'<span class="sig-role">{role_line}</span>\n'
+            '</div>')
 
 
 _RENDERERS = {
@@ -354,6 +662,7 @@ _RENDERERS = {
     "panoramica": render_panoramica,
     "riepilogo": render_riepilogo,
     "findings": render_findings,
+    "firma": render_firma,
 }
 
 # ---------------------------------------------------------------------------
@@ -401,7 +710,103 @@ def _update_yaml(md_text: str, meta: dict) -> str:
         md_text = _sub("client", meta["client"], md_text)
     if meta.get("rtype"):
         md_text = _sub("report-title", meta["rtype"], md_text)
+    author = ((meta.get("style") or {}).get("author") or "").strip()
+    if author:
+        md_text = _sub("author", author, md_text)
     return md_text
+
+
+# ---------------------------------------------------------------------------
+# Rimozione sezioni vuote (build PDF / anteprima)
+# ---------------------------------------------------------------------------
+
+_COMMENT_RE = re.compile(r"<!--.*?-->", re.S)
+_BLOCK_MARK_RE = re.compile(
+    r"(<!--\s*@@(SEZ|AUTO):([a-z_]+)@@\s*-->)(.*?)(<!--\s*@@/\2:\3@@\s*-->)", re.S)
+
+
+def _block_empty(content: str) -> bool:
+    """True se il blocco contiene solo commenti HTML, placeholder o spazi."""
+    t = _COMMENT_RE.sub("", content)
+    t = t.replace("*—*", "").strip()
+    return not t
+
+
+def filter_empty_sections(md_text: str) -> str:
+    """Rimuove dal markdown le sezioni rimaste vuote (wizard non compilato):
+
+    1. svuota i blocchi @@SEZ@@/@@AUTO@@ che contengono solo commenti;
+    2. elimina i titoli (##, #) il cui corpo è vuoto — niente titoli né
+       spazi vuoti nel PDF per le sezioni lasciate vuote.
+    Il blocco firma (@@AUTO:firma@@) viene spostato in fondo al documento,
+    così non tiene in vita il titolo "Considerazioni Finali" quando vuoto.
+    """
+    firma_m = re.search(
+        r"<!--\s*@@AUTO:firma@@\s*-->(.*?)<!--\s*@@/AUTO:firma@@\s*-->",
+        md_text, re.S)
+    firma = ""
+    if firma_m and not _block_empty(firma_m.group(1)):
+        firma = "\n\n" + firma_m.group(0) + "\n"
+        md_text = md_text[:firma_m.start()] + md_text[firma_m.end():]
+
+    def _blank(m: re.Match) -> str:
+        if _block_empty(m.group(4)):
+            return m.group(1) + m.group(5)
+        return m.group(0)
+
+    text = _BLOCK_MARK_RE.sub(_blank, md_text)
+
+    for _ in range(20):  # heading pass, ripetuto finché stabile
+        lines = text.split("\n")
+        heads: list[tuple[int, int]] = []
+        in_code = False
+        for i, ln in enumerate(lines):
+            if re.match(r"^\s*(```|~~~)", ln):
+                in_code = not in_code
+                continue
+            if in_code:
+                continue
+            m = re.match(r"^(#{1,6})\s", ln)
+            if m:
+                heads.append((i, len(m.group(1))))
+        removed = False
+        for hi in range(len(heads) - 1, -1, -1):
+            idx, lvl = heads[hi]
+            end = len(lines)
+            for j, lvl2 in heads[hi + 1:]:
+                if lvl2 <= lvl:
+                    end = j
+                    break
+            body = "\n".join(lines[idx + 1:end])
+            if _block_empty(body):
+                del lines[idx:end]
+                text = "\n".join(lines)
+                removed = True
+                break
+        if not removed:
+            break
+    # compatta le righe vuote multiple lasciate dalle rimozioni
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    return text + firma
+
+
+def import_evidence(slug: str, src: str) -> str:
+    """Copia un file immagine in reports/<slug>/evidence/ e ritorna il path
+    relativo al progetto (da usare nel markdown)."""
+    src_path = Path(src).expanduser()
+    if not src_path.is_file():
+        raise FileNotFoundError(f"File non trovato: {src}")
+    ev_dir = REPORTS_DIR / slug / "evidence"
+    ev_dir.mkdir(parents=True, exist_ok=True)
+    name = re.sub(r"[^a-zA-Z0-9_.-]+", "_", src_path.name)
+    dst = ev_dir / name
+    n = 1
+    while dst.exists() and dst.read_bytes() != src_path.read_bytes():
+        dst = ev_dir / f"{src_path.stem}_{n}{src_path.suffix}"
+        n += 1
+    if not dst.exists():
+        shutil.copy2(src_path, dst)
+    return str(dst.relative_to(PROJECT_ROOT))
 
 
 def sync_report(slug: str) -> tuple[bool, str]:
@@ -468,7 +873,9 @@ def create_report(client: str, rtype: str = "Penetration Test Interno",
     text = text.replace("{{PANORAMICA}}", render_panoramica(meta))
     text = text.replace("{{RIEPILOGO}}", render_riepilogo(meta))
     text = text.replace("{{FINDINGS}}", render_findings(meta))
+    text = text.replace("{{FIRMA}}", render_firma(meta))
     out.write_text(text, encoding="utf-8")
+    sync_report(slug)  # riempie tutti i blocchi @@AUTO@@ (firma inclusa)
     return out
 
 
@@ -484,6 +891,12 @@ def add_finding(slug: str, finding: dict, index: int | None = None) -> tuple[boo
     if sev not in SEV_ORDER:
         sev = "info"
     finding["severity"] = sev
+    finding["cves"] = [str(c).strip().upper() for c in (finding.get("cves") or [])
+                       if str(c).strip()]
+    finding["images"] = [{"path": str(im.get("path", "")).strip(),
+                          "caption": str(im.get("caption", "")).strip()}
+                         for im in (finding.get("images") or [])
+                         if isinstance(im, dict) and str(im.get("path", "")).strip()]
     if index is not None and 0 <= index < len(meta["findings"]):
         meta["findings"][index] = finding
         msg = f"Finding SLC-{index + 1:02d} aggiornato"
@@ -546,6 +959,9 @@ def build_report(name: str | None) -> tuple[bool, str]:
         return False, "Report non trovato. Usa 'report list' per vedere quelli esistenti."
     md = Path(rep["md"])
     out_pdf = md.with_suffix(".pdf")
+    meta = load_meta(rep["slug"]) or {}
+    if meta:
+        sync_report(rep["slug"])
 
     pandoc = shutil.which("pandoc")
     if not pandoc:
@@ -563,15 +979,58 @@ def build_report(name: str | None) -> tuple[bool, str]:
             return False, ("weasyprint non trovato. Installalo: sudo apt install weasyprint "
                            "oppure pip install weasyprint")
 
+    # ---- markdown filtrato: niente titoli/sezioni vuote nel PDF ----
+    md_text = md.read_text(encoding="utf-8", errors="replace")
+    md_text = filter_empty_sections(md_text)
+    tmp_md = tempfile.NamedTemporaryFile(
+        mode="w", suffix=".md", dir=PROJECT_ROOT, delete=False, encoding="utf-8",
+        prefix=f".{md.stem}-build-")
+    tmp_md.write(md_text)
+    tmp_md.close()
+    tmp_md_path = Path(tmp_md.name)
+
+    # ---- stile: CSS override + eventuale logo/azienda nella cover ----
+    style = meta.get("style") or {}
+    extra_css = style_overrides_css(meta)
+    company = (style.get("company") or "").strip()
+    logo = (style.get("logo") or "").strip()
+    css_path = TEMPLATE_CSS
+    html_path = TEMPLATE_HTML
+    tmp_css_path = tmp_html_path = None
+    if extra_css:
+        tmp_css = tempfile.NamedTemporaryFile(
+            mode="w", suffix=".css", dir=PROJECT_ROOT, delete=False, encoding="utf-8",
+            prefix=".report-style-")
+        tmp_css.write(TEMPLATE_CSS.read_text(encoding="utf-8") + "\n" + extra_css)
+        tmp_css.close()
+        tmp_css_path = Path(tmp_css.name)
+        css_path = tmp_css_path
+    if company or logo:
+        html_text = TEMPLATE_HTML.read_text(encoding="utf-8")
+        if logo:
+            html_text = html_text.replace(
+                '<div class="cover-client">',
+                f'<img class="cover-logo" src="{html_escape_attr(logo)}" alt="Logo"><br>\n'
+                '    <div class="cover-client">', 1)
+        if company and company != DEFAULT_COMPANY:
+            html_text = html_text.replace(DEFAULT_COMPANY, company)
+        tmp_html = tempfile.NamedTemporaryFile(
+            mode="w", suffix=".html", dir=PROJECT_ROOT, delete=False, encoding="utf-8",
+            prefix=".report-tpl-")
+        tmp_html.write(html_text)
+        tmp_html.close()
+        tmp_html_path = Path(tmp_html.name)
+        html_path = tmp_html_path
+
     tmp = tempfile.NamedTemporaryFile(
         mode="w", suffix=".html", dir=PROJECT_ROOT, delete=False, encoding="utf-8")
     tmp.close()
     tmp_path = Path(tmp.name)
     try:
         r = subprocess.run(
-            [pandoc, str(md), "--standalone",
-             "--template", str(TEMPLATE_HTML),
-             "--css", str(TEMPLATE_CSS),
+            [pandoc, str(tmp_md_path), "--standalone",
+             "--template", str(html_path),
+             "--css", str(css_path),
              "--toc", "--toc-depth=2",
              "--no-highlight",
              "-o", str(tmp_path)],
@@ -593,7 +1052,17 @@ def build_report(name: str | None) -> tuple[bool, str]:
         return False, f"Errore durante il build: {e}"
     finally:
         tmp_path.unlink(missing_ok=True)
+        tmp_md_path.unlink(missing_ok=True)
+        if tmp_css_path:
+            tmp_css_path.unlink(missing_ok=True)
+        if tmp_html_path:
+            tmp_html_path.unlink(missing_ok=True)
     return True, str(out_pdf)
+
+
+def html_escape_attr(s: str) -> str:
+    return (s.replace("&", "&amp;").replace('"', "&quot;")
+             .replace("<", "&lt;").replace(">", "&gt;"))
 
 
 # ---------------------------------------------------------------------------
@@ -652,6 +1121,49 @@ def interactive_new(client: str | None, rtype: str | None) -> int:
     return 0
 
 
+def _ask_msf_prefill() -> dict:
+    """Cerca una CVE/un modulo nel db locale di Metasploit e prepara i campi."""
+    try:
+        q = _ask("Cerca in Metasploit (CVE o nome modulo, offline — invio per saltare)")
+    except KeyboardInterrupt:
+        raise
+    if not q:
+        return {}
+    res = msf_search(q)
+    if not res["ok"]:
+        print(f"  \033[93m[~]\033[0m {res['error']}")
+        return {}
+    results = res["results"]
+    if not results:
+        print("  \033[93m[~]\033[0m Nessun modulo trovato nel db locale di Metasploit.")
+        return {}
+    print(f"  \033[92m[+]\033[0m {len(results)} moduli trovati (fonte: {res['source']}):\n")
+    for i, r in enumerate(results, 1):
+        cves = f" [{', '.join(r['cves'])}]" if r["cves"] else ""
+        print(f"    [{i}] \033[1m{r['fullname']}\033[0m "
+              f"({r['rank']}, sev: {SEV_LABEL.get(r['severity'], r['severity'])}){cves}")
+        if r["description"]:
+            print(f"        {r['description'][:110]}")
+    try:
+        pick = _ask("Usa il modulo n. (invio per nessuno)")
+    except KeyboardInterrupt:
+        raise
+    if not pick.isdigit() or not (1 <= int(pick) <= len(results)):
+        return {}
+    r = results[int(pick) - 1]
+    refs = " ".join(f"https://nvd.nist.gov/vuln/detail/{c}" for c in r["cves"])
+    if not refs:
+        refs = f"https://www.rapid7.com/db/modules/{r['fullname']}"
+    return {
+        "title": r["name"].replace("_", " ").strip().title() or r["fullname"],
+        "severity": r["severity"],
+        "cves": r["cves"],
+        "description": r["description"] or f"Modulo Metasploit: {r['fullname']}",
+        "refs": refs,
+        "msf_module": r["fullname"],
+    }
+
+
 def interactive_add_finding(slug: str) -> int:
     rep = find_report(slug)
     if rep is None:
@@ -661,28 +1173,52 @@ def interactive_add_finding(slug: str) -> int:
     print(f"\n\033[1mNuovo finding — {rep['client']}\033[0m\n")
     while True:
         try:
-            title = _ask("Titolo del finding")
+            pre = _ask_msf_prefill()
+            if pre:
+                print("  \033[92m[+]\033[0m Campi precompilati da Metasploit (modifica ciò che serve).")
+            title = _ask("Titolo del finding", pre.get("title", ""))
             if not title:
                 print("Annullato (titolo vuoto).")
                 return 1
             print("  Severità: 1) Critica  2) Alta  3) Media  4) Bassa  5) Info")
-            sev_n = _ask("Scelta", "2")
+            sev_default = {v: str(i) for i, v in enumerate(
+                ("critical", "high", "medium", "low", "info"), 1)}.get(pre.get("severity", "high"), "2")
+            sev_n = _ask("Scelta", sev_default)
             severity = {"1": "critical", "2": "high", "3": "medium", "4": "low",
-                        "5": "info"}.get(sev_n, "high")
+                        "5": "info"}.get(sev_n, pre.get("severity", "high"))
+            cves = pre.get("cves") or []
+            cve_raw = _ask("CVE (separate da virgola, invio per omettere)",
+                           ", ".join(cves))
+            cves = [c.strip().upper() for c in cve_raw.split(",") if c.strip()]
             cwe = _ask("CWE (solo numero, es. 522 — invio per omettere)")
             cvss = _ask("Punteggio CVSS 3.1 (es. 9.5 — invio per omettere)")
-            desc = _ask("Descrizione (incl. causa)")
+            desc = _ask("Descrizione (incl. causa)", pre.get("description", ""))
             impact = _ask("Impatto")
             assets = _ask("Asset interessati", load_meta(slug).get("domain", ""))
             remediation = _ask("Remediation")
-            refs = _ask("Riferimenti (URL, invio per omettere)")
-            evidence = _ask("Evidenze (comandi/output o path screenshot, invio per omettere)")
+            refs = _ask("Riferimenti (URL, invio per omettere)", pre.get("refs", ""))
+            evidence = _ask("Evidenze (comandi/output, invio per omettere)")
+            images: list[dict] = []
+            print("  Immagini evidenza (con didascalia) — path file, invio per finire:")
+            while True:
+                img_path = _ask("  Immagine (path)")
+                if not img_path:
+                    break
+                caption = _ask("  Didascalia (descrizione sotto l'immagine)")
+                try:
+                    rel = import_evidence(slug, img_path)
+                except FileNotFoundError as e:
+                    print(f"  \033[91m[!]\033[0m {e}")
+                    continue
+                images.append({"path": rel, "caption": caption})
+                print(f"  \033[92m[+]\033[0m Copiata in {rel}")
         except KeyboardInterrupt:
             print("Annullato.")
             return 1
         finding = {"title": title, "severity": severity, "cwe": cwe, "cvss": cvss,
-                   "description": desc, "impact": impact, "assets": assets,
-                   "remediation": remediation, "refs": refs, "evidence": evidence}
+                   "cves": cves, "description": desc, "impact": impact,
+                   "assets": assets, "remediation": remediation, "refs": refs,
+                   "evidence": evidence, "images": images}
         ok, msg = add_finding(slug, finding)
         print(("\n\033[92m[+]\033[0m " if ok else "\n\033[91m[!]\033[0m ") + msg)
         if not ok:
@@ -732,6 +1268,8 @@ def _print_report_help() -> None:
     print("  \033[92;1mNote:\033[0m")
     print("  - Report in \033[96mreports/<cliente>/\033[0m (+ meta.json con i dati strutturati)")
     print("  - Evidenze in \033[96mreports/<cliente>/evidence/\033[0m")
+    print("  - 'report add' cerca CVE/moduli nel db LOCALE di Metasploit (offline)")
+    print("  - Le sezioni lasciate vuote non compaiono nel PDF (né titoli né spazi)")
     print("  - 'report edit' cerca nel PATH: " + ", ".join(_VSCODE_CANDIDATES))
     print("  - Su SLWeb: wizard guidato sezione per sezione in \033[96m/report\033[0m")
     print()

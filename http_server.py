@@ -8,6 +8,7 @@ Server HTTP in background che serve utility di post-exploitation:
 from __future__ import annotations
 
 import html
+import base64
 import http.server
 import io
 import json
@@ -2220,6 +2221,53 @@ def _report_sev_css() -> str:
 .report-preview .sev-info{background:#059669;color:#fff;border:none}
 .report-cmd{background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:10px 14px;font-size:13px;margin:6px 0}
 .report-cmd .c{color:var(--accent)}
+.msf-result{border:1px solid var(--border);border-radius:6px;padding:8px 12px;margin-bottom:6px;background:var(--bg);font-size:12px}
+.msf-result .msf-name{font-weight:700;color:var(--text)}
+.msf-result .msf-desc{color:var(--text2);margin-top:2px}
+.msf-result .msf-cve{color:var(--accent);font-family:monospace}
+.fimg-row{display:flex;gap:8px;align-items:center;margin-bottom:6px;font-size:12px}
+.fimg-row .fimg-path{color:var(--text2);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+"""
+
+
+# Pre-processing Markdown per le anteprime SLWeb: riproduce pandoc
+# (rimuove fenced divs :::, converte le caption ": Tabella N:", nasconde
+# le sezioni rimaste vuote, riscrive i path delle immagini verso le rotte SLWeb).
+_JS_REPORT_PREPROCESS = r"""
+function preprocessReportMd(md){
+  md = md.replace(/^---[\s\S]*?---\n/, '');
+  md = md.replace(/\{\{[A-Z_]+\}\}/g, '');
+  md = md.replace(/^\s*:::.*$/gm, '');
+  md = md.replace(/^:[ \t]+((?:Tabella|Figura)\b[^\n]*)$/gm, '\n*$1*\n');
+  md = md.replace(/\]\(reports\/([^)\/]+)\/evidence\/([^)\s]+)\)/g, '](/report/img/$1/$2)');
+  md = md.replace(/src="reports\/([^\/"]+)\/evidence\//g, 'src="/report/img/$1/');
+  md = md.replace(/src="report\/assets\//g, 'src="/report-assets/');
+  var fm = /<!--\s*@@AUTO:firma@@\s*-->([\s\S]*?)<!--\s*@@\/AUTO:firma@@\s*-->/.exec(md);
+  var firma = '';
+  if (fm && fm[1].replace(/<!--[\s\S]*?-->/g, '').trim()){ firma = '\n\n' + fm[0]; md = md.replace(fm[0], ''); }
+  md = md.replace(/<!--\s*@@(SEZ|AUTO):[a-z_]+@@\s*-->([\s\S]*?)<!--\s*@@\/\1:[a-z_]+@@\s*-->/g,
+    function(m, kind, inner){
+      var t = inner.replace(/<!--[\s\S]*?-->/g, '').replace(/\*—\*/g, '').trim();
+      return t ? m : '';
+    });
+  for (var pass = 0; pass < 20; pass++){
+    var lines = md.split('\n'), heads = [], inCode = false, m2;
+    for (var i = 0; i < lines.length; i++){
+      if (/^\s*(```|~~~)/.test(lines[i])) inCode = !inCode;
+      else if (!inCode && (m2 = /^(#{1,6})\s/.exec(lines[i]))) heads.push([i, m2[1].length]);
+    }
+    var removed = false;
+    for (var h = heads.length - 1; h >= 0; h--){
+      var li = heads[h][0], lvl = heads[h][1], end = lines.length;
+      for (var j = h + 1; j < heads.length; j++){ if (heads[j][1] <= lvl){ end = heads[j][0]; break; } }
+      var body = lines.slice(li + 1, end).join('\n').replace(/<!--[\s\S]*?-->/g, '').replace(/\*—\*/g, '').trim();
+      if (!body){ lines.splice(li, end - li); md = lines.join('\n'); removed = true; break; }
+    }
+    if (!removed) break;
+  }
+  md = md.replace(/\n{3,}/g, '\n\n');
+  return md + firma;
+}
 """
 
 
@@ -2274,6 +2322,11 @@ def _page_report() -> str:
   <p style="font-size:12px;color:var(--text2);margin-top:8px">Gli screenshot vanno in <code>reports/&lt;cliente&gt;/evidence/</code>.
   Severit&agrave;: <span class="sev sev-critical">Critica</span> <span class="sev sev-high">Alta</span>
   <span class="sev sev-medium">Media</span> <span class="sev sev-low">Bassa</span> <span class="sev sev-info">Info</span></p>
+  <p style="font-size:12px;color:var(--text2);margin-top:6px">I finding possono essere cercati nel
+  <strong style="color:var(--text)">db locale di Metasploit</strong> (CVE e moduli, tutto offline — nessuna chiamata a Internet):
+  il wizard precompila titolo, descrizione, severit&agrave; e riferimenti.
+  Le sezioni lasciate vuote nel wizard <strong style="color:var(--text)">non compaiono nel PDF</strong> (n&eacute; titoli n&eacute; spazi).
+  Dalla sezione <strong style="color:var(--text)">Stile</strong> del wizard gestisci colori del report, logo, autore, azienda e firma.</p>
 </div>
 
 <div class="report-section">
@@ -2304,8 +2357,9 @@ def _page_report() -> str:
 </div>
 </div>
 <script>
+{_JS_REPORT_PREPROCESS}
 var TEMPLATE_MD = `{safe_md}`;
-document.getElementById('r-preview').innerHTML = marked.parse(TEMPLATE_MD.replace(/^---[\\s\\S]*?---\\n/, ''));
+document.getElementById('r-preview').innerHTML = marked.parse(preprocessReportMd(TEMPLATE_MD));
 
 function msg(t, ok) {{
   var el = document.getElementById('r-msg');
@@ -2375,8 +2429,9 @@ def _page_report_view(slug: str) -> str:
 <div class="report-preview" id="r-preview" style="max-height:none"></div>
 </div>
 <script>
+{_JS_REPORT_PREPROCESS}
 var MD = `{safe_md}`;
-document.getElementById('r-preview').innerHTML = marked.parse(MD.replace(/^---[\\s\\S]*?---\\n/, ''));
+document.getElementById('r-preview').innerHTML = marked.parse(preprocessReportMd(MD));
 function buildReport(slug, btn) {{
   btn.disabled = true; btn.textContent = 'Build…';
   fetch('/api/report/build', {{
@@ -2446,11 +2501,15 @@ var STEPS = [
   {{id:'info',     label:'Cliente & Test'}},
   {{id:'approccio',label:'Approccio'}},
   {{id:'perimetro',label:'Perimetro'}},
-  {{id:'findings', label:'Finding'}},
+  {{id:'findings', label:'Finding (CVE/MSF)'}},
   {{id:'walkthrough', label:'Walkthrough'}},
   {{id:'remediation', label:'Remediation'}},
+  {{id:'appendici', label:'Appendici'}},
+  {{id:'stile',    label:'Stile'}},
   {{id:'finale',   label:'Considerazioni & PDF'}},
 ];
+var STYLE_PRESETS = {{navy:'Blu navy (default)',red:'Rosso',black:'Nero',green:'Verde',yellow:'Giallo / ambra',custom:'Personalizzato'}};
+var F_IMAGES = [];
 
 function esc(s){{var d=document.createElement('div');d.textContent=s||'';return d.innerHTML;}}
 
@@ -2515,10 +2574,33 @@ function renderStep(){{
       textarea('w-compromissione','Compromissione della rete (introduzione)',sec.compromissione,110)+
       textarea('w-walkthrough','Percorso di attacco dettagliato',sec.walkthrough,220);
   }} else if(s==='remediation'){{
-    h='<h3>Piano di Remediation</h3><div class="wiz-hint">Elenca le azioni correttive divise per orizzonte temporale (una per riga, con "- ").</div>'+
+    h='<h3>Piano di Remediation</h3><div class="wiz-hint">Elenca le azioni correttive divise per orizzonte temporale (una per riga, con "- "). Le sezioni lasciate vuote non compaiono nel PDF.</div>'+
       textarea('w-rem-breve','Breve termine',sec.remediation_breve,90)+
       textarea('w-rem-medio','Medio termine',sec.remediation_medio,90)+
       textarea('w-rem-lungo','Lungo termine',sec.remediation_lungo,90);
+  }} else if(s==='appendici'){{
+    h='<h3>Appendici</h3><div class="wiz-hint">Tabelle libere in Markdown. Le appendici lasciate vuote non compaiono nel PDF (né il titolo né spazi vuoti).</div>'+
+      textarea('w-app-host','Appendice B — Host compromessi',sec.appendice_host,90)+
+      textarea('w-app-utenti','Appendice C — Utenti compromessi',sec.appendice_utenti,90)+
+      textarea('w-app-bonifica','Appendice D — Modifiche e bonifica degli host',sec.appendice_bonifica,90)+
+      textarea('w-app-password','Appendice E — Analisi delle password del dominio',sec.appendice_password,90);
+  }} else if(s==='stile'){{
+    var st=m.style||{{}};
+    h='<h3>Stile del report</h3><div class="wiz-hint">Colori, logo, autore e firma: applicati al PDF al prossimo build.</div>'+
+      '<div class="wiz-field"><label>Colore principale</label>'+stylePresetSelect(st.preset||'navy')+'</div>'+
+      '<div class="wiz-grid2">'+
+      '<div class="wiz-field"><label>Colore 1 (hex — usato se preset Personalizzato)</label><input type="color" id="w-color1" value="'+(st.color||'#0F4068')+'" style="width:100%;height:38px;background:var(--bg);border:1px solid var(--border);border-radius:4px"></div>'+
+      '<div class="wiz-field"><label>Colore 2 accento (opzionale)</label><div style="display:flex;gap:8px;align-items:center"><input type="color" id="w-color2" value="'+(st.color2||'#2D5F8A')+'" style="width:60px;height:38px;background:var(--bg);border:1px solid var(--border);border-radius:4px"><label style="font-size:12px;color:var(--text2)"><input type="checkbox" id="w-color2-on"'+(st.color2?' checked':'')+'> usa secondo colore</label></div></div></div>'+
+      '<div class="wiz-grid2">'+
+      field('w-author','Autore del report',st.author,'es. Santarella Martina')+
+      field('w-company','Azienda che esegue il test',st.company,'es. SLCtrl')+'</div>'+
+      field('w-role','Ruolo (per la firma)',st.role,'Penetration Tester')+
+      '<div class="wiz-grid2">'+
+      '<div class="wiz-field"><label>Logo del report (cover)</label><input type="file" id="w-logo-file" accept="image/*" onchange="uploadAsset(this,\\'logo\\')">'+
+      '<div id="w-logo-cur" style="font-size:12px;color:var(--text2);margin-top:4px">'+(st.logo?'Attuale: '+esc(st.logo):'Nessun logo caricato')+'</div></div>'+
+      '<div class="wiz-field"><label>Firma (immagine)</label><input type="file" id="w-sig-file" accept="image/*" onchange="uploadAsset(this,\\'signature\\')">'+
+      '<div id="w-sig-cur" style="font-size:12px;color:var(--text2);margin-top:4px">'+(st.signature?'Attuale: '+esc(st.signature):'Firma di default (report/assets/firma.png)')+'</div></div></div>'+
+      '<div class="wiz-hint">Se autore e azienda sono vuoti, il blocco firma non compare nel PDF.</div>';
   }} else if(s==='finale'){{
     h='<h3>Considerazioni Finali &amp; PDF</h3><div class="wiz-hint">Osservazioni conclusive, poi genera il PDF finale.</div>'+
       textarea('w-considerazioni','Considerazioni finali',sec.considerazioni,150)+
@@ -2574,10 +2656,16 @@ function renderFindings(){{
 }}
 function renderFindingForm(){{
   var f = EDIT_IDX>=0 ? DATA.meta.findings[EDIT_IDX] : {{}};
+  F_IMAGES = (f.images||[]).map(function(im){{return {{path:im.path,caption:im.caption}};}});
+  F_MSFCVES = (f.cves||[]).slice();
   var t = EDIT_IDX>=0 ? 'Modifica finding SLC-'+String(EDIT_IDX+1).padStart(2,'0') : 'Nuovo finding';
   document.getElementById('w-finding-form').innerHTML =
     '<div style="border:1px solid var(--border);border-radius:8px;padding:16px;margin-top:10px;background:var(--surface2)">'+
     '<div style="font-weight:700;margin-bottom:10px;color:var(--accent)">'+t+'</div>'+
+    '<div class="wiz-field"><label>Cerca CVE / modulo in Metasploit (offline, db locale)</label>'+
+    '<div style="display:flex;gap:8px"><input type="text" id="f-msf-q" placeholder="es. CVE-2017-0143 oppure eternalblue" style="flex:1;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:8px 10px;font-family:inherit;font-size:13px">'+
+    '<button class="btn" onclick="msfSearch()">Cerca in MSF</button></div></div>'+
+    '<div id="f-msf-results"></div>'+
     field('f-title','Titolo *',f.title,'es. LLMNR/NBT-NS Response Spoofing')+
     '<div class="wiz-grid2">'+
     '<div class="wiz-field"><label>Severità</label>'+sevSelect('f-sev',f.severity||'high')+'</div>'+
@@ -2585,24 +2673,118 @@ function renderFindingForm(){{
     '<div class="wiz-grid2">'+
     field('f-cwe','CWE (solo numero)',f.cwe,'es. 522')+
     field('f-assets','Asset interessati',f.assets,DATA.meta.domain)+'</div>'+
+    '<div class="wiz-field"><label>CVE associate</label><div id="f-cves" style="font-size:12px;color:var(--accent);font-family:monospace;min-height:16px">'+esc(F_MSFCVES.join(', '))+'</div></div>'+
     textarea('f-desc','Descrizione (incl. causa)',f.description,70)+
     textarea('f-impact','Impatto',f.impact,60)+
     textarea('f-remediation','Remediation',f.remediation,60)+
-    field('f-refs','Riferimenti (URL)',f.refs,'https://attack.mitre.org/...')+
-    textarea('f-evidence','Evidenze (output comandi / path screenshot)',f.evidence,70)+
+    field('f-refs','Riferimenti (URL)',f.refs,'https://nvd.nist.gov/vuln/detail/CVE-...')+
+    textarea('f-evidence','Evidenze testuali (output comandi)',f.evidence,70)+
+    '<div class="wiz-field"><label>Immagini evidenza (con didascalia sotto)</label>'+
+    '<div id="f-images"></div>'+
+    '<div style="display:flex;gap:8px;align-items:center;margin-top:6px">'+
+    '<input type="file" id="f-img-file" accept="image/*" style="font-size:12px;color:var(--text2)">'+
+    '<input type="text" id="f-img-cap" placeholder="Didascalia (contesto sotto l’immagine)" style="flex:1;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:7px 10px;font-family:inherit;font-size:12px">'+
+    '<button class="btn" onclick="uploadFindingImage()">+ Immagine</button></div></div>'+
     '<button class="btn btn-primary" onclick="saveFinding()">'+(EDIT_IDX>=0?'Salva modifica':'+ Aggiungi finding')+'</button> '+
     (EDIT_IDX>=0?'<button class="btn" onclick="EDIT_IDX=-1;renderFindingForm()">Annulla</button>':'')+
     '</div>';
+  renderFImages();
+}}
+
+// ---- Ricerca Metasploit (offline) ----
+var MSF_RESULTS = [];
+var F_MSFCVES = [];
+function msfSearch(){{
+  var q=gv('f-msf-q');
+  if(!q){{alert('Scrivi una CVE o un nome modulo da cercare.');return;}}
+  var box=document.getElementById('f-msf-results');
+  box.innerHTML='<p style="font-size:12px;color:var(--text2)">Ricerca nel db locale di Metasploit… (può richiedere alcuni secondi)</p>';
+  fetch('/api/report/msf-search?q='+encodeURIComponent(q))
+  .then(r=>r.json()).then(d=>{{
+    if(!d.ok){{box.innerHTML='<p style="font-size:12px;color:var(--red)">'+esc(d.error||'Ricerca non disponibile')+'</p>';return;}}
+    MSF_RESULTS=d.results||[];
+    if(!MSF_RESULTS.length){{box.innerHTML='<p style="font-size:12px;color:var(--text2)">Nessun modulo trovato per questa ricerca.</p>';return;}}
+    box.innerHTML='<div style="font-size:11px;color:var(--text2);margin-bottom:6px">'+MSF_RESULTS.length+' moduli (fonte: '+esc(d.source)+') — clicca “Usa” per compilare il finding:</div>'+
+      MSF_RESULTS.map(function(r,i){{
+        return '<div class="msf-result"><span class="msf-name">'+esc(r.fullname)+'</span> '+sevBadge(r.severity)+
+          (r.cves&&r.cves.length?' <span class="msf-cve">'+esc(r.cves.join(', '))+'</span>':'')+
+          ' <button class="btn" style="float:right;padding:2px 10px;font-size:11px" onclick="msfUse('+i+')">Usa</button>'+
+          '<div class="msf-desc">'+esc((r.description||'').slice(0,180))+'</div></div>';
+      }}).join('');
+  }}).catch(()=>{{box.innerHTML='<p style="font-size:12px;color:var(--red)">Errore di rete</p>';}});
+}}
+function msfUse(i){{
+  var r=MSF_RESULTS[i]; if(!r)return;
+  document.getElementById('f-title').value=r.name.replace(/_/g,' ');
+  document.getElementById('f-sev').value=r.severity;
+  document.getElementById('f-desc').value=r.description||('Modulo Metasploit: '+r.fullname);
+  F_MSFCVES=(r.cves||[]).slice();
+  document.getElementById('f-cves').textContent=F_MSFCVES.join(', ');
+  document.getElementById('f-refs').value=F_MSFCVES.length?
+    F_MSFCVES.map(function(c){{return 'https://nvd.nist.gov/vuln/detail/'+c;}}).join(' '):
+    'https://www.rapid7.com/db/modules/'+r.fullname;
+  document.getElementById('f-msf-results').innerHTML='<p style="font-size:12px;color:var(--green)">✔ Campi compilati da '+esc(r.fullname)+' — completa impatto e remediation.</p>';
+}}
+
+// ---- Immagini evidenza ----
+function renderFImages(){{
+  var w=document.getElementById('f-images');
+  if(!w)return;
+  w.innerHTML=F_IMAGES.map(function(im,i){{
+    return '<div class="fimg-row"><span class="fimg-path">'+esc(im.path)+'</span>'+
+      '<span style="color:var(--text2)">'+esc(im.caption||'(nessuna didascalia)')+'</span>'+
+      '<button class="btn btn-danger" style="padding:2px 8px;font-size:11px" onclick="F_IMAGES.splice('+i+',1);renderFImages()">×</button></div>';
+  }}).join('')||'<p style="font-size:11px;color:var(--text2);margin:2px 0">Nessuna immagine allegata.</p>';
+}}
+function uploadFindingImage(){{
+  var fi=document.getElementById('f-img-file');
+  if(!fi.files||!fi.files.length){{alert('Scegli un file immagine.');return;}}
+  uploadAssetFile(fi.files[0],'evidence',function(path){{
+    F_IMAGES.push({{path:path,caption:gv('f-img-cap')}});
+    document.getElementById('f-img-cap').value=''; fi.value='';
+    renderFImages();
+  }});
+}}
+
+// ---- Upload asset (immagini evidenza, logo, firma) ----
+function uploadAssetFile(file,kind,cb){{
+  var reader=new FileReader();
+  reader.onload=function(){{
+    var b64=reader.result.split(',')[1];
+    fetch('/api/report/asset',{{method:'POST',headers:{{'Content-Type':'application/json'}},
+      body:JSON.stringify({{slug:SLUG,kind:kind,filename:file.name,data:b64}})
+    }}).then(r=>r.json()).then(d=>{{
+      if(d.ok)cb(d.path); else alert(d.error||'Upload fallito');
+    }}).catch(()=>alert('Errore di rete durante l’upload'));
+  }};
+  reader.readAsDataURL(file);
+}}
+function uploadAsset(input,kind){{
+  if(!input.files||!input.files.length)return;
+  uploadAssetFile(input.files[0],kind,function(path){{
+    DATA.meta.style=DATA.meta.style||{{}};
+    if(kind==='logo'){{DATA.meta.style.logo=path;document.getElementById('w-logo-cur').textContent='Attuale: '+path;}}
+    else {{DATA.meta.style.signature=path;document.getElementById('w-sig-cur').textContent='Attuale: '+path;}}
+  }});
+}}
+
+// ---- Stile ----
+function stylePresetSelect(val){{
+  return '<select id="w-preset">'+Object.keys(STYLE_PRESETS).map(function(k){{
+    return '<option value="'+k+'"'+(k===val?' selected':'')+'>'+STYLE_PRESETS[k]+'</option>';
+  }}).join('')+'</select>';
 }}
 function editFinding(i){{EDIT_IDX=i;renderFindingForm();window.scrollTo({{top:document.getElementById('w-finding-form').offsetTop-60,behavior:'smooth'}});}}
 function saveFinding(){{
   var title=gv('f-title');
   if(!title){{alert('Inserisci il titolo del finding.');return;}}
   var f={{title:title,severity:gv('f-sev'),cvss:gv('f-cvss'),cwe:gv('f-cwe'),
+         cves:F_MSFCVES.slice(),
          assets:gv('f-assets'),description:document.getElementById('f-desc').value,
          impact:document.getElementById('f-impact').value,
          remediation:document.getElementById('f-remediation').value,
-         refs:gv('f-refs'),evidence:document.getElementById('f-evidence').value}};
+         refs:gv('f-refs'),evidence:document.getElementById('f-evidence').value,
+         images:F_IMAGES.slice()}};
   fetch('/api/report/finding',{{method:'POST',headers:{{'Content-Type':'application/json'}},
     body:JSON.stringify({{slug:SLUG,index:EDIT_IDX>=0?EDIT_IDX:null,finding:f}})
   }}).then(r=>r.json()).then(d=>{{
@@ -2681,6 +2863,23 @@ function saveStep(advance,cb){{
         saveSection('remediation_lungo',document.getElementById('w-rem-lungo').value,function(){{done(true);}});
       }});
     }});
+  }} else if(s==='appendici'){{
+    saveSection('appendice_host',document.getElementById('w-app-host').value,function(){{
+      saveSection('appendice_utenti',document.getElementById('w-app-utenti').value,function(){{
+        saveSection('appendice_bonifica',document.getElementById('w-app-bonifica').value,function(){{
+          saveSection('appendice_password',document.getElementById('w-app-password').value,function(){{done(true);}});
+        }});
+      }});
+    }});
+  }} else if(s==='stile'){{
+    DATA.meta.style=DATA.meta.style||{{}};
+    DATA.meta.style.preset=gv('w-preset');
+    DATA.meta.style.color=(gv('w-preset')==='custom')?gv('w-color1'):'';
+    DATA.meta.style.color2=document.getElementById('w-color2-on').checked?gv('w-color2'):'';
+    DATA.meta.style.author=gv('w-author');
+    DATA.meta.style.company=gv('w-company');
+    DATA.meta.style.role=gv('w-role');
+    postMeta(done);
   }} else if(s==='finale'){{
     saveSection('considerazioni',document.getElementById('w-considerazioni').value,function(){{done(true);}});
   }}
@@ -4105,6 +4304,17 @@ class SlRequestHandler(http.server.BaseHTTPRequestHandler):
                 self._send_html(_page_report_wizard(slug))
         elif path == "/api/report/data":
             self._api_report_data(qs.get("slug", [""])[0])
+        elif path == "/api/report/msf-search":
+            self._api_report_msf_search(qs.get("q", [""])[0])
+        elif path.startswith("/report/img/"):
+            rest = path[12:]
+            parts = rest.split("/", 1)
+            if len(parts) != 2 or ".." in rest:
+                self.send_error(403)
+            else:
+                self._serve_report_image(parts[0], parts[1])
+        elif path.startswith("/report-assets/"):
+            self._serve_report_asset_file(path[15:])
         elif path.startswith("/report/view/"):
             slug = path[13:]
             if ".." in slug or "/" in slug:
@@ -4250,6 +4460,8 @@ class SlRequestHandler(http.server.BaseHTTPRequestHandler):
             self._api_report_finding_delete()
         elif path == "/api/report/section":
             self._api_report_section()
+        elif path == "/api/report/asset":
+            self._api_report_asset()
         else:
             self.send_error(404)
 
@@ -4514,8 +4726,10 @@ class SlRequestHandler(http.server.BaseHTTPRequestHandler):
             self._send_json({"ok": False, "error": "meta.json mancante — report in vecchio formato"}, status=400)
             return
         md_text = Path(rep["md"]).read_text(encoding="utf-8", errors="replace")
+        sections = {k: re.sub(r"<!--.*?-->", "", v, flags=re.S).strip()
+                    for k, v in get_sections(md_text).items()}
         self._send_json({"ok": True, "slug": rep["slug"], "meta": meta,
-                         "sections": get_sections(md_text),
+                         "sections": sections,
                          "pdf": bool(rep["pdf"])})
 
     def _api_report_meta(self) -> None:
@@ -4532,7 +4746,8 @@ class SlRequestHandler(http.server.BaseHTTPRequestHandler):
             self._send_json({"ok": False, "error": "Report non trovato"}, status=404)
             return
         old = load_meta(rep["slug"]) or {}
-        for key in ("client", "rtype", "box", "domain", "date_start", "date_end", "scope"):
+        for key in ("client", "rtype", "box", "domain", "date_start", "date_end",
+                    "scope", "style"):
             if key in meta:
                 old[key] = meta[key]
         if not str(old.get("client", "")).strip():
@@ -4597,6 +4812,97 @@ class SlRequestHandler(http.server.BaseHTTPRequestHandler):
         ok = update_section(rep["slug"], section, content)
         self._send_json({"ok": ok, "error": None if ok else "Sezione non trovata nel .md"},
                         status=200 if ok else 400)
+
+    def _api_report_msf_search(self, q: str) -> None:
+        """Ricerca CVE/moduli nel db LOCALE di Metasploit (mai online)."""
+        from lib.report import msf_search
+        try:
+            res = msf_search(q, limit=30)
+        except Exception as e:  # noqa: BLE001
+            self._send_json({"ok": False, "error": str(e)}, status=500)
+            return
+        self._send_json(res, status=200 if res.get("ok") else 400)
+
+    def _api_report_asset(self) -> None:
+        """Upload di un'immagine (evidenza/logo/firma) in reports/<slug>/evidence/."""
+        try:
+            body = json.loads(self._read_body())
+            slug = str(body.get("slug", "")).strip()
+            filename = os.path.basename(str(body.get("filename", "")).strip())
+            data_b64 = str(body.get("data", ""))
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            self._send_json({"ok": False, "error": "JSON non valido"}, status=400)
+            return
+        from lib.report import find_report, REPORTS_DIR, PROJECT_ROOT as _PR
+        rep = find_report(slug)
+        if rep is None:
+            self._send_json({"ok": False, "error": "Report non trovato"}, status=404)
+            return
+        ext = os.path.splitext(filename)[1].lower()
+        if ext not in (".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg"):
+            self._send_json({"ok": False, "error": "Formato non supportato (png/jpg/gif/webp/svg)"},
+                            status=400)
+            return
+        try:
+            raw = base64.b64decode(data_b64, validate=True)
+        except Exception:
+            self._send_json({"ok": False, "error": "Dati immagine non validi"}, status=400)
+            return
+        if len(raw) > 15 * 1024 * 1024:
+            self._send_json({"ok": False, "error": "Immagine troppo grande (max 15 MB)"},
+                            status=400)
+            return
+        safe = re.sub(r"[^a-zA-Z0-9_.-]+", "_", filename) or f"img{ext}"
+        ev_dir = REPORTS_DIR / rep["slug"] / "evidence"
+        ev_dir.mkdir(parents=True, exist_ok=True)
+        dst = ev_dir / safe
+        n = 1
+        while dst.exists():
+            dst = ev_dir / f"{os.path.splitext(safe)[0]}_{n}{ext}"
+            n += 1
+        try:
+            dst.write_bytes(raw)
+        except OSError as e:
+            self._send_json({"ok": False, "error": str(e)}, status=500)
+            return
+        self._send_json({"ok": True, "path": str(dst.relative_to(_PR))})
+
+    def _serve_report_image(self, slug: str, fname: str) -> None:
+        if ".." in fname or "/" in fname:
+            self.send_error(403)
+            return
+        from lib.report import REPORTS_DIR
+        img = REPORTS_DIR / slug / "evidence" / fname
+        if not img.is_file():
+            self.send_error(404, "Immagine non trovata")
+            return
+        self._send_file_bytes(img)
+
+    def _serve_report_asset_file(self, fname: str) -> None:
+        if ".." in fname or "/" in fname:
+            self.send_error(403)
+            return
+        from lib.report import REPORT_ROOT
+        f = REPORT_ROOT / "assets" / fname
+        if not f.is_file():
+            self.send_error(404, "Asset non trovato")
+            return
+        self._send_file_bytes(f)
+
+    def _send_file_bytes(self, path: Path) -> None:
+        ctype = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+                 ".gif": "image/gif", ".webp": "image/webp",
+                 ".svg": "image/svg+xml"}.get(path.suffix.lower(), "application/octet-stream")
+        try:
+            data = path.read_bytes()
+        except OSError:
+            self.send_error(500)
+            return
+        self.send_response(200)
+        self.send_header("Content-Type", ctype)
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
 
     def _serve_report_raw(self, slug: str) -> None:
         if ".." in slug or "/" in slug:

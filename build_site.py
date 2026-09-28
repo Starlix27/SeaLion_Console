@@ -508,7 +508,9 @@ def _page_report_static() -> str:
   conteggi severity, finding) sono generati automaticamente dai dati in <code>meta.json</code>; i blocchi <code>@@SEZ@@</code> sono testo libero.</p>
   <p style="font-size:12px;color:var(--text2);margin-top:6px">Con <strong style="color:var(--text)">SLWeb attivo</strong> (<code>serve on</code>) la pagina
   <code>/report</code> offre un <strong>wizard guidato</strong> che compila il report una sezione alla volta:
-  Cliente &amp; Test, Approccio, Perimetro, Finding, Walkthrough, Remediation, Considerazioni finali — con anteprima e PDF dal browser.</p>
+  Cliente &amp; Test, Approccio, Perimetro, Finding (con ricerca CVE nel db <strong>locale</strong> di Metasploit,
+  funziona offline), Walkthrough, Remediation, Appendici, Stile (colori, logo, autore, firma) e
+  Considerazioni finali — con anteprima e PDF dal browser. Le sezioni lasciate vuote non compaiono nel PDF.</p>
 </div>
 
 <div class="report-section">
@@ -518,8 +520,9 @@ def _page_report_static() -> str:
 </div>
 </div>
 <script>
+{http_server._JS_REPORT_PREPROCESS}
 var TEMPLATE_MD = `{safe_md}`;
-document.getElementById('r-preview').innerHTML = marked.parse(TEMPLATE_MD.replace(/^---[\\s\\S]*?---\\n/, ''));
+document.getElementById('r-preview').innerHTML = marked.parse(preprocessReportMd(TEMPLATE_MD));
 </script>"""
     return _base_html_static("Report", body, active="report")
 
