@@ -64,6 +64,7 @@ _STATIC_NAV_DOCS = [
 _STATIC_NAV_STANDALONE = [
     ("pet", "Pet", "pet"),
     ("burp", "BURP", "burp"),
+    ("report", "Report", "report"),
 ]
 
 
@@ -203,6 +204,7 @@ def _page_home_static() -> str:
     <ul class="cat-list">
       <li><a href="{BASE}pet">Pet</a><span class="cnt">sealion virtuale</span></li>
       <li><a href="{BASE}burp">BURP</a><span class="cnt">password profiler</span></li>
+      <li><a href="{BASE}report">Report</a><span class="cnt">report di pentest</span></li>
     </ul>
   </div>
   <div class="info-box home-pet" id="pet-widget" style="display:none">
@@ -240,6 +242,7 @@ def _page_home_static() -> str:
     {{name:'pet',label:'Pet',cnt:'sealion virtuale',href:B+'pet'}},
     {{name:'minigame',label:'Minigame',cnt:'quiz pentesting',href:B+'pet/minigame'}},
     {{name:'burp',label:'BURP',cnt:'password profiler',href:B+'burp'}},
+    {{name:'report',label:'Report',cnt:'report di pentest',href:B+'report'}},
   ];
   const input=document.getElementById('term-input');
   const box=document.getElementById('suggestions');
@@ -261,7 +264,8 @@ def _page_home_static() -> str:
     '              <span class="t-line">Feed, play, spin, annoy + mini-games (blackjack, wordle, 8ball)</span>\\n'+
     '  <span class="t-accent">minigame</span>    <span class="t-line">Quiz fullscreen con 500 domande di pentesting</span>\\n'+
     '  <span class="t-accent">burp</span>        <span class="t-line">BURP — Profiler password avanzato (sostituisce CUPP)</span>\\n'+
-    '              <span class="t-line">Genera wordlist personalizzate basate sul profilo della vittima</span>\\n\\n'+
+    '              <span class="t-line">Genera wordlist personalizzate basate sul profilo della vittima</span>\\n'+
+    '  <span class="t-accent">report</span>      <span class="t-line">Report di penetration test — template, anteprima e PDF</span>\\n\\n'+
     '  <span class="t-section">— Terminale</span>\\n'+
     '  <span class="t-accent">help</span>        <span class="t-line">Mostra questo messaggio</span>\\n'+
     '  <span class="t-accent">help</span> <span class="t-line">&lt;cmd&gt;</span>  <span class="t-line">Dettagli su un comando (es. <span class="t-accent">help vuln</span>)</span>\\n'+
@@ -297,6 +301,14 @@ def _page_home_static() -> str:
       '<span class="t-line">Compila il form con info su target, famiglia, animali, azienda e keyword.</span>\\n\\n'+
       '<span class="t-line">Livelli: <span class="t-accent">fast</span> (~2k), <span class="t-accent">medium</span> (~15k), <span class="t-accent">full</span> (~100k+)</span>\\n\\n'+
       '<span class="t-line">Digitando <span class="t-accent">burp</span> verrai portato al BURP profiler.</span>',
+    report:
+      '<span class="t-head">report — Report di Penetration Test</span>\\n\\n'+
+      '<span class="t-line">Crea report di pentest dal template SLCtrl (Markdown → PDF).</span>\\n'+
+      '<span class="t-line">In SLConsole:</span>\\n'+
+      '<span class="t-accent">  report new "Cliente"</span>  <span class="t-line">Crea un nuovo report</span>\\n'+
+      '<span class="t-accent">  report edit &lt;nome&gt;</span>  <span class="t-line">Lo apre in VS Code</span>\\n'+
+      '<span class="t-accent">  report build &lt;nome&gt;</span> <span class="t-line">Genera il PDF</span>\\n\\n'+
+      '<span class="t-line">Digitando <span class="t-accent">report</span> vedi template e anteprima.</span>',
     help:
       '<span class="t-head">help — Aiuto Comandi</span>\\n\\n'+
       '<span class="t-line">Mostra la lista dei comandi disponibili.</span>',
@@ -456,6 +468,57 @@ def _page_home_static() -> str:
 }})();
 </script>"""
     return _base_html_static("Home", body, active="home")
+
+
+
+
+# ---------------------------------------------------------------------------
+# Static report page (template preview + guida comandi)
+# ---------------------------------------------------------------------------
+def _page_report_static() -> str:
+    template_md = ""
+    tpl = PROJECT_ROOT / "report" / "template.md"
+    if tpl.is_file():
+        template_md = tpl.read_text(encoding="utf-8", errors="replace")
+    safe_md = (template_md.replace("\\", "\\\\").replace("`", "\\`")
+               .replace("$", "\\$").replace("</", "<\\/"))
+
+    body = f"""<div class="container">
+<div class="breadcrumb"><a href="{BASE}">Home</a> <span>/</span> Report</div>
+<div class="page-title">Report</div>
+<div class="page-sub">Report di penetration test in Markdown &rarr; PDF (template SLCtrl)</div>
+<style>{http_server._report_sev_css()}</style>
+
+<div class="report-section">
+  <div class="report-section-title">Come funziona</div>
+  <p style="font-size:13px;color:var(--text2);margin-bottom:8px">
+  Un <strong style="color:var(--text)">report</strong> &egrave; il documento finale del tuo penetration test:
+  executive summary, walkthrough della compromissione, finding con severit&agrave; e remediation.
+  Lo scrivi in <strong style="color:var(--text)">Markdown</strong> partendo dal template SLCtrl
+  e lo compili in <strong style="color:var(--text)">PDF</strong> (pandoc + weasyprint).</p>
+  <p style="font-size:13px;color:var(--text2);margin-bottom:8px">Tutto da <strong style="color:var(--text)">SLConsole</strong> (comando <code>report</code>):</p>
+  <div class="report-cmd">$ <span class="c">report new "Acme Corp"</span>&nbsp;&nbsp;<span style="color:var(--text2)"># crea il report in reports/acme-corp/</span></div>
+  <div class="report-cmd">$ <span class="c">report edit acme-corp</span>&nbsp;&nbsp;<span style="color:var(--text2)"># lo apre direttamente in VS Code (o derivati)</span></div>
+  <div class="report-cmd">$ <span class="c">report list</span>&nbsp;&nbsp;<span style="color:var(--text2)"># elenca i tuoi report</span></div>
+  <div class="report-cmd">$ <span class="c">report build acme-corp</span>&nbsp;&nbsp;<span style="color:var(--text2)"># genera il PDF finale</span></div>
+  <p style="font-size:12px;color:var(--text2);margin-top:8px">Gli screenshot vanno in <code>reports/&lt;cliente&gt;/evidence/</code>.
+  Severit&agrave;: <span class="sev sev-critical">Critica</span> <span class="sev sev-high">Alta</span>
+  <span class="sev sev-medium">Media</span> <span class="sev sev-low">Bassa</span> <span class="sev sev-info">Info</span></p>
+  <p style="font-size:12px;color:var(--text2);margin-top:6px">Con <strong style="color:var(--text)">SLWeb attivo</strong> (<code>serve on</code>) la pagina
+  <code>/report</code> permette anche di creare report, vederne l'anteprima e generare il PDF dal browser.</p>
+</div>
+
+<div class="report-section">
+  <div class="report-section-title">Anteprima del template</div>
+  <p style="font-size:12px;color:var(--text2);margin-bottom:10px">Questo &egrave; il documento da cui parte ogni nuovo report (stile semplificato; il PDF finale usa il tema SLCtrl completo).</p>
+  <div class="report-preview" id="r-preview"></div>
+</div>
+</div>
+<script>
+var TEMPLATE_MD = `{safe_md}`;
+document.getElementById('r-preview').innerHTML = marked.parse(TEMPLATE_MD.replace(/^---[\\s\\S]*?---\\n/, ''));
+</script>"""
+    return _base_html_static("Report", body, active="report")
 
 
 # ---------------------------------------------------------------------------
@@ -646,6 +709,10 @@ def build():
     # BURP
     _write(out / "burp" / "index.html", _page_burp())
     print("  ✓ burp/")
+
+    # Report
+    _write(out / "report" / "index.html", _page_report_static())
+    print("  ✓ report/")
 
     # Search
     _write(out / "search" / "index.html", _page_search_static())
