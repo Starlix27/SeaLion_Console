@@ -203,7 +203,7 @@ def _msf_entry(name: str, fullname: str, mtype: str, rank, description: str,
     except (TypeError, ValueError):
         rank_int = _MSF_RANK_NAME_INV.get(str(rank).strip().lower(), 0)
     cves = _msf_extract_cves(f"{name} {description}", refs)
-    return {
+    entry = {
         "name": name,
         "fullname": fullname,
         "type": mtype,
@@ -213,10 +213,32 @@ def _msf_entry(name: str, fullname: str, mtype: str, rank, description: str,
         "description": (description or "").strip(),
         "date": date or "",
     }
+    # suggerimenti per compilare TUTTI i campi del finding (offline)
+    sug = _finding_suggest(
+        {"title": name, "description": description, "severity": entry["severity"],
+         "cves": cves, "msf": fullname},
+        None, {"references": refs or [], "description": description})
+    entry.update({"cwe": sug["cwe"], "cvss": sug["cvss"],
+                  "impact": sug["impact"], "remediation": sug["remediation"],
+                  "refs_fmt": sug["refs"]})
+    return entry
 
 
-def _msf_search_cache(cache: Path, query: str, limit: int) -> list[dict]:
-    """Cerca nella cache modules_metadata.json (nessun processo, nessuna rete)."""
+_MSF_CACHE_MEMO: dict = {}
+
+
+def _msf_cache_entries() -> list[dict]:
+    """Voci grezze della cache modules_metadata.json (parse memoizzato)."""
+    cache = _msf_metadata_cache()
+    if cache is None:
+        return []
+    try:
+        mtime = cache.stat().st_mtime
+    except OSError:
+        return []
+    if (_MSF_CACHE_MEMO.get("path") == str(cache)
+            and _MSF_CACHE_MEMO.get("mtime") == mtime):
+        return _MSF_CACHE_MEMO["entries"]
     try:
         data = json.loads(cache.read_text(encoding="utf-8", errors="replace"))
     except (json.JSONDecodeError, OSError):
@@ -232,6 +254,13 @@ def _msf_search_cache(cache: Path, query: str, limit: int) -> list[dict]:
         entries = [e for e in data if isinstance(e, dict)]
     else:
         return []
+    _MSF_CACHE_MEMO.update(path=str(cache), mtime=mtime, entries=entries)
+    return entries
+
+
+def _msf_search_cache(cache: Path, query: str, limit: int) -> list[dict]:
+    """Cerca nella cache modules_metadata.json (nessun processo, nessuna rete)."""
+    entries = _msf_cache_entries()
     terms = [t.lower() for t in query.split() if t.strip()]
     out: list[dict] = []
     for e in entries:
@@ -311,6 +340,273 @@ def msf_search(query: str, limit: int = 30) -> dict:
                       "~/.msf4/store/modules_metadata.json né il comando "
                       "msfconsole. Avvia msfconsole almeno una volta per "
                       "generare la cache dei moduli.")}
+
+# ---------------------------------------------------------------------------
+# Compilazione automatica dei campi del finding (SOLO dati locali, mai online)
+# ---------------------------------------------------------------------------
+
+_CWE_REF_RE = re.compile(r"CWE-(\d{1,5})", re.I)
+
+# euristica CWE da titolo+descrizione (regex, numero CWE)
+_CWE_GUESS = (
+    (r"sql.?injection", "89"),
+    (r"remote code execution|\brce\b|command (execution|injection)|code execution", "94"),
+    (r"buffer overflow|stack overflow|heap overflow|out.of.bounds", "787"),
+    (r"path traversal|directory traversal|file inclusion|\blfi\b|\brfi\b", "22"),
+    (r"cross.?site scripting|\bxss\b", "79"),
+    (r"cross.?site request|\bcsrf\b", "352"),
+    (r"auth(entication|orization)? bypass|improper auth", "287"),
+    (r"privilege escalation|privesc|elevation of privilege", "269"),
+    (r"deseriali", "502"),
+    (r"\bxxe\b|xml external", "611"),
+    (r"default (credential|password)", "798"),
+    (r"weak (ssl|tls|cipher|crypto)|obsolete (protocol|cipher)|deprecated (protocol|cipher)", "327"),
+    (r"information (disclosure|leak)|info leak|sensitive data", "200"),
+    (r"denial of service|\bdos\b", "400"),
+    (r"spoofing|poisoning|\bllmnr\b|\bnbt.?ns\b|\bmdns\b", "290"),
+    (r"cleartext|unencrypted|plain.?text (password|credential|transmission)", "319"),
+    (r"weak password|brute ?force|password policy", "521"),
+    (r"unrestricted upload|file upload", "434"),
+    (r"outdated|unsupported (version|software)|end.of.life|missing patch", "1104"),
+)
+
+# punteggio CVSS 3.1 stimato dal rank MSF (da verificare su NVD)
+_CVSS_BY_SEV = {"critical": "9.8", "high": "8.6", "medium": "6.5",
+                "low": "3.7", "info": "0.0"}
+
+_IMPACT_GUESS = (
+    (r"sql.?injection",
+     "Accesso non autorizzato al database: un attaccante può leggere, "
+     "modificare o eliminare dati sensibili e, in alcune configurazioni, "
+     "arrivare all'esecuzione di comandi sul sistema operativo sottostante."),
+    (r"remote code execution|\brce\b|command (execution|injection)|code execution",
+     "Esecuzione di codice arbitrario sul sistema target con i privilegi del "
+     "servizio vulnerabile: un attaccante remoto può ottenere il controllo "
+     "completo dell'host, compromettendo riservatezza, integrità e "
+     "disponibilità dei dati, e usare la macchina come punto di appoggio "
+     "verso altri sistemi della rete."),
+    (r"buffer overflow|stack overflow|heap overflow|out.of.bounds",
+     "Corruzione della memoria del processo vulnerabile, con possibile "
+     "esecuzione di codice arbitrario e compromissione completa del sistema."),
+    (r"path traversal|directory traversal|file inclusion|\blfi\b|\brfi\b",
+     "Lettura (o inclusione) di file arbitrari dal filesystem del server, con "
+     "possibile esposizione di credenziali, configurazioni e codice sorgente."),
+    (r"cross.?site scripting|\bxss\b",
+     "Esecuzione di script arbitrari nel browser delle vittime, con possibile "
+     "furto di sessione e compromissione degli account utente."),
+    (r"auth(entication|orization)? bypass|improper auth",
+     "Aggiramento dei controlli di autenticazione: un attaccante può accedere "
+     "a funzionalità e dati riservati senza possedere credenziali valide."),
+    (r"privilege escalation|privesc|elevation of privilege",
+     "Elevazione dei privilegi: un attaccante con accesso limitato può "
+     "ottenere i privilegi di amministratore/SYSTEM sul sistema."),
+    (r"deseriali",
+     "Deserializzazione di dati ostili, con possibile esecuzione di codice "
+     "arbitrario nel contesto dell'applicazione."),
+    (r"default (credential|password)",
+     "Accesso amministrativo immediato tramite credenziali predefinite note "
+     "pubblicamente, con compromissione completa del dispositivo/servizio."),
+    (r"weak (ssl|tls|cipher|crypto)|obsolete (protocol|cipher)",
+     "Il traffico cifrato può essere intercettato e decifrato da un "
+     "attaccante Man-in-the-Middle, esponendo credenziali e dati sensibili."),
+    (r"information (disclosure|leak)|info leak|sensitive data",
+     "Esposizione di informazioni sensibili (configurazioni, credenziali, "
+     "dati interni) utili a pianificare attacchi più mirati."),
+    (r"denial of service|\bdos\b",
+     "Interruzione della disponibilità del servizio: un attaccante può "
+     "rendere il sistema inutilizzabile per gli utenti legittimi."),
+    (r"spoofing|poisoning|\bllmnr\b|\bnbt.?ns\b|\bmdns\b",
+     "Intercettazione di credenziali di rete (hash NTLM) tramite risposte "
+     "malevole ai broadcast di risoluzione nomi: gli hash catturati possono "
+     "essere crackati offline o rigirati (relay) per autenticarsi ad altri "
+     "sistemi del dominio."),
+    (r"cleartext|unencrypted|plain.?text (password|credential|transmission)",
+     "Credenziali e dati sensibili trasmessi in chiaro possono essere "
+     "intercettati da un attaccante con accesso al segmento di rete."),
+    (r"weak password|brute ?force|password policy",
+     "Password deboli o prevedibili permettono a un attaccante di ottenere "
+     "accesso tramite attacchi di forza bruta o password spraying."),
+)
+
+_IMPACT_BY_SEV = {
+    "critical": ("Compromissione completa del sistema interessato, con "
+                 "impatto critico su riservatezza, integrità e disponibilità "
+                 "dei dati aziendali."),
+    "high": ("Compromissione della sicurezza del sistema interessato, con "
+             "potenziale impatto elevato su riservatezza, integrità e "
+             "disponibilità dei dati."),
+    "medium": ("Esposizione parziale del sistema: la vulnerabilità può "
+               "facilitare attacchi mirati o essere combinata con altre "
+               "debolezze per ottenere accessi più profondi."),
+    "low": ("Impatto limitato sulla sicurezza complessiva, ma la "
+            "vulnerabilità può fornire informazioni o condizioni utili a "
+            "un attaccante motivato."),
+    "info": ("Nessun impatto diretto: rilievo informativo utile per il "
+             "miglioramento della postura di sicurezza."),
+}
+
+_REMEDIATION_GUESS = (
+    (r"sql.?injection",
+     "Applicare la patch del vendor (vedere riferimenti). In generale: "
+     "utilizzare prepared statement / query parametrizzate, validare e "
+     "filtrare tutti gli input lato server e applicare il principio del "
+     "minimo privilegio all'account del database."),
+    (r"default (credential|password)",
+     "Modificare immediatamente le credenziali predefinite con password "
+     "robuste e univoche, disabilitare gli account non necessari e "
+     "verificare l'assenza di accessi pregressi nei log."),
+    (r"weak (ssl|tls|cipher|crypto)|obsolete (protocol|cipher)",
+     "Disabilitare protocolli e suite di cifratura obsoleti (SSLv2/v3, "
+     "TLS 1.0/1.1, cifrari deboli), abilitare esclusivamente TLS 1.2+ con "
+     "cifrari robusti e rinnovare i certificati se necessario."),
+    (r"cross.?site scripting|\bxss\b",
+     "Applicare encoding contestuale di tutti gli output, validare gli input "
+     "e adottare una Content Security Policy restrittiva."),
+    (r"denial of service|\bdos\b",
+     "Applicare la patch del vendor, introdurre rate limiting e protezioni "
+     "anti-flood a livello di rete e monitorare la disponibilità del servizio."),
+    (r"spoofing|poisoning|\bllmnr\b|\bnbt.?ns\b|\bmdns\b",
+     "Disabilitare LLMNR e NBT-NS su tutti gli host (via GPO), richiedere la "
+     "firma SMB (SMB signing) su server e workstation e segmentare la rete "
+     "per limitare i broadcast."),
+    (r"cleartext|unencrypted|plain.?text (password|credential|transmission)",
+     "Sostituire i protocolli in chiaro con alternative cifrate (es. SSH al "
+     "posto di Telnet, HTTPS al posto di HTTP, LDAPS/SFTP) e disabilitare i "
+     "servizi legacy non necessari."),
+    (r"weak password|brute ?force|password policy",
+     "Applicare una password policy robusta (lunghezza minima 12+ caratteri, "
+     "nessuna password comune), abilitare il lockout degli account e valutare "
+     "l'autenticazione multi-fattore (MFA)."),
+)
+
+_DEFAULT_REMEDIATION = (
+    "Applicare gli aggiornamenti di sicurezza rilasciati dal vendor (vedere "
+    "i riferimenti), verificandone l'effettiva installazione. Nel frattempo, "
+    "limitare l'esposizione di rete del servizio ai soli host autorizzati "
+    "tramite firewall/segmentazione e monitorare i log per tentativi di "
+    "sfruttamento.")
+
+
+def _msf_module_for(finding: dict) -> dict | None:
+    """Voce grezza della cache MSF che corrisponde al finding (modulo o CVE)."""
+    fullname = str(finding.get("msf") or "").strip().lower()
+    cves = [str(c).upper() for c in (finding.get("cves") or [])]
+    if not fullname and not cves:
+        return None
+    for e in _msf_cache_entries():
+        path = str(e.get("path") or e.get("fullname")
+                    or e.get("ref_name") or "").lower()
+        refs = e.get("references") or e.get("refs") or []
+        if isinstance(refs, str):
+            refs = [refs]
+        if fullname and (path == fullname or path.endswith("/" + fullname)):
+            return e
+        if cves:
+            rtext = (" ".join(map(str, refs)) + " "
+                     + str(e.get("name") or "")).upper()
+            if any(c in rtext for c in cves):
+                return e
+    return None
+
+
+def _fmt_msf_refs(refs: list, cves: list) -> str:
+    """URL di riferimento: NVD per le CVE + bollettini/exploit dal modulo MSF."""
+    out: list[str] = []
+    for c in cves or []:
+        c = str(c).upper()
+        if c:
+            out.append(f"https://nvd.nist.gov/vuln/detail/{c}")
+    for r in refs or []:
+        r = str(r).strip()
+        up = r.upper()
+        if not r or up.startswith(("CVE-", "CWE-")):
+            continue
+        if up.startswith("MSB-"):
+            bid = r[4:]
+            year = "20" + bid[2:4] if len(bid) >= 4 and bid[2:4].isdigit() else ""
+            out.append("https://learn.microsoft.com/security-updates/"
+                       f"securitybulletins/{year}/{bid.lower()}"
+                       if year else bid)
+        elif up.startswith("URL-"):
+            out.append(r[4:])
+        elif up.startswith("EDB-"):
+            out.append(f"https://www.exploit-db.com/exploits/{r[4:]}")
+        elif up.startswith("PACKETSTORM-"):
+            out.append(f"https://packetstormsecurity.com/files/{r[12:]}")
+    dedup: list[str] = []
+    for u in out:
+        if u not in dedup:
+            dedup.append(u)
+    return " ".join(dedup)
+
+
+def _finding_suggest(f: dict, meta: dict | None,
+                     mod: dict | None) -> dict:
+    """Valori suggeriti per i campi del finding (100% offline, dati MSF)."""
+    cves = [str(c).upper() for c in (f.get("cves") or []) if str(c).strip()]
+    sev = f.get("severity", "info")
+    if mod is None:
+        mod = _msf_module_for(f)
+    refs_list: list = []
+    mod_desc = ""
+    if mod:
+        refs_list = mod.get("references") or mod.get("refs") or []
+        if isinstance(refs_list, str):
+            refs_list = [refs_list]
+        mod_desc = str(mod.get("description") or "").strip()
+    hay = f"{f.get('title', '')} {f.get('description', '')} {mod_desc}".lower()
+    cwe = ""
+    for r in refs_list:
+        m = _CWE_REF_RE.search(str(r))
+        if m:
+            cwe = m.group(1)
+            break
+    if not cwe:
+        for rx, num in _CWE_GUESS:
+            if re.search(rx, hay, re.I):
+                cwe = num
+                break
+    impact = next((t for rx, t in _IMPACT_GUESS if re.search(rx, hay, re.I)), "")
+    if not impact:
+        impact = _IMPACT_BY_SEV.get(sev, _IMPACT_BY_SEV["medium"])
+    remediation = next((t for rx, t in _REMEDIATION_GUESS
+                        if re.search(rx, hay, re.I)), "")
+    if not remediation:
+        remediation = _DEFAULT_REMEDIATION
+    assets = ""
+    if meta:
+        hosts = [str(r.get("host", "")).strip()
+                 for r in (meta.get("scope") or []) if str(r.get("host", "")).strip()]
+        assets = ", ".join(hosts) or str(meta.get("domain") or "")
+    return {"cwe": cwe, "cvss": _CVSS_BY_SEV.get(sev, "6.5"),
+            "impact": impact, "remediation": remediation,
+            "refs": _fmt_msf_refs(refs_list, cves), "assets": assets,
+            "description": mod_desc}
+
+
+def autofill_finding(f: dict, meta: dict | None = None) -> dict:
+    """Completa i campi VUOTI del finding con i dati offline di MSF.
+
+    Non sovrascrive mai il testo inserito dall'utente: riempie solo le
+    caselle lasciate vuote (CWE, CVSS stimato, impatto, remediation,
+    asset dal perimetro, riferimenti NVD/bollettini).
+    """
+    sug = _finding_suggest(f, meta, None)
+    if not (f.get("description") or "").strip() and sug["description"]:
+        f["description"] = sug["description"]
+    if not (f.get("cwe") or "").strip() and sug["cwe"]:
+        f["cwe"] = sug["cwe"]
+    if not (f.get("cvss") or "").strip():
+        f["cvss"] = f"{sug['cvss']} (stima — verificare su NVD)"
+    if not (f.get("impact") or "").strip():
+        f["impact"] = sug["impact"]
+    if not (f.get("remediation") or "").strip():
+        f["remediation"] = sug["remediation"]
+    if not (f.get("assets") or "").strip():
+        f["assets"] = sug["assets"]
+    if not (f.get("refs") or "").strip():
+        f["refs"] = sug["refs"]
+    return f
 
 # ---------------------------------------------------------------------------
 # Testi dinamici
@@ -645,7 +941,9 @@ def render_findings(meta: dict) -> str:
     findings = meta.get("findings", [])
     if not findings:
         return ""  # sezione nascosta finché non ci sono finding
-    return "\n\n---\n\n".join(render_finding(i, f) for i, f in enumerate(findings, 1))
+    # campi vuoti completati dai dati offline di MSF (senza toccare meta.json)
+    filled = [autofill_finding(dict(f), meta) for f in findings]
+    return "\n\n---\n\n".join(render_finding(i, f) for i, f in enumerate(filled, 1))
 
 
 def render_firma(meta: dict) -> str:
@@ -943,6 +1241,8 @@ def add_finding(slug: str, finding: dict, index: int | None = None) -> tuple[boo
                           "caption": str(im.get("caption", "")).strip()}
                          for im in (finding.get("images") or [])
                          if isinstance(im, dict) and str(im.get("path", "")).strip()]
+    # completa i campi lasciati vuoti con i dati offline di MSF
+    autofill_finding(finding, meta)
     if index is not None and 0 <= index < len(meta["findings"]):
         meta["findings"][index] = finding
         msg = f"Finding SLC-{index + 1:02d} aggiornato"
@@ -1200,16 +1500,21 @@ def _ask_msf_prefill() -> dict:
     if not pick.isdigit() or not (1 <= int(pick) <= len(results)):
         return {}
     r = results[int(pick) - 1]
-    refs = " ".join(f"https://nvd.nist.gov/vuln/detail/{c}" for c in r["cves"])
+    refs = r.get("refs_fmt") or \
+        " ".join(f"https://nvd.nist.gov/vuln/detail/{c}" for c in r["cves"])
     if not refs:
         refs = f"https://www.rapid7.com/db/modules/{r['fullname']}"
     return {
         "title": r["name"].replace("_", " ").strip().title() or r["fullname"],
         "severity": r["severity"],
         "cves": r["cves"],
+        "cwe": r.get("cwe", ""),
+        "cvss": f"{r['cvss']} (stima)" if r.get("cvss") else "",
         "description": r["description"] or f"Modulo Metasploit: {r['fullname']}",
+        "impact": r.get("impact", ""),
+        "remediation": r.get("remediation", ""),
         "refs": refs,
-        "msf_module": r["fullname"],
+        "msf": r["fullname"],
     }
 
 
@@ -1239,12 +1544,14 @@ def interactive_add_finding(slug: str) -> int:
             cve_raw = _ask("CVE (separate da virgola, invio per omettere)",
                            ", ".join(cves))
             cves = [c.strip().upper() for c in cve_raw.split(",") if c.strip()]
-            cwe = _ask("CWE (solo numero, es. 522 — invio per omettere)")
-            cvss = _ask("Punteggio CVSS 3.1 (es. 9.5 — invio per omettere)")
+            cwe = _ask("CWE (solo numero, es. 522 — invio per omettere)",
+                       pre.get("cwe", ""))
+            cvss = _ask("Punteggio CVSS 3.1 (es. 9.5 — invio per omettere)",
+                        pre.get("cvss", ""))
             desc = _ask("Descrizione (incl. causa)", pre.get("description", ""))
-            impact = _ask("Impatto")
+            impact = _ask("Impatto", pre.get("impact", ""))
             assets = _ask("Asset interessati", load_meta(slug).get("domain", ""))
-            remediation = _ask("Remediation")
+            remediation = _ask("Remediation", pre.get("remediation", ""))
             refs = _ask("Riferimenti (URL, invio per omettere)", pre.get("refs", ""))
             evidence = _ask("Evidenze (comandi/output, invio per omettere)")
             images: list[dict] = []
@@ -1267,7 +1574,7 @@ def interactive_add_finding(slug: str) -> int:
         finding = {"title": title, "severity": severity, "cwe": cwe, "cvss": cvss,
                    "cves": cves, "description": desc, "impact": impact,
                    "assets": assets, "remediation": remediation, "refs": refs,
-                   "evidence": evidence, "images": images}
+                   "evidence": evidence, "images": images, "msf": pre.get("msf", "")}
         ok, msg = add_finding(slug, finding)
         print(("\n\033[92m[+]\033[0m " if ok else "\n\033[91m[!]\033[0m ") + msg)
         if not ok:
