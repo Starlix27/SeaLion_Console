@@ -2589,9 +2589,14 @@ def _page_report_wizard(slug: str) -> str:
 .wiz-grid2{{display:grid;grid-template-columns:1fr 1fr;gap:12px}}
 .finding-item{{border:1px solid var(--border);border-radius:6px;padding:10px 14px;margin-bottom:8px;background:var(--bg);display:flex;align-items:center;gap:10px;flex-wrap:wrap}}
 .finding-item .ft{{font-weight:600;flex:1;min-width:150px}}
-.scope-row{{display:flex;gap:8px;margin-bottom:6px}}
-.scope-row input{{background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:7px 10px;font-family:inherit;font-size:13px;outline:none}}
-#w-md{{font-family:'JetBrains Mono',monospace;font-size:12px;min-height:60vh}}
+.scope-row{{display:flex;gap:6px;margin-bottom:6px;flex-wrap:wrap}}
+.scope-row input{{background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:7px 10px;font-family:inherit;font-size:13px;outline:none;min-width:0;box-sizing:border-box}}
+.scope-row .sc-host{{flex:0 1 160px}}
+.scope-row .sc-desc{{flex:1 1 120px}}
+.md-toolbar{{display:flex;gap:4px;flex-wrap:wrap;margin-bottom:8px}}
+.md-toolbar .btn{{padding:4px 10px;font-size:12px}}
+#w-md{{font-family:'JetBrains Mono',monospace;font-size:12px;min-height:55vh;line-height:1.5}}
+.md-legend{{font-size:11px;color:var(--text2);margin-top:8px;line-height:1.6}}
 @media(max-width:1200px){{.wiz-layout{{grid-template-columns:190px minmax(0,1fr)}}.wiz-side{{display:none}}}}
 @media(max-width:800px){{.wiz-layout{{grid-template-columns:1fr}}.wiz-nav{{flex-direction:row;flex-wrap:wrap}}}}
 </style>
@@ -2625,7 +2630,7 @@ var STEPS = [
   {{id:'markdown', label:'Markdown'}},
   {{id:'finale',   label:'Considerazioni & PDF'}},
 ];
-var STYLE_PRESETS = {{navy:'Blu navy (default)',red:'Rosso',black:'Nero',green:'Verde',yellow:'Giallo / ambra',custom:'Personalizzato'}};
+var STYLE_PRESETS = {{navy:'Blu navy (default)',red:'Rosso',black:'Nero',green:'Verde',yellow:'Giallo / ambra'}};
 var F_IMAGES = [];
 
 function esc(s){{var d=document.createElement('div');d.textContent=s||'';return d.innerHTML;}}
@@ -2637,7 +2642,7 @@ function renderNav(){{
   }}).join('');
 }}
 
-function go(i){{ CUR=i; EDIT_IDX=-1; renderNav(); renderStep(); window.scrollTo({{top:0,behavior:'smooth'}}); }}
+function go(i){{ CUR=i; EDIT_IDX=-1; LAST_PV_ANCHOR=undefined; renderNav(); renderStep(); window.scrollTo({{top:0,behavior:'smooth'}}); }}
 
 function field(id,label,val,ph){{
   return '<div class="wiz-field"><label>'+label+'</label>'+
@@ -2676,7 +2681,10 @@ function renderStep(){{
       '<div class="wiz-field"><label>Tipo di box</label>'+sevSelectBox(m.box)+'</div>'+
       '<div class="wiz-grid2">'+
       field('w-dstart','Data inizio test',m.date_start,'es. 12 gennaio 2026')+
-      field('w-dend','Data fine test',m.date_end,'es. 23 gennaio 2026')+'</div>'+
+      field('w-tstart','Ora inizio (opzionale)',m.time_start,'es. 09:00')+'</div>'+
+      '<div class="wiz-grid2">'+
+      field('w-dend','Data fine test',m.date_end,'es. 23 gennaio 2026')+
+      field('w-tend','Ora fine (opzionale)',m.time_end,'es. 18:00')+'</div>'+
       '<div class="wiz-hint" id="w-approach-preview"></div>';
   }} else if(s==='perimetro'){{
     h='<h3>Perimetro</h3><div class="wiz-hint">Gli asset in scope: finiscono nella tabella "Dettagli del Perimetro".</div>'+
@@ -2687,9 +2695,11 @@ function renderStep(){{
       '<div id="w-findings"></div>'+
       '<div id="w-finding-form"></div>';
   }} else if(s==='walkthrough'){{
-    h='<h3>Walkthrough</h3><div class="wiz-hint">Testo libero (Markdown): racconta la compromissione e i passaggi dell’attacco.</div>'+
+    h='<h3>Walkthrough</h3><div class="wiz-hint">Racconta la compromissione e i passaggi dell’attacco. Con la toolbar inserisci <strong>immagini con didascalia</strong> e <strong>blocchi di codice</strong> (payload/comandi) nel punto del cursore.</div>'+
       textarea('w-compromissione','Compromissione della rete (introduzione)',sec.compromissione,110)+
-      textarea('w-walkthrough','Percorso di attacco dettagliato',sec.walkthrough,220);
+      '<div class="wiz-field"><label>Percorso di attacco dettagliato</label>'+
+      mdToolbar('w-walkthrough')+
+      '<textarea id="w-walkthrough" style="min-height:220px">'+esc(sec.walkthrough||'')+'</textarea></div>';
   }} else if(s==='remediation'){{
     h='<h3>Piano di Remediation</h3><div class="wiz-hint">Elenca le azioni correttive divise per orizzonte temporale (una per riga, con "- "). Le sezioni lasciate vuote non compaiono nel PDF.</div>'+
       textarea('w-rem-breve','Breve termine',sec.remediation_breve,90)+
@@ -2703,11 +2713,8 @@ function renderStep(){{
       textarea('w-app-password','Appendice E — Analisi delle password del dominio',sec.appendice_password,90);
   }} else if(s==='stile'){{
     var st=m.style||{{}};
-    h='<h3>Stile del report</h3><div class="wiz-hint">Colori, logo, autore e firma: applicati al PDF al prossimo build.</div>'+
+    h='<h3>Stile del report</h3><div class="wiz-hint">Colori, logo, autore e firma: applicati al PDF e all’anteprima in tempo reale.</div>'+
       '<div class="wiz-field"><label>Colore principale</label>'+stylePresetSelect(st.preset||'navy')+'</div>'+
-      '<div class="wiz-grid2">'+
-      '<div class="wiz-field"><label>Colore 1 (hex — usato se preset Personalizzato)</label><input type="color" id="w-color1" value="'+(st.color||'#0F4068')+'" style="width:100%;height:38px;background:var(--bg);border:1px solid var(--border);border-radius:4px"></div>'+
-      '<div class="wiz-field"><label>Colore 2 accento (opzionale)</label><div style="display:flex;gap:8px;align-items:center"><input type="color" id="w-color2" value="'+(st.color2||'#2D5F8A')+'" style="width:60px;height:38px;background:var(--bg);border:1px solid var(--border);border-radius:4px"><label style="font-size:12px;color:var(--text2)"><input type="checkbox" id="w-color2-on"'+(st.color2?' checked':'')+'> usa secondo colore</label></div></div></div>'+
       '<div class="wiz-grid2">'+
       field('w-author','Autore del report',st.author,'es. Santarella Martina')+
       field('w-company','Azienda che esegue il test',st.company,'es. SLCtrl')+'</div>'+
@@ -2719,9 +2726,15 @@ function renderStep(){{
       '<div id="w-sig-cur" style="font-size:12px;color:var(--text2);margin-top:4px">'+(st.signature?'Attuale: '+esc(st.signature):'Firma di default (report/assets/firma.png)')+'</div></div></div>'+
       '<div class="wiz-hint">Se autore e azienda sono vuoti, il blocco firma non compare nel PDF.</div>';
   }} else if(s==='markdown'){{
-    h='<h3>Markdown (modifica diretta)</h3><div class="wiz-hint">Modifica il file .md direttamente: l’anteprima a destra si aggiorna in tempo reale. '+
-      'Attenzione: i blocchi <code>@@AUTO@@</code> vengono rigenerati dal sync (meta/wizard) — modifica piuttosto i dati dagli altri step.</div>'+
-      '<textarea id="w-md" spellcheck="false">'+esc(DATA.raw||'')+'</textarea>';
+    h='<h3>Markdown (modifica diretta)</h3>'+
+      '<div class="wiz-hint">Modifica il file .md direttamente: l’anteprima a destra <strong>segue il cursore</strong> e si aggiorna mentre scrivi. '+
+      'Usa la toolbar per titoli, grassetto, blocchi di codice (payload) e immagini con didascalia. '+
+      '<strong>Attenzione</strong>: i blocchi <code>@@AUTO@@</code> sono generati dai dati del wizard — modificali dagli altri step.</div>'+
+      mdToolbar('w-md')+
+      '<textarea id="w-md" spellcheck="false">'+esc(DATA.raw||'')+'</textarea>'+
+      '<div class="md-legend">Legenda: <code>@@SEZ:nome@@</code> = testo libero (editabile qui) · '+
+      '<code>@@AUTO:nome@@</code> = generato dal wizard · <code>: Tabella N: …</code> = didascalia tabella · '+
+      '<code>![testo](percorso)</code> = immagine · <code>```</code> = blocco codice</div>';
   }} else if(s==='finale'){{
     h='<h3>Considerazioni Finali &amp; PDF</h3><div class="wiz-hint">Osservazioni conclusive, poi genera il PDF finale.</div>'+
       textarea('w-considerazioni','Considerazioni finali',sec.considerazioni,150)+
@@ -2739,7 +2752,10 @@ function renderStep(){{
   if(s==='finale')renderSummary();
   if(s==='approccio')updateApproachPreview();
   if(s==='markdown'){{
-    document.getElementById('w-md').addEventListener('input',function(){{schedulePreview();}});
+    var _md=document.getElementById('w-md');
+    _md.addEventListener('input',function(){{schedulePreview();}});
+    _md.addEventListener('keyup',function(){{maybeScrollPreview();}});
+    _md.addEventListener('click',function(){{maybeScrollPreview();}});
   }}
   p.querySelectorAll('input,textarea,select').forEach(function(el){{
     el.addEventListener('input',function(){{schedulePreview();}});
@@ -2751,12 +2767,84 @@ function renderStep(){{
 // ---- Anteprima live ----
 var PV_TIMER=null;
 function schedulePreview(){{clearTimeout(PV_TIMER);PV_TIMER=setTimeout(refreshPreview,500);}}
+
+// ---- Toolbar Markdown (immagini con didascalia, blocchi codice, ecc.) ----
+function mdToolbar(id){{
+  return '<div class="md-toolbar">'+
+    '<button type="button" class="btn" title="Titolo sezione" onclick="mdInsert(\\''+id+'\\',\\'## \\',\\'\\',\\'Titolo\\')">H2</button>'+
+    '<button type="button" class="btn" title="Grassetto" onclick="mdInsert(\\''+id+'\\',\\'**\\',\\'**\\',\\'grassetto\\')"><b>B</b></button>'+
+    '<button type="button" class="btn" title="Corsivo" onclick="mdInsert(\\''+id+'\\',\\'*\\',\\'*\\',\\'corsivo\\')"><i>I</i></button>'+
+    '<button type="button" class="btn" title="Codice inline" onclick="mdInsert(\\''+id+'\\',\\'`\\',\\'`\\',\\'comando\\')">&lt;/&gt;</button>'+
+    '<button type="button" class="btn" title="Blocco codice / payload" onclick="mdCode(\\''+id+'\\')">{{…}} payload</button>'+
+    '<button type="button" class="btn" title="Immagine con didascalia" onclick="mdImage(\\''+id+'\\')">🖼 immagine</button>'+
+    '<button type="button" class="btn" title="Link" onclick="mdInsert(\\''+id+'\\',\\'[\\',\\'](https://)\\',\\'testo link\\')">🔗 link</button>'+
+    '</div>';
+}}
+function mdInsert(id,before,after,placeholder){{
+  var el=document.getElementById(id);
+  if(!el)return;
+  var s=el.selectionStart||0,e=el.selectionEnd||0;
+  var sel=el.value.substring(s,e)||placeholder||'';
+  el.value=el.value.substring(0,s)+before+sel+after+el.value.substring(e);
+  var ns=Math.min(el.value.length,s+before.length+sel.length+after.length);
+  el.selectionStart=el.selectionEnd=ns;
+  el.focus();schedulePreview();
+}}
+function mdCode(id){{mdInsert(id,'\\n\\n```\\n','\\n```\\n','payload o output del comando');}}
+function mdImage(id){{
+  var inp=document.createElement('input');
+  inp.type='file';inp.accept='image/*';
+  inp.onchange=function(){{
+    if(!inp.files||!inp.files.length)return;
+    uploadAssetFile(inp.files[0],'evidence',function(path){{
+      var cap=prompt('Didascalia (descrizione sotto l’immagine):')||'';
+      mdInsert(id,'\\n\\n!['+(cap||'Figura')+']('+path+')\\n\\n*Figura: '+(cap||'…')+'*\\n\\n','','');
+    }});
+  }};
+  inp.click();
+}}
+
+// ---- Ri-posizionamento anteprima sulla sezione in editing ----
+var STEP_ANCHORS={{info:'',approccio:'Approccio',perimetro:'Perimetro',findings:'Dettagli Tecnici',
+  walkthrough:'Compromissione',remediation:'Piano di Remediation',appendici:'Appendici',
+  stile:'',markdown:'',finale:'Considerazioni Finali'}};
+var LAST_PV_ANCHOR;
+function scrollPreviewTo(anchor){{
+  var el=document.getElementById('wiz-preview');
+  if(!el)return;
+  if(!anchor){{el.scrollTop=0;return;}}
+  var hs=el.querySelectorAll('h1,h2,h3');
+  var a=anchor.toLowerCase().substring(0,20);
+  for(var i=0;i<hs.length;i++){{
+    if(hs[i].textContent.toLowerCase().indexOf(a)>=0){{
+      var r=hs[i].getBoundingClientRect(),er=el.getBoundingClientRect();
+      el.scrollTop+=r.top-er.top-10;
+      return;
+    }}
+  }}
+}}
+function mdCursorAnchor(){{
+  var el=document.getElementById('w-md');
+  if(!el)return '';
+  var upto=el.value.substring(0,el.selectionStart||0);
+  var m=upto.match(/^#{{1,3}}\\s+.+$/gm);
+  if(!m)return '';
+  return m[m.length-1].replace(/^#+\\s+/,'').replace(/<[^>]+>/g,'').replace(/\\*\\*/g,'').trim();
+}}
+function currentAnchor(){{
+  if(STEPS[CUR].id==='markdown')return mdCursorAnchor();
+  return STEP_ANCHORS[STEPS[CUR].id]||'';
+}}
+function maybeScrollPreview(){{
+  var a=currentAnchor();
+  if(a!==LAST_PV_ANCHOR){{LAST_PV_ANCHOR=a;scrollPreviewTo(a);}}
+}}
 function collectDraft(){{
   var meta=JSON.parse(JSON.stringify(DATA.meta));
   var sections={{}};
   var s=STEPS[CUR].id;
   if(s==='info'){{meta.client=gv('w-client');meta.rtype=gv('w-rtype');meta.domain=gv('w-domain');}}
-  else if(s==='approccio'){{meta.box=gv('w-box');meta.date_start=gv('w-dstart');meta.date_end=gv('w-dend');}}
+  else if(s==='approccio'){{meta.box=gv('w-box');meta.date_start=gv('w-dstart');meta.date_end=gv('w-dend');meta.time_start=gv('w-tstart');meta.time_end=gv('w-tend');}}
   else if(s==='perimetro'){{meta.scope=(meta.scope||[]).filter(function(r){{return (r.host||'').trim()||(r.desc||'').trim();}});}}
   else if(s==='walkthrough'){{sections.compromissione=document.getElementById('w-compromissione').value;sections.walkthrough=document.getElementById('w-walkthrough').value;}}
   else if(s==='remediation'){{sections.remediation_breve=document.getElementById('w-rem-breve').value;sections.remediation_medio=document.getElementById('w-rem-medio').value;sections.remediation_lungo=document.getElementById('w-rem-lungo').value;}}
@@ -2764,8 +2852,7 @@ function collectDraft(){{
   else if(s==='stile'){{
     meta.style=meta.style||{{}};
     meta.style.preset=gv('w-preset');
-    meta.style.color=(gv('w-preset')==='custom')?gv('w-color1'):'';
-    meta.style.color2=document.getElementById('w-color2-on').checked?gv('w-color2'):'';
+    meta.style.color='';meta.style.color2='';
     meta.style.author=gv('w-author');meta.style.company=gv('w-company');meta.style.role=gv('w-role');
   }}
   else if(s==='finale'){{sections.considerazioni=document.getElementById('w-considerazioni').value;}}
@@ -2783,12 +2870,13 @@ function refreshPreview(){{
   if(s==='markdown'){{
     var t=document.getElementById('w-md').value;
     renderPreviewMd(t,d.meta);
+    maybeScrollPreview();
     return;
   }}
   fetch('/api/report/preview',{{method:'POST',headers:{{'Content-Type':'application/json'}},
     body:JSON.stringify({{slug:SLUG,meta:d.meta,sections:d.sections}})
   }}).then(r=>r.json()).then(function(res){{
-    if(res.ok)renderPreviewMd(res.md,d.meta);
+    if(res.ok){{renderPreviewMd(res.md,d.meta);maybeScrollPreview();}}
   }}).catch(()=>{{}});
 }}
 
@@ -2808,12 +2896,12 @@ function renderScope(){{
   var w=document.getElementById('w-scope');
   w.innerHTML=DATA.meta.scope.map(function(r,i){{
     return '<div class="scope-row">'+
-      '<input type="text" style="width:220px" value="'+esc(r.host)+'" placeholder="IP / host / URL" onchange="DATA.meta.scope['+i+'].host=this.value">'+
-      '<input type="text" style="flex:1" value="'+esc(r.desc)+'" placeholder="Descrizione" onchange="DATA.meta.scope['+i+'].desc=this.value">'+
-      '<button class="btn btn-danger" onclick="DATA.meta.scope.splice('+i+',1);renderScope()">×</button></div>';
+      '<input type="text" class="sc-host" value="'+esc(r.host)+'" placeholder="IP / host / URL" onchange="DATA.meta.scope['+i+'].host=this.value">'+
+      '<input type="text" class="sc-desc" value="'+esc(r.desc)+'" placeholder="Descrizione" onchange="DATA.meta.scope['+i+'].desc=this.value">'+
+      '<button class="btn btn-danger" onclick="DATA.meta.scope.splice('+i+',1);renderScope();schedulePreview()">×</button></div>';
   }}).join('') || '<p style="color:var(--text2);font-size:12px;margin-bottom:8px">Nessun asset in scope.</p>';
 }}
-function addScopeRow(){{DATA.meta.scope.push({{host:'',desc:''}});renderScope();}}
+function addScopeRow(){{DATA.meta.scope.push({{host:'',desc:''}});renderScope();schedulePreview();}}
 
 // ---- Findings ----
 function renderFindings(){{
@@ -3020,6 +3108,7 @@ function saveStep(advance,cb){{
     postMeta(done);
   }} else if(s==='approccio'){{
     DATA.meta.box=gv('w-box');DATA.meta.date_start=gv('w-dstart');DATA.meta.date_end=gv('w-dend');
+    DATA.meta.time_start=gv('w-tstart');DATA.meta.time_end=gv('w-tend');
     postMeta(done);
   }} else if(s==='perimetro'){{
     DATA.meta.scope=DATA.meta.scope.filter(function(r){{return r.host.trim()||r.desc.trim();}});
@@ -3047,8 +3136,8 @@ function saveStep(advance,cb){{
   }} else if(s==='stile'){{
     DATA.meta.style=DATA.meta.style||{{}};
     DATA.meta.style.preset=gv('w-preset');
-    DATA.meta.style.color=(gv('w-preset')==='custom')?gv('w-color1'):'';
-    DATA.meta.style.color2=document.getElementById('w-color2-on').checked?gv('w-color2'):'';
+    DATA.meta.style.color='';
+    DATA.meta.style.color2='';
     DATA.meta.style.author=gv('w-author');
     DATA.meta.style.company=gv('w-company');
     DATA.meta.style.role=gv('w-role');
@@ -4929,7 +5018,7 @@ class SlRequestHandler(http.server.BaseHTTPRequestHandler):
             return
         old = load_meta(rep["slug"]) or {}
         for key in ("client", "rtype", "box", "domain", "date_start", "date_end",
-                    "scope", "style"):
+                    "time_start", "time_end", "scope", "style"):
             if key in meta:
                 old[key] = meta[key]
         if not str(old.get("client", "")).strip():

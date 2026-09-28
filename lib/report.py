@@ -391,6 +391,8 @@ def default_meta(client: str, rtype: str, box: str, domain: str,
         "domain": domain,
         "date_start": date_start,
         "date_end": date_end,
+        "time_start": "",
+        "time_end": "",
         "scope": [{"host": "192.168.100.0/24", "desc": "Rete interna del Cliente"}],
         "findings": [],
         "style": default_style(),
@@ -486,11 +488,21 @@ def _company(meta: dict) -> str:
     return ((meta.get("style") or {}).get("company") or "").strip() or DEFAULT_COMPANY
 
 
+def _fmt_datetime(meta: dict, date_key: str, time_key: str, fallback: str) -> str:
+    """'1 settembre 2026' + '09:00' -> '1 settembre 2026, ore 09:00'."""
+    d = (meta.get(date_key) or "").strip()
+    t = (meta.get(time_key) or "").strip()
+    if not d:
+        return fallback
+    return f"{d}, ore {t}" if t else d
+
+
 def render_approccio(meta: dict) -> str:
     box = meta.get("box", "black")
     tpl = _BOX_APPROACH.get(box, _BOX_APPROACH["black"])
-    text = tpl.format(start=_fmt_date(meta.get("date_start", ""), "*DATA INIZIO*"),
-                      end=_fmt_date(meta.get("date_end", ""), "*DATA FINE*"))
+    text = tpl.format(
+        start=_fmt_datetime(meta, "date_start", "time_start", "*DATA INIZIO*"),
+        end=_fmt_datetime(meta, "date_end", "time_end", "*DATA FINE*"))
     return text.replace(DEFAULT_COMPANY, _company(meta))
 
 
@@ -868,7 +880,8 @@ def sync_report(slug: str) -> tuple[bool, str]:
 
 def create_report(client: str, rtype: str = "Penetration Test Interno",
                   box: str = "black", domain: str | None = None,
-                  date_start: str = "", date_end: str = "") -> Path:
+                  date_start: str = "", date_end: str = "",
+                  time_start: str = "", time_end: str = "") -> Path:
     """Crea un nuovo report dal template. Ritorna il path del .md."""
     client = client.strip()
     if not client:
@@ -891,6 +904,8 @@ def create_report(client: str, rtype: str = "Penetration Test Interno",
     today = f"{now.day} {months[now.month - 1]} {now.year}"
 
     meta = default_meta(client, rtype, box, domain, date_start, date_end)
+    meta["time_start"] = time_start
+    meta["time_end"] = time_end
     save_meta(slug, meta)
 
     text = TEMPLATE_MD.read_text(encoding="utf-8")
@@ -1133,12 +1148,15 @@ def interactive_new(client: str | None, rtype: str | None) -> int:
         box = _ask_box()
         domain = _ask("Dominio target", derive_domain(client))
         date_start = _ask("Data inizio test (es. 12 gennaio 2026, invio = segnaposto)")
+        time_start = _ask("Ora inizio (es. 09:00, invio per omettere)")
         date_end = _ask("Data fine test (invio = segnaposto)")
+        time_end = _ask("Ora fine (es. 18:00, invio per omettere)")
     except KeyboardInterrupt:
         print("Annullato.")
         return 1
     try:
-        out = create_report(client, rtype, box, domain, date_start, date_end)
+        out = create_report(client, rtype, box, domain, date_start, date_end,
+                            time_start, time_end)
     except (ValueError, FileExistsError, FileNotFoundError) as e:
         print(f"\033[91m[!]\033[0m {e}", file=sys.stderr)
         return 1
