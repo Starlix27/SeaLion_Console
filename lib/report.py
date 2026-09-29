@@ -794,6 +794,9 @@ def _fmt_datetime(meta: dict, date_key: str, time_key: str, fallback: str) -> st
 
 
 def render_approccio(meta: dict) -> str:
+    custom = (meta.get("approccio_custom") or "").strip()
+    if custom:
+        return custom.replace(DEFAULT_COMPANY, _company(meta))
     box = meta.get("box", "black")
     tpl = _BOX_APPROACH.get(box, _BOX_APPROACH["black"])
     text = tpl.format(
@@ -839,6 +842,9 @@ def _counts_sentence(counts: dict[str, int]) -> str:
 
 
 def render_panoramica(meta: dict) -> str:
+    custom = (meta.get("panoramica_custom") or "").strip()
+    if custom:
+        return custom.replace(DEFAULT_COMPANY, _company(meta))
     n = len(meta.get("findings", []))
     counts = _sev_counts(meta.get("findings", []))
     if n == 0:
@@ -1023,6 +1029,9 @@ def _update_yaml(md_text: str, meta: dict) -> str:
     author = ((meta.get("style") or {}).get("author") or "").strip()
     if author:
         md_text = _sub("author", author, md_text)
+    date_report = (meta.get("date_report") or "").strip()
+    if date_report:
+        md_text = _sub("date", date_report, md_text)
     return md_text
 
 
