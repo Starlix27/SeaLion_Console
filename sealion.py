@@ -350,6 +350,7 @@ def print_help_text() -> None:
     print("  pivot <azione>     IP tunneling via ligolo-ng (pivot help)")
     print("  catch <azione>     OOB listeners: tcp, dns, ftp, smb (catch help)")
     print("  recon <target>     Reconnaissance automatica (recon help)")
+    print("  linseal -i         Comandi spiegati per replicare l'enum Linux a mano")
     print("  reconfind <query>  Trova il tool giusto per porta/servizio/task")
     print()
     print("  \033[92;1m— Wordlists\033[0m")
@@ -534,6 +535,9 @@ def build_parser() -> argparse.ArgumentParser:
     catch_p.add_argument("action", nargs="?", default=None)
     catch_p.add_argument("extra", nargs="?", default=None)
     catch_p.add_argument("--port", type=int, default=None)
+    linseal_p = subparsers.add_parser("linseal", add_help=False)
+    linseal_p.add_argument("-i", "--info", dest="info", action="store_true", default=False)
+    linseal_p.add_argument("-v", "--verbose", dest="verbose", action="store_true", default=False)
     recon_p = subparsers.add_parser("recon", add_help=False)
     recon_p.add_argument("target", nargs="?", default=None)
     recon_p.add_argument("name", nargs="?", default=None)
@@ -541,6 +545,7 @@ def build_parser() -> argparse.ArgumentParser:
     recon_p.add_argument("-l", dest="loot", action="store_true", default=False)
     recon_p.add_argument("-s", dest="separate", action="store_true", default=False)
     recon_p.add_argument("-i", "--info", dest="info", action="store_true", default=False)
+    recon_p.add_argument("-v", "--verbose", dest="verbose", action="store_true", default=False)
     recon_p.add_argument("--fast", action="store_true", default=False)
     recon_p.add_argument("--medium", action="store_true", default=False)
     recon_p.add_argument("--wordlists", action="store_true", default=False)
@@ -571,7 +576,7 @@ def setup_readline() -> None:
 
 
 _COMPLETABLE = sorted(["sealsay", "list", "install", "use", "search", "vuln",
-                        "notes", "find", "back", "help", "serve", "loot", "wordfind", "passfind", "wordgen", "tunnel", "pivot", "reconfind", "recon", "pet", "burp", "catch", "report", "exit"])
+                        "notes", "find", "back", "help", "serve", "loot", "wordfind", "passfind", "wordgen", "tunnel", "pivot", "reconfind", "recon", "linseal", "pet", "burp", "catch", "report", "exit"])
 _input_history: list[str] = []
 
 
@@ -859,6 +864,7 @@ def run_command(argv: list[str], state: ConsoleState | None = None) -> int:
     from lib.serve import cmd_serve, cmd_loot, cmd_tunnel, cmd_pivot
     from lib.catch import cmd_catch
     from lib.recon import cmd_recon
+    from lib.linseal import cmd_linseal
     from lib.reconfind import cmd_reconfind
     from lib.burp import cmd_burp
     from lib.report import cmd_report
@@ -882,6 +888,7 @@ def run_command(argv: list[str], state: ConsoleState | None = None) -> int:
         "pivot": cmd_pivot,
         "reconfind": cmd_reconfind,
         "recon": cmd_recon,
+        "linseal": cmd_linseal,
         "pet": cmd_pet,
         "burp": cmd_burp,
         "catch": cmd_catch,
@@ -982,7 +989,7 @@ def run_console() -> int:
                     state.last_vuln_tools = _extract_vuln_tools(text)
                 continue
 
-        known_commands = {"sealsay", "list", "install", "use", "search", "vuln", "notes", "find", "back", "help", "?", "--version", "-h", "--help", "serve", "loot", "wordfind", "passfind", "wordgen", "tunnel", "pivot", "reconfind", "recon", "pet", "burp", "catch", "report"}
+        known_commands = {"sealsay", "list", "install", "use", "search", "vuln", "notes", "find", "back", "help", "?", "--version", "-h", "--help", "serve", "loot", "wordfind", "passfind", "wordgen", "tunnel", "pivot", "reconfind", "recon", "linseal", "pet", "burp", "catch", "report"}
         if argv[0] not in known_commands:
             print("Comando non riconosciuto. Digita 'help' per i comandi.")
             continue

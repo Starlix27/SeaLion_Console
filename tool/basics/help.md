@@ -1,6 +1,12 @@
 # Basics — Privilege Escalation, Shell & TTY
 
 ---
+## Nmap / Rustnet / Rustscan Discovery completa
+- nmap -sV -T4 -Pn -A -p- -oN output.txt --min-rate 100 -sS -sC 
+
+- rustscan -a 192.168.1.0/24 -t 2000 -b 5000 -- -sV -Pn
+
+- 
 
 ## Discovery Porte con Netstat
 - netstat -tulpn | grep LISTEN

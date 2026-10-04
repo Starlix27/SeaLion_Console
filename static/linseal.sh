@@ -410,6 +410,13 @@ if command -v ss >/dev/null 2>&1; then
   run ss -tlnp
 elif command -v netstat >/dev/null 2>&1; then
   run netstat -tlnp
+elif command -v rustscan >/dev/null 2>&1; then
+  # rustscan su localhost: tutte le porte in ascolto in ~1s
+  run rustscan -g -a 127.0.0.1 -t 500
+fi
+
+if command -v rustnet >/dev/null 2>&1; then
+  info "rustnet disponibile — lancia 'rustnet' per una vista live di connessioni/processi"
 fi
 
 emit_raw "\n${W}--- Port analysis ---${N}"
@@ -789,7 +796,7 @@ done
 section "AVAILABLE TOOLS"
 
 _tools=""
-for _t in gcc cc make gdb strace ltrace python3 python perl ruby socat nmap nc ncat netcat curl wget ssh scp rsync tcpdump wireshark john hashcat hydra sqlmap gcloud aws kubectl docker; do
+for _t in gcc cc make gdb strace ltrace python3 python perl ruby socat nmap rustscan rustnet nc ncat netcat curl wget ssh scp rsync tcpdump wireshark john hashcat hydra sqlmap gcloud aws kubectl docker; do
   if command -v "$_t" >/dev/null 2>&1; then
     _tools="$_tools $_t"
   fi

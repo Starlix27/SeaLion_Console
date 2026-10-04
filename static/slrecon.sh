@@ -156,7 +156,7 @@ Options:
   -h            Show this help
 
 Phases:
-  ports         Nmap TCP + UDP scan
+  ports         Port scan TCP (RustScan, fallback nmap) + UDP/NSE via nmap
   web           Web enumeration (dirs, vhosts, tech, WAF)
   services      Service-specific enum (SMB, FTP, SSH, DB, etc.)
   wordlists     Solo scansioni con wordlist (dirs, vhosts, wpscan, nikto, arjun)
@@ -366,10 +366,13 @@ _prepare_privileges() {
 _preflight_dependencies() {
   _pf_missing_core=""
   _pf_missing_optional=""
-  for _pf_tool in nmap curl nc timeout; do
+  for _pf_tool in curl nc timeout; do
     _has "$_pf_tool" || _pf_missing_core="$_pf_missing_core $_pf_tool"
   done
-  for _pf_tool in gobuster feroxbuster ffuf wafw00f nikto arjun wpscan httrack ssh-audit dig dnsenum \
+  if ! _has rustscan && ! _has nmap; then
+    _pf_missing_core="$_pf_missing_core rustscan(o_nmap)"
+  fi
+  for _pf_tool in nmap gobuster feroxbuster ffuf wafw00f nikto arjun wpscan httrack ssh-audit dig dnsenum \
                   showmount enum4linux-ng smbmap smbclient ldapsearch rdp-sec-check \
                   mysql psql mongosh onesixtyone snmpwalk kerbrute smtp-user-enum; do
     _has "$_pf_tool" || _pf_missing_optional="$_pf_missing_optional $_pf_tool"
@@ -750,7 +753,8 @@ _calibrate() {
   fi
 }
 
-# ── Nmap flags ───────────────────────────────────────────────
+# ── Nmap flags (usati dai passi nmap: NSE, UDP, fallback) ────
+# RustScan non effettua ping: -Pn è irrilevante per il discovery TCP.
 NMAP_BASE=""
 if [ "$NO_PING" -eq 1 ]; then
   NMAP_BASE="-Pn"
@@ -759,7 +763,7 @@ fi
 _check_ping() {
   if [ "$NO_PING" -eq 1 ]; then return; fi
   if ! ping -c 1 -W 2 "$TARGET" >/dev/null 2>&1; then
-    warn "Host does not respond to ping — adding -Pn"
+    warn "Host does not respond to ping — adding -Pn to nmap steps"
     NMAP_BASE="-Pn"
     NO_PING=1
   fi
@@ -786,15 +790,15 @@ emit_raw ""
 phase_ports() {
   phase_hdr "PORT SCAN"
 
-  if ! _has nmap; then
-    hi "nmap not found — skipping port scan"
-    _rec "[WARN] nmap not installed — install it for port scanning"
+  if ! _has rustscan && ! _has nmap; then
+    hi "rustscan/nmap not found — skipping port scan"
+    _rec "[WARN] rustscan/nmap non installati — installali per il port scanning"
     return
   fi
 
   _check_ping
 
-  # Step 1: fast full-port discovery
+  # Step 1: fast full-port discovery (RustScan preferito, nmap fallback)
   section "TCP PORT DISCOVERY"
   _scan_is_temp=0
   if [ "$FAST" -eq 1 ]; then
@@ -806,10 +810,15 @@ phase_ports() {
       _scan_is_temp=1
     fi
     : > "$_scan_file"
-    _run_logged "Nmap fast TCP discovery" "$_scan_file" \
-      nmap $NMAP_BASE -T4 --open --stats-every 10s "$TARGET"
+    if _has rustscan; then
+      _run_logged "RustScan fast TCP discovery" "$_scan_file" \
+        rustscan -g --top -a "$TARGET"
+    else
+      _run_logged "Nmap fast TCP discovery" "$_scan_file" \
+        nmap $NMAP_BASE -T4 --open --stats-every 10s "$TARGET"
+    fi
   elif [ "$MEDIUM" -eq 1 ]; then
-    info "Medium scan: top 10000 TCP ports"
+    info "Medium scan: ports 1-10000 TCP"
     if [ -n "$OUTDIR" ]; then
       _scan_file="$OUTDIR/nmap_medium.txt"
     else
@@ -817,10 +826,15 @@ phase_ports() {
       _scan_is_temp=1
     fi
     : > "$_scan_file"
-    _run_logged "Nmap medium TCP discovery" "$_scan_file" \
-      nmap $NMAP_BASE --top-ports 10000 -T4 --open --stats-every 10s "$TARGET"
+    if _has rustscan; then
+      _run_logged "RustScan medium TCP discovery" "$_scan_file" \
+        rustscan -g -r 1-10000 -a "$TARGET"
+    else
+      _run_logged "Nmap medium TCP discovery" "$_scan_file" \
+        nmap $NMAP_BASE --top-ports 10000 -T4 --open --stats-every 10s "$TARGET"
+    fi
   else
-    info "Full TCP scan: all 65535 ports (this may take a while)"
+    info "Full TCP scan: all 65535 ports (RustScan default range)"
     if [ -n "$OUTDIR" ]; then
       _scan_file="$OUTDIR/nmap_allports.txt"
     else
@@ -828,14 +842,22 @@ phase_ports() {
       _scan_is_temp=1
     fi
     : > "$_scan_file"
-    _run_logged "Nmap full TCP discovery" "$_scan_file" \
-      nmap $NMAP_BASE -p- -T4 --open --min-rate 1000 --stats-every 10s "$TARGET"
+    if _has rustscan; then
+      _run_logged "RustScan full TCP discovery" "$_scan_file" \
+        rustscan -g -a "$TARGET"
+    else
+      _run_logged "Nmap full TCP discovery" "$_scan_file" \
+        nmap $NMAP_BASE -p- -T4 --open --min-rate 1000 --stats-every 10s "$TARGET"
+    fi
   fi
 
-  # Extract open ports
+  # Extract open ports (nmap format: "22/tcp open" — rustscan greppable: "ip -> [22,80]")
   OPEN_PORTS=""
   if [ -f "$_scan_file" ]; then
     OPEN_PORTS=$(grep -oE '^[0-9]+/tcp' "$_scan_file" 2>/dev/null | cut -d/ -f1 | sort -n | tr '\n' ',' | sed 's/,$//')
+    if [ -z "$OPEN_PORTS" ]; then
+      OPEN_PORTS=$(grep -oE '\[[0-9,]+\]' "$_scan_file" 2>/dev/null | tr -d '[]' | tr ',' '\n' | sort -n | tr '\n' ',' | sed 's/,$//')
+    fi
   fi
   [ "$_scan_is_temp" -eq 1 ] && rm -f "$_scan_file"
 
@@ -855,10 +877,20 @@ phase_ports() {
       SERVICES_FILE_TEMP=1
     fi
     : > "$SERVICES_FILE"
-    _run_logged "Nmap service detection" "$SERVICES_FILE" \
-      nmap $NMAP_BASE -sV -sC -p "$OPEN_PORTS" --stats-every 10s "$TARGET"
+    if _has rustscan && _has nmap; then
+      # RustScan passa le porte trovate a nmap: dopo `--` i flag sono di nmap
+      _run_logged "RustScan service detection" "$SERVICES_FILE" \
+        rustscan -a "$TARGET" -p "$OPEN_PORTS" -- $NMAP_BASE -sV -sC
+    elif _has nmap; then
+      _run_logged "Nmap service detection" "$SERVICES_FILE" \
+        nmap $NMAP_BASE -sV -sC -p "$OPEN_PORTS" --stats-every 10s "$TARGET"
+    else
+      warn "Service detection skipped — rustscan richiede nmap per -sV -sC"
+      _rec "[WARN] Service detection skipped (nmap missing — rustscan needs it for -sV -sC)"
+    fi
 
-    # Targeted NSE scripts per service
+    # Targeted NSE scripts per service (nmap-only)
+    if _has nmap; then
     _nse_scripts=""
     echo "$OPEN_PORTS" | tr ',' '\n' | while read -r _p; do
       case "$_p" in
@@ -889,11 +921,18 @@ phase_ports() {
         _nse_scripts=""
       fi
     done
+    else
+      warn "nmap non installato — script NSE mirati saltati"
+      _rec "[WARN] Targeted NSE scripts skipped (nmap missing)"
+    fi
   fi
 
-  # Step 3: UDP top ports
+  # Step 3: UDP top ports (nmap-only: rustscan è TCP-only)
   if [ "$FAST" -eq 0 ]; then
-    if [ "$SUDO_READY" -eq 1 ]; then
+    if ! _has nmap; then
+      warn "UDP scan skipped — nmap non installato (rustscan è TCP-only)"
+      _rec "[WARN] UDP scan skipped (nmap missing; rustscan is TCP-only)"
+    elif [ "$SUDO_READY" -eq 1 ]; then
       _udp_count=50
       [ "$MEDIUM" -eq 1 ] && _udp_count=20
       section "UDP SCAN (top $_udp_count)"
@@ -1010,6 +1049,9 @@ phase_web() {
         nmap --script ssl-enum-ciphers -p "$_hp" "$TARGET" 2>/dev/null | grep --line-buffered -E 'TLSv|SSLv|VULNERABLE|WARNING' | while IFS= read -r line; do
           emit "  $line"
         done
+      else
+        warn "nmap non installato — check cipher SSL/TLS saltato"
+        _rec "[WARN] SSL/TLS cipher check skipped on :$_hp (nmap missing)"
       fi
     fi
 
@@ -1496,13 +1538,17 @@ trap '\''[ -e "$6" ] || : > "$6"'\'' 0
       >/dev/null 2>&1 &
     _wlc_launcher=$!
   elif _has wt.exe && _has wsl.exe; then
+    # wt.exe ri-parsa la command line e rompe i doppi apici annidati
+    # (errore 0x80070002): il worker va in uno script su disco, si passa solo il path.
+    _wlc_file="$WORDLIST_COMPANION_DIR/worker.sh"
+    printf '%s\n' "$_wlc_code" > "$_wlc_file"
     if [ -n "${WSL_DISTRO_NAME:-}" ]; then
       wt.exe new-tab --title "SLRecon wordlists: $TARGET" wsl.exe -d "$WSL_DISTRO_NAME" -e \
-        sh -c "$_wlc_code" sh "$_wlc_script" "$TARGET" "$_WLC_LOG" "$_WLC_RECS" \
+        sh "$_wlc_file" "$_wlc_script" "$TARGET" "$_WLC_LOG" "$_WLC_RECS" \
         "$_WLC_STATUS" "$_WLC_DONE" "$_WLC_STARTED" "$_wlc_ports" >/dev/null 2>&1 &
     else
       wt.exe new-tab --title "SLRecon wordlists: $TARGET" wsl.exe -e \
-        sh -c "$_wlc_code" sh "$_wlc_script" "$TARGET" "$_WLC_LOG" "$_WLC_RECS" \
+        sh "$_wlc_file" "$_wlc_script" "$TARGET" "$_WLC_LOG" "$_WLC_RECS" \
         "$_WLC_STATUS" "$_WLC_DONE" "$_WLC_STARTED" "$_wlc_ports" >/dev/null 2>&1 &
     fi
     _wlc_launcher=$!
@@ -1549,7 +1595,8 @@ trap '\''[ -e "$6" ] || : > "$6"'\'' 0
   if [ ! -f "$_WLC_STARTED" ]; then
     warn "Wordlist companion failed to start — wordlist scans remain in the main shell"
     _rec "[WARN] Separate wordlist worker failed to start"
-    rm -f "$_WLC_LOG" "$_WLC_RECS" "$_WLC_STATUS" "$_WLC_DONE" "$_WLC_STARTED"
+    rm -f "$_WLC_LOG" "$_WLC_RECS" "$_WLC_STATUS" "$_WLC_DONE" "$_WLC_STARTED" \
+      "$WORDLIST_COMPANION_DIR/worker.sh"
     rmdir "$WORDLIST_COMPANION_DIR" 2>/dev/null || true
     WORDLIST_COMPANION_DIR=""
     return 1
@@ -1595,7 +1642,8 @@ _finish_wordlist_companion() {
     _rec "[WARN] Separate wordlist scan incomplete (exit $_wlc_status)"
   fi
 
-  rm -f "$_WLC_LOG" "$_WLC_RECS" "$_WLC_STATUS" "$_WLC_DONE" "$_WLC_STARTED"
+  rm -f "$_WLC_LOG" "$_WLC_RECS" "$_WLC_STATUS" "$_WLC_DONE" "$_WLC_STARTED" \
+    "$WORDLIST_COMPANION_DIR/worker.sh"
   rmdir "$WORDLIST_COMPANION_DIR" 2>/dev/null || true
   WORDLIST_COMPANION=0
 }
@@ -1960,6 +2008,7 @@ phase_services() {
       warn "rdp-sec-check not installed — dedicated RDP security check skipped"
       _rec "[WARN] Dedicated RDP security check skipped (rdp-sec-check missing)"
     fi
+    if _has nmap; then
     _rdp_raw=$(timeout -k 2s 30s nmap $NMAP_BASE --script rdp-ntlm-info -p 3389 "$TARGET" 2>&1)
     _rdp_nla_status=$?
     _rdp_nla=$(echo "$_rdp_raw" | grep -i 'Target_Name\|Product_Version\|DNS_Domain') || true
@@ -1977,6 +2026,10 @@ phase_services() {
       warn "RDP NTLM enumeration failed (exit $_rdp_nla_status)"
       [ -n "$_rdp_raw" ] && emit "$_rdp_raw"
       _rec "[WARN] RDP NTLM enumeration failed (exit $_rdp_nla_status)"
+    fi
+    else
+      warn "nmap non installato — RDP NTLM info enumeration saltata"
+      _rec "[WARN] RDP NTLM info enumeration skipped (nmap missing)"
     fi
   fi
 

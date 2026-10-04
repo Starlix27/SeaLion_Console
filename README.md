@@ -517,11 +517,11 @@ Nel portale SLWeb il PET dispone inoltre di un terminale dedicato, animazioni AS
 
 ---
 
-## Tool inclusi (42)
+## Tool inclusi (44)
 
 | Categoria | Tool |
 |-----------|------|
-| **Ricognizione & OSINT** | nmap, shodan, theHarvester, recon-ng, finalrecon, whois, amass |
+| **Ricognizione & OSINT** | nmap, rustscan, rustnet, shodan, theHarvester, recon-ng, finalrecon, whois, amass |
 | **DNS, Web Fuzzing & Crawling** | dnsenum, gobuster, ffuf, feroxbuster, dirsearch, wfuzz, nikto, scrapy, httrack, nuclei |
 | **Enumerazione Servizi** | enum4linux-ng, smbmap, crackmapexec/netexec, onesixtyone, braa, ssh-audit, rdp-sec-check |
 | **Accesso Remoto & Post-Exploitation** | evil-winrm, impacket, odat, xfreerdp |

@@ -810,17 +810,21 @@ def _launch_commands(commands: list[tuple[str, str]]) -> None:
         from shutil import which
         launched = False
         is_wsl = bool(os.environ.get("WSL_DISTRO_NAME") or os.path.exists("/proc/sys/fs/binfmt_misc/WSLInterop"))
-        wt_path = which("wt.exe") if is_wsl else None
-        if wt_path:
+        if is_wsl:
+            # Windows ri-parsa la command line e rompe i doppi apici annidati
+            # (errore 0x80070002): verso wsl.exe passa solo il path di uno script.
+            from lib import windows_terminal_argv
             for label, cmd in commands:
                 shell_cmd = "printf '\033]0;" + label + "\007'; " + cmd + '; echo; echo "\\033[92m[✓] Completato. INVIO per chiudere.\\033[0m"; read _'
-                subprocess.Popen(
-                    [wt_path, "new-tab", "--title", label, "wsl.exe", "-e", "sh", "-c", shell_cmd],
-                    start_new_session=True,
-                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                )
-                print(f"    \033[92m✓\033[0m {label}")
-            launched = True
+                argv = windows_terminal_argv(label, shell_cmd)
+                if argv:
+                    subprocess.Popen(
+                        argv,
+                        start_new_session=True,
+                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                    )
+                    print(f"    \033[92m✓\033[0m {label}")
+                    launched = True
         if not launched:
             for term in ("x-terminal-emulator", "gnome-terminal", "konsole", "xfce4-terminal", "xterm"):
                 term_path = which(term)

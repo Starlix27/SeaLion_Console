@@ -6,7 +6,9 @@ Comandi console:
     report list                     Elenca i report esistenti
     report add <nome|num>           Wizard: aggiungi un finding (severity auto)
     report sync <nome|num>          Rigenera i blocchi automatici nel .md
-    report edit <nome|num>          Apre il report in VS Code (o derivati)
+    report edit <nome|num> [modo]   Modifica il report: vsc/vscode/md = VS Code,
+                                    pdf = editor PDF; il PDF si riaggiorna da solo
+    report watch/unwatch <nome|num> Attiva/disattiva l'auto-rebuild del PDF
     report build <nome|num>         Genera il PDF (pandoc + weasyprint)
     report path <nome|num>          Mostra il percorso del file .md
     report help                     Aiuto dettagliato
@@ -22,11 +24,13 @@ import argparse
 import colorsys
 import datetime
 import json
+import os
 import re
 import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import unicodedata
 from pathlib import Path
 
@@ -38,6 +42,23 @@ TEMPLATE_HTML = REPORT_ROOT / "template" / "slctrl.html"
 TEMPLATE_CSS = REPORT_ROOT / "template" / "slctrl.css"
 
 _VSCODE_CANDIDATES = ("code", "codium", "vscodium", "code-insiders", "cursor")
+
+# Editor PDF esterni, in ordine di preferenza (Linux); su WSL si ripiega
+# sull'app Windows associata ai .pdf (Acrobat, Word, Edge...).
+_PDF_EDITOR_CANDIDATES = (
+    ("libreoffice", ["--draw"]),
+    ("soffice", ["--draw"]),
+    ("xournalpp", []),
+    ("okular", []),
+    ("evince", []),
+)
+
+# Pacchetto apt installato automaticamente se nessun editor PDF è presente
+_PDF_EDITOR_AUTO_PACKAGE = "libreoffice-draw"
+
+# Modi accettati da 'report edit <target> [modo]'
+_EDIT_MD_MODES = {"vsc", "vscode", "md", "markdown", "code", "testo"}
+_EDIT_PDF_MODES = {"pdf"}
 
 SEV_ORDER = ("critical", "high", "medium", "low", "info")
 SEV_LABEL = {"critical": "Critica", "high": "Alta", "medium": "Media",
@@ -1276,10 +1297,118 @@ def delete_finding(slug: str, index: int) -> tuple[bool, str]:
 
 
 # ---------------------------------------------------------------------------
+# Watcher: rebuild automatico del PDF quando cambia il .md
+# ---------------------------------------------------------------------------
+
+_WATCH_POLL = 2.0        # secondi tra un controllo e l'altro
+_WATCH_DEBOUNCE = 1.5    # attesa dopo l'ultima modifica prima di rebuildare
+_WATCH_MAX_AGE = 8 * 3600  # il watcher si spegne da solo dopo 8 ore
+
+
+def _watch_paths(slug: str) -> tuple[Path, Path]:
+    folder = REPORTS_DIR / slug
+    return folder / ".watch.pid", folder / ".watch.log"
+
+
+def _pid_alive(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+    except (OSError, ProcessLookupError):
+        return False
+    return True
+
+
+def watcher_running(slug: str) -> bool:
+    pid_file, _ = _watch_paths(slug)
+    try:
+        pid = int(pid_file.read_text().strip())
+    except (OSError, ValueError):
+        return False
+    return _pid_alive(pid)
+
+
+def start_watcher(slug: str) -> tuple[bool, str]:
+    """Avvia (se non già attivo) il rebuild automatico del PDF al salvataggio del .md."""
+    if watcher_running(slug):
+        return True, "auto-rebuild già attivo"
+    pid_file, log_file = _watch_paths(slug)
+    try:
+        log = open(log_file, "a", encoding="utf-8")
+        proc = subprocess.Popen(
+            [sys.executable, "-m", "lib.report", "--watch", slug],
+            cwd=PROJECT_ROOT, stdin=subprocess.DEVNULL,
+            stdout=log, stderr=subprocess.STDOUT,
+            start_new_session=True,
+        )
+        pid_file.write_text(str(proc.pid))
+        return True, f"auto-rebuild attivo (pid {proc.pid}): il PDF si aggiorna a ogni salvataggio del .md"
+    except OSError as e:
+        return False, f"Impossibile avviare il watcher: {e}"
+
+
+def stop_watcher(slug: str) -> tuple[bool, str]:
+    pid_file, _ = _watch_paths(slug)
+    try:
+        pid = int(pid_file.read_text().strip())
+    except (OSError, ValueError):
+        return False, "Nessun watcher attivo."
+    if _pid_alive(pid):
+        try:
+            os.kill(pid, 15)
+        except OSError as e:
+            return False, f"Impossibile fermare il watcher: {e}"
+    pid_file.unlink(missing_ok=True)
+    return True, "Auto-rebuild fermato."
+
+
+def _watch_daemon(slug: str) -> int:
+    """Loop del watcher (processo figlio): rebuild del PDF a ogni modifica del .md."""
+    rep = find_report(slug)
+    if rep is None:
+        return 1
+    md = Path(rep["md"])
+    pid_file, _ = _watch_paths(slug)
+    started = time.time()
+
+    def log(msg: str) -> None:
+        ts = datetime.datetime.now().strftime("%H:%M:%S")
+        print(f"[{ts}] {msg}", flush=True)
+
+    log(f"watcher avviato su {md.name}")
+    last = md.stat().st_mtime if md.is_file() else 0.0
+    while md.is_file() and time.time() - started < _WATCH_MAX_AGE:
+        time.sleep(_WATCH_POLL)
+        # fermato dall'utente (pidfile rimosso o riassegnato)
+        try:
+            if int(pid_file.read_text().strip()) != os.getpid():
+                break
+        except (OSError, ValueError):
+            break
+        try:
+            mtime = md.stat().st_mtime
+        except OSError:
+            continue
+        if mtime == last:
+            continue
+        last = mtime
+        time.sleep(_WATCH_DEBOUNCE)  # debounce: attende la fine del salvataggio
+        try:
+            if load_meta(slug):
+                sync_report(slug)
+            ok, msg = build_report(slug)
+            log(("PDF aggiornato" if ok else f"build fallito: {msg}"))
+        except Exception as e:  # noqa: BLE001
+            log(f"errore: {e}")
+    pid_file.unlink(missing_ok=True)
+    log("watcher terminato")
+    return 0
+
+
+# ---------------------------------------------------------------------------
 # Editor esterno / build PDF
 # ---------------------------------------------------------------------------
 
-def _find_editor() -> str | None:
+def _find_editor() -> str | None:  # noqa: F811
     for cand in _VSCODE_CANDIDATES:
         exe = shutil.which(cand)
         if exe:
@@ -1287,25 +1416,150 @@ def _find_editor() -> str | None:
     return None
 
 
-def edit_report(name: str | None) -> tuple[bool, str]:
-    rep = find_report(name)
-    if rep is None:
-        return False, "Report non trovato. Usa 'report list' per vedere quelli esistenti."
-    folder = str(Path(rep["md"]).parent)
-    editor = _find_editor() or shutil.which("code.cmd")
-    if editor:
+def _win_path(p: Path) -> str | None:
+    """Percorso Windows di un file WSL (via wslpath), None se non disponibile."""
+    wslpath = shutil.which("wslpath")
+    if not wslpath:
+        return None
+    try:
+        r = subprocess.run([wslpath, "-w", str(p)],
+                           capture_output=True, text=True, timeout=10)
+        return r.stdout.strip() if r.returncode == 0 else None
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+
+
+def _try_launch_pdf_editor(pdf: Path) -> tuple[bool, str]:
+    """Primo tentativo di apertura con gli editor Linux noti."""
+    for cand, extra_args in _PDF_EDITOR_CANDIDATES:
+        exe = shutil.which(cand)
+        if exe:
+            try:
+                subprocess.Popen(
+                    [exe, *extra_args, str(pdf)],
+                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                    start_new_session=True,
+                )
+                return True, f"Aperto in {cand}: {pdf}"
+            except OSError:
+                continue
+    return False, ""
+
+
+def _has_gui() -> bool:
+    """True se c'è un display grafico (Linux nativo o WSLg)."""
+    return bool(os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY")) \
+        or Path("/mnt/wslg").is_dir()
+
+
+def _install_pdf_editor() -> bool:
+    """Installa automaticamente l'editor PDF (apt) se il sistema lo supporta."""
+    if not shutil.which("apt-get") or not _has_gui():
+        return False
+    print(f"\033[94m[*]\033[0m Nessun editor PDF trovato: installo "
+          f"\033[1m{_PDF_EDITOR_AUTO_PACKAGE}\033[0m (apt)…")
+    try:
+        r = subprocess.run(
+            ["sudo", "apt-get", "install", "-y", _PDF_EDITOR_AUTO_PACKAGE],
+            timeout=600,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    return r.returncode == 0
+
+
+def _open_pdf(pdf: Path) -> tuple[bool, str]:
+    """Apre il PDF in un editor: LibreOffice Draw/Xournal++ su Linux
+    (auto-installato se mancante), altrimenti (WSL) l'app Windows
+    associata ai .pdf (Acrobat, Word, ...)."""
+    ok, msg = _try_launch_pdf_editor(pdf)
+    if ok:
+        return True, msg
+    # Nessun editor: prova l'installazione automatica, poi riprova
+    if _install_pdf_editor():
+        ok, msg = _try_launch_pdf_editor(pdf)
+        if ok:
+            return True, msg
+    # Fallback WSL: app Windows predefinita per i .pdf
+    win = _win_path(pdf)
+    pwsh = shutil.which("powershell.exe")
+    if win and pwsh:
         try:
             subprocess.Popen(
-                [editor, folder],
+                [pwsh, "-NoProfile", "-Command", f"Start-Process '{win}'"],
                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                 start_new_session=True,
             )
-            return True, f"Aperto in {Path(editor).name}: {folder}"
-        except OSError as e:
-            return False, f"Impossibile avviare {editor}: {e}"
-    return False, ("VS Code non trovato nel PATH (cercati: " +
-                   ", ".join(_VSCODE_CANDIDATES) + ").\n"
-                   f"Apri manualmente: {folder}")
+            return True, (f"Aperto con l'app Windows predefinita: {pdf}\n"
+                          "  (per modificarlo 'tipo Word': aprilo con Word/Acrobat)")
+        except OSError:
+            pass
+    if win and shutil.which("explorer.exe"):
+        try:
+            subprocess.Popen(
+                ["explorer.exe", win],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                start_new_session=True,
+            )
+            return True, f"Aperto con Windows: {pdf}"
+        except OSError:
+            pass
+    xdg = shutil.which("xdg-open")
+    if xdg:
+        subprocess.Popen([xdg, str(pdf)],
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                         start_new_session=True)
+        return True, f"Aperto con il visualizzatore predefinito: {pdf}"
+    return False, (f"Nessun editor PDF trovato e installazione automatica non riuscita.\n"
+                   f"Apri manualmente: {pdf}\n"
+                   f"Installa un editor con: sudo apt install {_PDF_EDITOR_AUTO_PACKAGE} "
+                   "(oppure xournalpp)")
+
+
+def _ensure_pdf_fresh(rep: dict) -> tuple[bool, str]:
+    """Garantisce che il PDF esista e sia aggiornato rispetto al .md."""
+    md = Path(rep["md"])
+    pdf = md.with_suffix(".pdf")
+    if pdf.is_file() and pdf.stat().st_mtime >= md.stat().st_mtime:
+        return True, str(pdf)
+    if load_meta(rep["slug"]):
+        sync_report(rep["slug"])
+    return build_report(rep["slug"])
+
+
+def edit_report(name: str | None, mode: str | None = None) -> tuple[bool, str]:
+    rep = find_report(name)
+    if rep is None:
+        return False, "Report non trovato. Usa 'report list' per vedere quelli esistenti."
+    mode = (mode or "md").strip().lower()
+
+    if mode in _EDIT_PDF_MODES:
+        ok, msg = _ensure_pdf_fresh(rep)
+        if not ok:
+            return False, f"Impossibile generare il PDF: {msg}"
+        opened, open_msg = _open_pdf(Path(msg))
+        watch_ok, watch_msg = start_watcher(rep["slug"])
+        suffix = f"\n  {watch_msg}" if watch_ok else ""
+        return opened, open_msg + suffix
+
+    # modalità testo: VS Code (o derivati) sul .md
+    folder = str(Path(rep["md"]).parent)
+    editor = _find_editor() or shutil.which("code.cmd")
+    if not editor:
+        return False, ("VS Code non trovato nel PATH (cercati: " +
+                       ", ".join(_VSCODE_CANDIDATES) + ").\n"
+                       f"Apri manualmente: {folder}")
+    try:
+        subprocess.Popen(
+            [editor, folder],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+    except OSError as e:
+        return False, f"Impossibile avviare {editor}: {e}"
+    watch_ok, watch_msg = start_watcher(rep["slug"])
+    suffix = f"\n  {watch_msg}" if watch_ok else ""
+    return True, f"Aperto in {Path(editor).name}: {folder}{suffix}"
 
 
 def build_report(name: str | None) -> tuple[bool, str]:
@@ -1474,7 +1728,7 @@ def interactive_new(client: str | None, rtype: str | None) -> int:
     print(f"\033[92m[+]\033[0m Cliente, approccio ({BOX_LABEL[box]}) e dominio ({domain}) inseriti automaticamente.")
     print("\nProssimi passi:")
     print(f"  report add {slug}      # aggiungi i finding (severity e tabelle si aggiornano da sole)")
-    print(f"  report edit {slug}     # apri in VS Code per il testo libero")
+    print(f"  report edit {slug}     # apri in VS Code per il testo libero (PDF auto-aggiornato)")
     print(f"  report build {slug}    # genera il PDF\n")
     return 0
 
@@ -1614,7 +1868,13 @@ def _print_report_help() -> None:
     print("  report list                     Elenca i report esistenti")
     print("  report add <nome|num>           Wizard: aggiungi un finding (severity auto)")
     print("  report sync <nome|num>          Rigenera i blocchi automatici nel .md")
-    print("  report edit <nome|num>          Apre il report in VS Code (o derivati)")
+    print("  report edit <nome|num> [modo]   Modifica il report:")
+    print("  \033[90m                              vsc / vscode / md (default): VS Code sul .md")
+    print("  \033[90m                              pdf: apre il PDF in un editor (LibreOffice, Word...)\033[0m")
+    print("  \033[90m                              In entrambi i casi il PDF si riaggiorna da solo")
+    print("  \033[90m                              a ogni salvataggio del .md (auto-rebuild)\033[0m")
+    print("  report watch <nome|num>         Attiva l'auto-rebuild del PDF")
+    print("  report unwatch <nome|num>       Disattiva l'auto-rebuild")
     print("  report build <nome|num>         Genera il PDF (pandoc + weasyprint)")
     print("  report path <nome|num>          Mostra il percorso del file .md")
     print()
@@ -1635,7 +1895,13 @@ def _print_report_help() -> None:
     print("  - Evidenze in \033[96mreports/<cliente>/evidence/\033[0m")
     print("  - 'report add' cerca CVE/moduli nel db LOCALE di Metasploit (offline)")
     print("  - Le sezioni lasciate vuote non compaiono nel PDF (né titoli né spazi)")
-    print("  - 'report edit' cerca nel PATH: " + ", ".join(_VSCODE_CANDIDATES))
+    print("  - 'report edit' (testo) cerca nel PATH: " + ", ".join(_VSCODE_CANDIDATES))
+    print("  - 'report edit <nome> pdf' cerca: " +
+          ", ".join(c for c, _ in _PDF_EDITOR_CANDIDATES) +
+          f" — se mancano, installa da solo {_PDF_EDITOR_AUTO_PACKAGE} (apt);")
+    print("    su WSL senza GUI apre l'app Windows predefinita")
+    print("  - Con 'report edit' il PDF si rebuilda da solo a ogni salvataggio del .md")
+    print("    (watcher in background, log in reports/<cliente>/.watch.log)")
     print("  - Su SLWeb: wizard guidato sezione per sezione in \033[96m/report\033[0m")
     print()
 
@@ -1691,7 +1957,25 @@ def cmd_report(args: argparse.Namespace, state=None) -> int:
         return 0
 
     if action == "edit":
-        ok, msg = edit_report(target)
+        # Modi: report edit <target> [pdf|vsc|vscode|md]  oppure  report edit pdf <target>
+        mode = None
+        if target and target.strip().lower() in _EDIT_MD_MODES | _EDIT_PDF_MODES:
+            target, mode = extra, target
+        elif extra and extra.strip().lower() in _EDIT_MD_MODES | _EDIT_PDF_MODES:
+            mode = extra
+        ok, msg = edit_report(target, mode)
+        print(("\033[92m[+]\033[0m " if ok else "\033[91m[!]\033[0m ") + msg)
+        return 0 if ok else 1
+
+    if action in ("watch", "unwatch"):
+        rep = find_report(target)
+        if rep is None:
+            print("\033[91m[!]\033[0m Report non trovato.", file=sys.stderr)
+            return 1
+        if action == "watch":
+            ok, msg = start_watcher(rep["slug"])
+        else:
+            ok, msg = stop_watcher(rep["slug"])
         print(("\033[92m[+]\033[0m " if ok else "\033[91m[!]\033[0m ") + msg)
         return 0 if ok else 1
 
@@ -1720,3 +2004,14 @@ def cmd_report(args: argparse.Namespace, state=None) -> int:
 
     print(f"Azione sconosciuta: {action}. Digita 'report help'.", file=sys.stderr)
     return 1
+
+
+# ---------------------------------------------------------------------------
+# Entry point per il watcher: python -m lib.report --watch <slug>
+# ---------------------------------------------------------------------------
+
+if __name__ == "__main__":
+    if len(sys.argv) >= 3 and sys.argv[1] == "--watch":
+        sys.exit(_watch_daemon(sys.argv[2]))
+    print("Uso: python -m lib.report --watch <slug>", file=sys.stderr)
+    sys.exit(2)

@@ -40,11 +40,26 @@ def _is_ip(host: str | None) -> bool:
         return False
 
 
-def _print_recon_info(profile: str, target: str | None, phase: str | None = None) -> None:
-    """Print the resolved recon pipeline without executing it."""
+# I comandi mostrati da 'recon -i' (senza -v): pochi ma essenziali
+_RECON_ESSENTIAL = (
+    "rustscan -g",             # port discovery TCP
+    "-sV -sC",                 # versioni + script default (rustscan → nmap)
+    "-sU --top-ports",         # scan UDP (nmap: rustscan è TCP-only)
+    "feroxbuster -u",          # directory scan (preferito)
+    "gobuster dir",            # directory scan (fallback)
+    "ffuf -u",                 # vhost fuzzing
+    "wpscan",                  # se WordPress
+    " --wordlists",            # worker wordlist in parallelo
+)
+
+
+def _print_recon_info(profile: str, target: str | None, phase: str | None = None,
+                      verbose: bool = False) -> None:
+    """Mostra i comandi per replicare la recon a mano (-v: tutti, spiegati)."""
+    from lib.linseal import render_explained
+
     shown_target = shlex.quote(target) if target else "<target>"
     vhost_domain = "<dominio.htb>" if _is_ip(target) else shown_target
-    nmap_target = f"[-Pn] {shown_target}"
     selected_phase = phase or ("wordlists" if profile == "wordlists" else "all")
 
     if profile == "fast":
@@ -56,76 +71,94 @@ def _print_recon_info(profile: str, target: str | None, phase: str | None = None
     else:
         summary = "tutte le 65535 TCP, top 50 UDP, wordlist complete, follow-up servizi"
 
-    groups: list[tuple[str, list[str]]] = []
+    sections: list[tuple[str, list[tuple[str, str | None]]]] = []
 
     if selected_phase == "all" and profile in {"medium", "full"}:
-        groups.append(("AVVIO IMMEDIATO / SHELL SEPARATA", [
-            f"recon {shown_target} --wordlists                 # parte prima di sudo e Nmap",
-            "  ↳ gira in parallelo all'intera recon; INVIO ferma tutti gli scanner wordlist",
-            "  ↳ il report finale aspetta il worker e ne allega l'output",
+        sections.append(("AVVIO IMMEDIATO / SHELL SEPARATA", [
+            ("Le scansioni con wordlist partono PRIMA di nmap, in parallelo:\n"
+             "durano molto e non dipendono dalle porte. INVIO le ferma tutte;\n"
+             "il report finale aspetta il worker e ne allega l'output",
+             f"recon {shown_target} --wordlists"),
         ]))
 
     if selected_phase in {"all", "ports"} and profile != "wordlists":
         if profile == "fast":
-            discovery = f"nmap [-Pn] -T4 --open --stats-every 10s {shown_target}"
+            discovery = f"rustscan -g --top -a {shown_target}"
+            discovery_why = "Top 1000 porte TCP (RustScan): veloce, trova subito i servizi esposti"
         elif profile == "medium":
-            discovery = f"nmap [-Pn] --top-ports 10000 -T4 --open --stats-every 10s {shown_target}"
+            discovery = f"rustscan -g -r 1-10000 -a {shown_target}"
+            discovery_why = "Porte 1-10000 TCP (RustScan): buon compromesso copertura/tempo"
         else:
-            discovery = f"nmap [-Pn] -p- -T4 --open --min-rate 1000 --stats-every 10s {shown_target}"
+            discovery = f"rustscan -g -a {shown_target}"
+            discovery_why = "TUTTE le 65535 porte TCP in secondi (RustScan): nessun servizio nascosto sfugge"
 
-        port_commands = [
-            f"ping -c 1 -W 2 {shown_target}                         # se fallisce, aggiunge -Pn",
-            discovery,
-            f"nmap [-Pn] -sV -sC -p <porte_tcp> --stats-every 10s {shown_target}",
-            f"nmap [-Pn] --script <script_mirati> -p <porta> --stats-every 10s {shown_target}",
-            "  21: ftp-anon,ftp-syst",
-            "  25: smtp-commands,smtp-enum-users,smtp-open-relay",
-            "  53: dns-zone-transfer,dns-nsid",
-            "  web: http-enum,http-headers,http-methods,http-robots.txt",
-            "  110/143: pop3-capabilities / imap-capabilities",
-            "  111/2049: rpcinfo,nfs-ls,nfs-showmount,nfs-statfs",
-            "  139/445: smb-enum-shares,smb-enum-users,smb-os-discovery,smb-vuln-ms17-010",
-            "  389/636: ldap-rootdse,ldap-search",
-            "  3306: mysql-info,mysql-enum,mysql-empty-password",
-            "  3389: rdp-enum-encryption,rdp-ntlm-info",
-            "  5432: pgsql-brute",
-            "  5900/5901: vnc-info",
-            "  6379: redis-info",
-            "  8009: ajp-methods",
-            "  27017: mongodb-info,mongodb-databases",
+        port_items: list[tuple[str, str | None]] = [
+            ("Verifica che l'host sia vivo; rustscan non pinga:\n"
+             "-Pn serve solo ai passi nmap (NSE, UDP, fallback)",
+             f"ping -c 1 -W 2 {shown_target}"),
+            (discovery_why, discovery),
+            ("Fallback se rustscan non è installato",
+             f"nmap [-Pn] -p- -T4 --open --min-rate 1000 {shown_target}"),
+            ("Versioni + script default: rustscan passa le porte trovate a nmap\n"
+             "(dopo `--` i flag sono di nmap). È qui che escono banner,\n"
+             "titoli HTTP, OS e vulnerabilità ovvie",
+             f"rustscan -a {shown_target} -p <porte_tcp> -- [-Pn] -sV -sC"),
+            ("Script NSE mirati (nmap-only) in base al servizio trovato:",
+             f"nmap [-Pn] --script <script_mirati> -p <porta> --stats-every 10s {shown_target}"),
+            ("21: ftp-anon,ftp-syst", None),
+            ("25: smtp-commands,smtp-enum-users,smtp-open-relay", None),
+            ("53: dns-zone-transfer,dns-nsid", None),
+            ("web: http-enum,http-headers,http-methods,http-robots.txt", None),
+            ("110/143: pop3-capabilities / imap-capabilities", None),
+            ("111/2049: rpcinfo,nfs-ls,nfs-showmount,nfs-statfs", None),
+            ("139/445: smb-enum-shares,smb-enum-users,smb-os-discovery,smb-vuln-ms17-010", None),
+            ("389/636: ldap-rootdse,ldap-search", None),
+            ("3306: mysql-info,mysql-enum,mysql-empty-password", None),
+            ("3389: rdp-enum-encryption,rdp-ntlm-info", None),
+            ("5432: pgsql-brute", None),
+            ("5900/5901: vnc-info", None),
+            ("6379: redis-info", None),
+            ("8009: ajp-methods", None),
+            ("27017: mongodb-info,mongodb-databases", None),
         ]
         if profile != "fast":
             udp_count = 20 if profile == "medium" else 50
-            port_commands.insert(0, "sudo -v                                  # richiesto una volta e mantenuto valido")
-            port_commands.insert(1, "sudo -n -v                               # rinnovo automatico ogni 50 secondi")
-            port_commands.append(
-                f"sudo -n nmap [-Pn] -sU --top-ports {udp_count} -T4 --stats-every 10s {shown_target}"
-            )
-        groups.append(("PORT DISCOVERY", port_commands))
+            port_items.insert(0, ("Lo scan UDP richiede root: prendi sudo una volta sola",
+                                  "sudo -v"))
+            port_items.insert(1, ("Rinnova sudo in automatico ogni 50s mentre scanni",
+                                  "sudo -n -v"))
+            port_items.append(
+                (f"Top {udp_count} porte UDP (nmap: rustscan è TCP-only): DNS, SNMP, NTP... lenti ma spesso decisivi",
+                 f"sudo -n nmap [-Pn] -sU --top-ports {udp_count} -T4 --stats-every 10s {shown_target}"))
+        sections.append(("PORT DISCOVERY", port_items))
 
     if selected_phase in {"all", "web", "wordlists"}:
-        web_commands: list[str] = []
+        web_items: list[tuple[str, str | None]] = []
         if _is_ip(target):
-            web_commands.append(
-                "  ↳ target è un IP: il vhost fuzzing viene saltato — "
-                "SLRECON_VHOST_DOMAIN=<dominio.htb> per abilitarlo"
-            )
+            web_items.append(
+                ("Il target è un IP: il vhost fuzzing viene saltato —\n"
+                 "esporta SLRECON_VHOST_DOMAIN=<dominio.htb> per abilitarlo", None))
         if selected_phase == "wordlists" or profile == "wordlists":
-            web_commands.extend([
-                f"nc -z -w 2 {shown_target} <80|443|8080|8443|8000|3000|8888>",
-                f"curl -sk -m 5 <base>/                    # rilevamento WordPress",
+            web_items.extend([
+                ("Trova su quali porte comuni risponde un servizio web",
+                 f"nc -z -w 2 {shown_target} <80|443|8080|8443|8000|3000|8888>"),
+                ("Rileva WordPress (poi lancia wpscan)", "curl -sk -m 5 <base>/"),
             ])
         else:
-            web_commands.extend([
-                f"nc -z -w 2 {shown_target} <porte_web_comuni>       # fallback se nmap non identifica HTTP",
-                "timeout -k 5s 20s wafw00f <base>",
-                "curl -skI -m 5 <base>/",
-                f"nmap --script ssl-enum-ciphers -p <porta_web> {nmap_target}",
-                "curl -sk -m 5 <base>/robots.txt",
-                "curl -sk -m 5 <base>/sitemap.xml",
-                "curl -sk -m 5 <base>/                    # CMS, header e body analysis",
-                "curl -sk -m 3 <base>/<file><estensione_backup>",
-                "curl -sk -m 5 <file.js>                  # endpoint e secret extraction",
+            web_items.extend([
+                ("Trova le porte web anche se nmap non le ha identificate come HTTP",
+                 f"nc -z -w 2 {shown_target} <porte_web_comuni>"),
+                ("C'è un WAF davanti? Se sì, calibra wordlist e thread",
+                 "timeout -k 5s 20s wafw00f <base>"),
+                ("Header HTTP: server, tecnologie, cookie", "curl -skI -m 5 <base>/"),
+                ("Cipher SSL/TLS deboli o scaduti", f"nmap --script ssl-enum-ciphers -p <porta_web> [-Pn] {shown_target}"),
+                ("Path nascosti lasciati dai crawler", "curl -sk -m 5 <base>/robots.txt"),
+                ("Sitemap: elenco delle pagine note", "curl -sk -m 5 <base>/sitemap.xml"),
+                ("CMS, framework e commenti nel body", "curl -sk -m 5 <base>/"),
+                ("Backup dimenticati dei file sensibili (.bak, .old, ~, .zip...)",
+                 "curl -sk -m 3 <base>/<file><estensione_backup>"),
+                ("Nei JS si nascondono endpoint API e segreti hardcoded",
+                 "curl -sk -m 5 <file.js>"),
             ])
 
         if profile != "fast":
@@ -148,8 +181,6 @@ def _print_recon_info(profile: str, target: str | None, phase: str | None = None
             if profile == "wordlists" or (
                 selected_phase == "all" and profile in {"medium", "full"}
             ):
-                # FULL and MEDIUM launch the same standalone wordlist profile;
-                # MEDIUM remains reduced only for its main scan pipeline.
                 directory_wordlist = _wl("/usr/share/seclists/Discovery/Web-Content/DirBuster-2007_directory-list-2.3-medium.txt",
                                          "/usr/share/seclists/Discovery/Web-Content/common.txt")
                 vhost_wordlist = _wl("/usr/share/seclists/Discovery/DNS/subdomains-top1million-5000.txt",
@@ -157,34 +188,46 @@ def _print_recon_info(profile: str, target: str | None, phase: str | None = None
                 wp_enum = "vp,vt,u"
                 arjun_limit = 30
                 nikto_limit = 60
-                web_commands.extend([
-                    f"timeout -k 5s 60s wpscan --url <base> --enumerate {wp_enum} --no-banner  # se WordPress",
-                    f"feroxbuster -u <base> -w {directory_wordlist} -t 15 -d 2 -k --auto-tune -C 404 [--filter-size <size>]",
-                    "  ↳ preferito; ricorsivo; auto-calibra dimensione errore",
-                    f"gobuster dir -u <base> -w {directory_wordlist} -t 15 [--exclude-length <size>]  # fallback",
-                    f"ffuf -u <base>/ -H 'Host: FUZZ.{vhost_domain}' -w {vhost_wordlist} -ac -mc 200,302,301,401,403 -t 15 -c -s",
-                    "  ↳ auto-calibration; thread ridotti per concorrenza",
-                    f"timeout -k 5s {arjun_limit}s arjun -u <base>/ -q -t 10",
-                    f"timeout -k 5s {nikto_limit}s nikto -h <base> -nointeractive -maxtime {nikto_limit}s -Tuning 123bde",
-                    "  ↳ output con prefisso [tool:porta]",
-                    "  ↳ INVIO ferma l'intero gruppo e continua la recon",
-                    f"httrack <base> -O loot/recon/{shown_target}/mirror -r4 --quiet -%e0",
-                    "  ↳ mirror del sito per analisi offline (grep password, commenti, path)",
+                web_items.extend([
+                    ("Se è WordPress: plugin, temi e utenti enumerabili",
+                     f"timeout -k 5s 60s wpscan --url <base> --enumerate {wp_enum} --no-banner"),
+                    ("Directory/file nascosti, ricorsivo, si auto-calibra sugli errori:\n"
+                     "è lo scanner principale. Output con prefisso [tool:porta],\n"
+                     "INVIO ferma l'intero gruppo e la recon continua",
+                     f"feroxbuster -u <base> -w {directory_wordlist} -t 15 -d 2 -k --auto-tune -C 404 [--filter-size <size>]"),
+                    ("Alternativa a feroxbuster se non è installato",
+                     f"gobuster dir -u <base> -w {directory_wordlist} -t 15 [--exclude-length <size>]"),
+                    ("Sottodomini/virtual host sullo stesso IP: spesso rivela\n"
+                     "applicazioni nascoste. Thread ridotti per non disturbare gli altri scan",
+                     f"ffuf -u <base>/ -H 'Host: FUZZ.{vhost_domain}' -w {vhost_wordlist} -ac -mc 200,302,301,401,403 -t 15 -c -s"),
+                    ("Scopre parametri GET/POST nascosti (?id=, ?file=...)",
+                     f"timeout -k 5s {arjun_limit}s arjun -u <base>/ -q -t 10"),
+                    ("Misconfigurazioni e file pericolosi noti sul server web",
+                     f"timeout -k 5s {nikto_limit}s nikto -h <base> -nointeractive -maxtime {nikto_limit}s -Tuning 123bde"),
+                    ("Mirror del sito per analisi offline:\n"
+                     "grep password, commenti HTML, path interni",
+                     f"httrack <base> -O loot/recon/{shown_target}/mirror -r4 --quiet -%e0"),
                 ])
-
             else:
-                web_commands.extend([
-                    f"timeout -k 5s 60s wpscan --url <base> --enumerate {wp_enum} --no-banner  # se WordPress",
-                    "curl -sk -o /dev/null -w '%{size_download}' -m 2 <base>/slr_cal_<casuale>  # calibrazione",
-                    f"gobuster dir -u <base> -w {directory_wordlist} -t 50 [--exclude-length <size>]",
-                    "  ↳ nessun limite globale; output live; INVIO ferma e continua",
-                    "curl -sk -m 5 -H 'Host: nonexistent.xyz' <base>/  # baseline VHost",
-                    f"ffuf -u <base>/ -H 'Host: FUZZ.{vhost_domain}' -w {vhost_wordlist} -fs <size> -mc 200,302,301,401,403 -t 50 -c -s",
-                    "  ↳ nessun limite globale; output live; INVIO ferma e continua",
-                    f"timeout -k 5s {arjun_limit}s arjun -u <base>/ -q -t 10",
-                    f"timeout -k 5s {nikto_limit}s nikto -h <base> -nointeractive -maxtime {nikto_limit}s -Tuning 123bde",
+                web_items.extend([
+                    ("Se è WordPress: plugin, temi e utenti enumerabili",
+                     f"timeout -k 5s 60s wpscan --url <base> --enumerate {wp_enum} --no-banner"),
+                    ("Calibrazione: dimensione della risposta a una pagina inesistente,\n"
+                     "serve per filtrare i falsi positivi",
+                     "curl -sk -o /dev/null -w '%{size_download}' -m 2 <base>/slr_cal_<casuale>"),
+                    ("Directory/file nascosti. Output live, INVIO ferma e continua",
+                     f"gobuster dir -u <base> -w {directory_wordlist} -t 50 [--exclude-length <size>]"),
+                    ("Baseline: dimensione risposta con Host inesistente",
+                     "curl -sk -m 5 -H 'Host: nonexistent.xyz' <base>/"),
+                    ("Virtual host nascosti, filtrando la dimensione della baseline.\n"
+                     "Output live, INVIO ferma e continua",
+                     f"ffuf -u <base>/ -H 'Host: FUZZ.{vhost_domain}' -w {vhost_wordlist} -fs <size> -mc 200,302,301,401,403 -t 50 -c -s"),
+                    ("Scopre parametri GET/POST nascosti (?id=, ?file=...)",
+                     f"timeout -k 5s {arjun_limit}s arjun -u <base>/ -q -t 10"),
+                    ("Misconfigurazioni e file pericolosi noti sul server web",
+                     f"timeout -k 5s {nikto_limit}s nikto -h <base> -nointeractive -maxtime {nikto_limit}s -Tuning 123bde"),
                 ])
-        groups.append(("WEB / WORDLIST", web_commands))
+        sections.append(("WEB / WORDLIST", web_items))
 
     if selected_phase in {"all", "services"} and profile not in {"fast", "wordlists"}:
         kerberos_limit = 60 if profile == "medium" else 120
@@ -192,65 +235,77 @@ def _print_recon_info(profile: str, target: str | None, phase: str | None = None
         kerb_wordlist = _wl("/usr/share/seclists/Usernames/xato-net-10-million-usernames-nt.txt",
                             "/usr/share/seclists/Usernames/Names/names.txt")
         kerb_fallback = _wl("/usr/share/seclists/Usernames/Names/names.txt")
-        service_commands = [
-            f"curl -sS -m 10 ftp://{shown_target}/ --user anonymous:anonymous",
-            f"timeout -k 5s 60s ssh-audit {shown_target}",
-            f"printf 'VRFY root\\n' | nc -w 3 {shown_target} 25",
-            f"timeout -k 5s 60s smtp-user-enum -M VRFY -U <names.txt> -t {shown_target}  # se VRFY è attivo",
-            f"timeout -k 2s 15s dig @{shown_target} axfr {shown_target}",
-            f"timeout -k 5s 60s dnsenum --dnsserver {shown_target} {shown_target} --noreverse",
-            f"timeout -k 2s 15s showmount -e {shown_target}",
-            f"timeout -k 5s 120s enum4linux-ng -A {shown_target}  # fallback: enum4linux -a",
-            f"timeout -k 2s 30s smbmap -H {shown_target} -u '' -p ''",
-            f"timeout -k 2s 30s smbclient -L //{shown_target} -N",
-            f"timeout -k 2s 20s ldapsearch -x -H ldap://{shown_target} -b '' -s base '(objectclass=*)'",
-            f"timeout -k 5s 60s ldapsearch -x -H ldap://{shown_target} -b <baseDN> '(objectclass=person)' cn uid sAMAccountName description",
-            f"timeout -k 2s 30s rdp-sec-check {shown_target}",
-            f"timeout -k 2s 30s nmap [-Pn] --script rdp-ntlm-info -p 3389 {shown_target}",
-            f"timeout -k 2s 8s mysql --connect-timeout=5 -h {shown_target} -u <root|mysql|admin> --password=<vuota|root|mysql|password|toor> -e 'SELECT VERSION();'",
-            f"mysql ... -e 'SHOW DATABASES;'                         # dopo login riuscito",
-            f"PGPASSWORD=<vuota|postgres|password|admin> timeout -k 2s 8s psql -w -h {shown_target} -U <postgres|admin> -c 'SELECT version();'",
-            "psql ... -c '\\l'                                      # dopo login riuscito",
-            f"printf 'INFO server\\r\\nQUIT\\r\\n' | nc -w 5 {shown_target} 6379",
-            f"printf 'KEYS *\\r\\nQUIT\\r\\n' | nc -w 5 {shown_target} 6379  # se Redis è no-auth",
-            f"timeout -k 2s 20s mongosh --host {shown_target} --eval \"db.adminCommand('listDatabases')\" --quiet",
-            f"timeout -k 5s 60s onesixtyone -c {snmp_wordlist} {shown_target}",
-            f"printf 'public\\nprivate\\ncommunity\\n' | timeout -k 5s 20s onesixtyone -c /dev/stdin {shown_target}  # fallback",
-            f"timeout -k 5s 30s snmpwalk -v2c -c <community> {shown_target} 1.3.6.1.2.1.1              # system",
-            f"timeout -k 5s 30s snmpwalk -v2c -c <community> {shown_target} 1.3.6.1.2.1.2.2.1.2        # interfacce",
-            f"timeout -k 5s 30s snmpwalk -v2c -c <community> {shown_target} 1.3.6.1.2.1.25.4.2.1       # processi",
-            f"timeout -k 5s 30s snmpwalk -v2c -c <community> {shown_target} 1.3.6.1.2.1.25.6.3.1.2     # software",
-            f"timeout -k 5s 30s snmpwalk -v2c -c <community> {shown_target} 1.3.6.1.4.1.77.1.2.25      # utenti",
-            f"timeout -k 5s {kerberos_limit}s kerbrute userenum -d {shown_target} --dc {shown_target} {kerb_wordlist}",
-            f"  ↳ fallback wordlist: {kerb_fallback}",
+        service_items: list[tuple[str, str | None]] = [
+            ("FTP anonimo: spesso contiene file dimenticati",
+             f"curl -sS -m 10 ftp://{shown_target}/ --user anonymous:anonymous"),
+            ("Configurazione SSH: algoritmi deboli, versione, banner",
+             f"timeout -k 5s 60s ssh-audit {shown_target}"),
+            ("SMTP VRFY: verifica se un utente esiste",
+             f"printf 'VRFY root\\n' | nc -w 3 {shown_target} 25"),
+            ("Se VRFY è attivo: enumera tutti gli utenti",
+             f"timeout -k 5s 60s smtp-user-enum -M VRFY -U <names.txt> -t {shown_target}"),
+            ("Zone transfer DNS: ti regala TUTTI i record del dominio",
+             f"timeout -k 2s 15s dig @{shown_target} axfr {shown_target}"),
+            ("Enum DNS completa: record, sottodomini, server",
+             f"timeout -k 5s 60s dnsenum --dnsserver {shown_target} {shown_target} --noreverse"),
+            ("Export NFS montabili", f"timeout -k 2s 15s showmount -e {shown_target}"),
+            ("Enum SMB completa: share, utenti, policy, OS",
+             f"timeout -k 5s 120s enum4linux-ng -A {shown_target}"),
+            ("Share SMB con accesso anonimo, con permessi", f"timeout -k 2s 30s smbmap -H {shown_target} -u '' -p ''"),
+            ("Share SMB (alternativa veloce)", f"timeout -k 2s 30s smbclient -L //{shown_target} -N"),
+            ("LDAP anonymous bind: rootDSE espone naming context e domino",
+             f"timeout -k 2s 20s ldapsearch -x -H ldap://{shown_target} -b '' -s base '(objectclass=*)'"),
+            ("Se il bind anonimo funziona: enumera gli utenti",
+             f"timeout -k 5s 60s ldapsearch -x -H ldap://{shown_target} -b <baseDN> '(objectclass=person)' cn uid sAMAccountName description"),
+            ("Sicurezza RDP: NLA, encryption, certificato", f"timeout -k 2s 30s rdp-sec-check {shown_target}"),
+            ("RDP NTLM info: nome dominio e macchina", f"timeout -k 2s 30s nmap [-Pn] --script rdp-ntlm-info -p 3389 {shown_target}"),
+            ("MySQL con credenziali deboli/vuote",
+             f"timeout -k 2s 8s mysql --connect-timeout=5 -h {shown_target} -u <root|mysql|admin> --password=<vuota|root|mysql|password|toor> -e 'SELECT VERSION();'"),
+            ("Dopo un login riuscito: elenca i database", "mysql ... -e 'SHOW DATABASES;'"),
+            ("PostgreSQL con credenziali deboli",
+             f"PGPASSWORD=<vuota|postgres|password|admin> timeout -k 2s 8s psql -w -h {shown_target} -U <postgres|admin> -c 'SELECT version();'"),
+            ("Dopo un login riuscito: elenca i database", "psql ... -c '\\l'"),
+            ("Redis senza autenticazione: info sul server",
+             f"printf 'INFO server\\r\\nQUIT\\r\\n' | nc -w 5 {shown_target} 6379"),
+            ("Se Redis è no-auth: puoi leggere TUTTE le chiavi",
+             f"printf 'KEYS *\\r\\nQUIT\\r\\n' | nc -w 5 {shown_target} 6379"),
+            ("MongoDB no-auth: elenca i database",
+             f"timeout -k 2s 20s mongosh --host {shown_target} --eval \"db.adminCommand('listDatabases')\" --quiet"),
+            ("Community string SNMP via wordlist (UDP 161)",
+             f"timeout -k 5s 60s onesixtyone -c {snmp_wordlist} {shown_target}"),
+            ("Fallback: solo le community più comuni",
+             f"printf 'public\\nprivate\\ncommunity\\n' | timeout -k 5s 20s onesixtyone -c /dev/stdin {shown_target}"),
+            ("Con la community trovata: info di sistema", f"timeout -k 5s 30s snmpwalk -v2c -c <community> {shown_target} 1.3.6.1.2.1.1"),
+            ("Interfacce di rete (IP interni, altre reti)", f"timeout -k 5s 30s snmpwalk -v2c -c <community> {shown_target} 1.3.6.1.2.1.2.2.1.2"),
+            ("Processi in esecuzione (a volte con credenziali nella cmdline)", f"timeout -k 5s 30s snmpwalk -v2c -c <community> {shown_target} 1.3.6.1.2.1.25.4.2.1"),
+            ("Software installato → versioni → exploit", f"timeout -k 5s 30s snmpwalk -v2c -c <community> {shown_target} 1.3.6.1.2.1.25.6.3.1.2"),
+            ("Utenti locali della macchina", f"timeout -k 5s 30s snmpwalk -v2c -c <community> {shown_target} 1.3.6.1.4.1.77.1.2.25"),
+            ("Enum utenti Kerberos/AD via wordlist (utenti validi senza password)",
+             f"timeout -k 5s {kerberos_limit}s kerbrute userenum -d {shown_target} --dc {shown_target} {kerb_wordlist}"),
+            (f"fallback wordlist: {kerb_fallback}", None),
         ]
-        groups.append(("SERVICE FOLLOW-UP (read-only)", service_commands))
+        sections.append(("SERVICE FOLLOW-UP (read-only)", service_items))
 
     if selected_phase in {"all", "report", "ports", "web", "services", "wordlists"}:
-        report_items = ["Parsing porte TCP/UDP e versioni servizi"]
+        report_items = [("Parsing porte TCP/UDP e versioni servizi", None)]
         if selected_phase == "all" and profile in {"medium", "full"}:
-            report_items.append("Attesa del worker wordlist e allegato wordlist_scan.txt")
+            report_items.append(("Attesa del worker wordlist e allegato wordlist_scan.txt", None))
         report_items.extend([
-            "Riepilogo finding, warning, timeout, tool mancanti e copertura incompleta",
-            "Timer totale T+hh:mm:ss e suggerimenti successivi",
+            ("Riepilogo finding, warning, timeout, tool mancanti e copertura incompleta", None),
+            ("Timer totale T+hh:mm:ss e suggerimenti successivi", None),
         ])
-        groups.append(("REPORT", report_items))
+        sections.append(("REPORT", report_items))
 
-    print(f"\n  \033[1mRECON {profile.upper()} — contenuto dello scan\033[0m")
-    print(f"  Target: \033[96m{shown_target}\033[0m")
-    print(f"  Fase:   \033[96m{selected_phase}\033[0m")
-    print(f"  Profilo: {summary}")
-    print("  Questa modalità è solo informativa: nessun comando viene eseguito.\n")
-    for title, commands in groups:
-        print(f"  \033[93;1m══ {title} ══\033[0m")
-        for command in commands:
-            if command.startswith("  "):
-                print(f"    \033[2m{command.strip()}\033[0m")
-            elif command.startswith(("Parsing", "Attesa", "Riepilogo", "Timer")):
-                print(f"    • {command}")
-            else:
-                print(f"    \033[92m$\033[0m {command}")
-        print()
+    render_explained(
+        f"RECON {profile.upper()} — replicare lo scan a mano" + (" (verbose)" if verbose else ""),
+        [f"Target:  \033[96m{shown_target}\033[0m",
+         f"Fase:    \033[96m{selected_phase}\033[0m",
+         f"Profilo: {summary}",
+         "Questa modalità è solo informativa: nessun comando viene eseguito."],
+        sections,
+        verbose=verbose,
+        essential=_RECON_ESSENTIAL,
+    )
 
 
 def cmd_recon(args: argparse.Namespace, state=None) -> int:
@@ -268,9 +323,10 @@ def cmd_recon(args: argparse.Namespace, state=None) -> int:
             "  \033[93mrecon <target> --wordlists\033[0m  Solo dir scan, VHost, wpscan, nikto, arjun\n"
             "  \033[93mrecon <target> --fast\033[0m       Solo top ports + web base\n"
             "  \033[93mrecon <target> --phase web\033[0m  Solo una fase (ports/web/services/report)\n"
-            "  \033[93mrecon <target> --no-ping\033[0m    Forza -Pn su nmap\n"
-            "  \033[93mrecon medium -i\033[0m            Mostra tutto ciò che include MEDIUM, senza eseguirlo\n"
-            "  \033[93mrecon <target> --medium -i\033[0m Mostra i comandi risolti per il target\n"
+            "  \033[93mrecon <target> --no-ping\033[0m    Salta il ping check (-Pn sui passi nmap)\n"
+            "  \033[93mrecon medium -i\033[0m            I comandi essenziali di MEDIUM, pronti da copiare\n"
+            "  \033[93mrecon <target> --medium -i\033[0m Essenziali già risolti per il target\n"
+            "  \033[93mrecon <target> -vi\033[0m          TUTTI i comandi con spiegazioni (verbose)\n"
             "  \033[93mrecon status\033[0m                Mostra scan in corso\n"
             "  \033[93mrecon report <target>\033[0m       Rimostra ultimo report\n"
         )
@@ -296,7 +352,8 @@ def cmd_recon(args: argparse.Namespace, state=None) -> int:
             profile = "medium"
         else:
             profile = "full"
-        _print_recon_info(profile, info_target, phase)
+        _print_recon_info(profile, info_target, phase,
+                          verbose=getattr(args, "verbose", False))
         return 0
 
     if target == "status":
@@ -375,23 +432,17 @@ def cmd_recon(args: argparse.Namespace, state=None) -> int:
         shell_cmd = title_esc + '; ' + recon_cmd + '; echo; echo "\\033[92m[✓] Scan completato. Premi INVIO per chiudere.\\033[0m"; read _'
         launched = False
         if os.environ.get("WSL_DISTRO_NAME") or os.path.exists("/proc/sys/fs/binfmt_misc/WSLInterop"):
-            for wt in ("wt.exe", "cmd.exe"):
-                wt_path = which(wt)
-                if wt_path:
-                    if wt == "wt.exe":
-                        subprocess.Popen(
-                            [wt_path, "new-tab", "--title", f"SLRecon: {target}", "wsl.exe", "-e", "sh", "-c", shell_cmd],
-                            start_new_session=True,
-                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                        )
-                    else:
-                        subprocess.Popen(
-                            [wt_path, "/c", "wsl.exe", "-e", "sh", "-c", shell_cmd],
-                            start_new_session=True,
-                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                        )
-                    launched = True
-                    break
+            # Windows ri-parsa la command line e rompe i doppi apici annidati
+            # (errore 0x80070002): verso wsl.exe passa solo il path di uno script.
+            from lib import windows_terminal_argv
+            argv = windows_terminal_argv(f"SLRecon: {target}", shell_cmd)
+            if argv:
+                subprocess.Popen(
+                    argv,
+                    start_new_session=True,
+                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                )
+                launched = True
         if not launched:
             for term in ("x-terminal-emulator", "gnome-terminal", "konsole", "xfce4-terminal", "xterm"):
                 term_path = which(term)

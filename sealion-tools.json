@@ -12,6 +12,30 @@
         "Parti con scan SYN"
       ],
       "source": ""
+    },
+    {
+      "name": "rustscan",
+      "install": "sudo apt install rustscan",
+      "help_text": "Port discovery TCP fulmineo; passa le porte a nmap con --",
+      "aliases": [
+        "fastscan"
+      ],
+      "category": "recon",
+      "notes": [
+        "Usa -g per output greppabile"
+      ],
+      "source": "https://github.com/RustScan/RustScan"
+    },
+    {
+      "name": "rustnet",
+      "install": "cargo install rustnet",
+      "help_text": "Vista live TUI di connessioni e processi sulla target",
+      "aliases": [],
+      "category": "recon",
+      "notes": [
+        "Alternativa grafica a ss -tlnp"
+      ],
+      "source": "https://github.com/domcyrus/rustnet"
     }
   ]
 }
