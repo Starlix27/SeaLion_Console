@@ -350,6 +350,7 @@ def print_help_text() -> None:
     print("  pivot <azione>     IP tunneling via ligolo-ng (pivot help)")
     print("  catch <azione>     OOB listeners: tcp, dns, ftp, smb (catch help)")
     print("  recon <target>     Reconnaissance automatica (recon help)")
+    print("  ctf-wr -u <url>    Pipeline web CTF: dirs → params → xss → sqli → ssti")
     print("  linseal -i         Comandi spiegati per replicare l'enum Linux a mano")
     print("  reconfind <query>  Trova il tool giusto per porta/servizio/task")
     print()
@@ -551,6 +552,8 @@ def build_parser() -> argparse.ArgumentParser:
     recon_p.add_argument("--wordlists", action="store_true", default=False)
     recon_p.add_argument("--phase", default=None)
     recon_p.add_argument("--no-ping", action="store_true", default=False)
+    ctfwr_p = subparsers.add_parser("ctf-wr", add_help=False)
+    ctfwr_p.add_argument("args", nargs=argparse.REMAINDER)
     pet_p = subparsers.add_parser("pet", add_help=False)
     pet_p.add_argument("action", nargs="?", default=None)
     pet_p.add_argument("message", nargs="*", default=[])
@@ -814,6 +817,10 @@ def _smart_input(prompt: str) -> str | None:
 
 
 def run_command(argv: list[str], state: ConsoleState | None = None) -> int:
+    if argv and argv[0] == "ctf-wr":
+        from lib.ctfwr import cmd_ctf_wr
+        ns = argparse.Namespace(command="ctf-wr", args=argv[1:])
+        return cmd_ctf_wr(ns, state)
     parser = build_parser()
     if argv and argv[0] == "recon":
         _reordered = [argv[0]]
@@ -868,6 +875,7 @@ def run_command(argv: list[str], state: ConsoleState | None = None) -> int:
     from lib.reconfind import cmd_reconfind
     from lib.burp import cmd_burp
     from lib.report import cmd_report
+    from lib.ctfwr import cmd_ctf_wr
 
     handlers = {
         "sealsay": cmd_sealsay,
@@ -893,6 +901,7 @@ def run_command(argv: list[str], state: ConsoleState | None = None) -> int:
         "burp": cmd_burp,
         "catch": cmd_catch,
         "report": cmd_report,
+        "ctf-wr": cmd_ctf_wr,
     }
     handler = handlers.get(args.command)
     if handler is None:
@@ -989,7 +998,7 @@ def run_console() -> int:
                     state.last_vuln_tools = _extract_vuln_tools(text)
                 continue
 
-        known_commands = {"sealsay", "list", "install", "use", "search", "vuln", "notes", "find", "back", "help", "?", "--version", "-h", "--help", "serve", "loot", "wordfind", "passfind", "wordgen", "tunnel", "pivot", "reconfind", "recon", "linseal", "pet", "burp", "catch", "report"}
+        known_commands = {"sealsay", "list", "install", "use", "search", "vuln", "notes", "find", "back", "help", "?", "--version", "-h", "--help", "serve", "loot", "wordfind", "passfind", "wordgen", "tunnel", "pivot", "reconfind", "recon", "linseal", "pet", "burp", "catch", "report", "ctf-wr"}
         if argv[0] not in known_commands:
             print("Comando non riconosciuto. Digita 'help' per i comandi.")
             continue
