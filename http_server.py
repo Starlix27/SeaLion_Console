@@ -788,7 +788,11 @@ def _parse_fish_art() -> list[str]:
 def _discover_notes() -> list[tuple[str, str]]:
     if not NOTES_ROOT.is_dir():
         return []
-    return sorted((p.stem, p.stem.replace("-", " ").title()) for p in NOTES_ROOT.glob("*.md"))
+    acronyms = {"ctf": "CTF", "ssh": "SSH"}
+    return sorted(
+        (p.stem, acronyms.get(p.stem.lower(), p.stem.replace("-", " ").title()))
+        for p in NOTES_ROOT.glob("*.md")
+    )
 
 
 def _discover_vulns() -> list[tuple[str, str]]:
