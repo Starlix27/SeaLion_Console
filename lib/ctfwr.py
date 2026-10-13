@@ -2,13 +2,15 @@
 
 Comandi console:
     ctf-wr -u URL                 Scan completo (dirs → params → scan → xss → sqli → ssti)
+    ctf-wr -u URL ssti            Solo la fase SSTI (anche più fasi: xss sqli)
+    ctf-wr -u URL -p name         Parametro noto, senza discovery
     ctf-wr -u URL -c "session=X"  Dietro autenticazione
     ctf-wr -u URL --skip xss      Salta fasi
     ctf-wr -h                     Aiuto dello script
 
 Lo script vive in tool/ctf-web-recon; se non installato, viene installato
 al primo utilizzo. Le dipendenze mancanti (dalfox, sstimap, …) vengono
-saltate con un avviso: installale con `install ctf-web-toolkit`.
+segnalate all'avvio: installale con `install ctf-web-toolkit`.
 """
 
 from __future__ import annotations
@@ -35,7 +37,10 @@ def cmd_ctf_wr(args: argparse.Namespace, state=None) -> int:
             return rc
 
     if not extra:
-        print("Uso: ctf-wr -u URL [-o outdir] [-c \"cookie\"] [--skip fasi] [--fast]")
+        print("Uso: ctf-wr -u URL [fasi...] [-p param] [-c cookie] [-o dir] [--fast] [--skip x,y]")
+        print("     Fasi: dirs params scan xss sqli ssti (default: tutte)")
+        print("     Esempio: ctf-wr -u http://target ssti")
+        print("     Dipendenze: install ctf-web-toolkit")
         print("     ctf-wr -h per l'aiuto completo dello script")
         return 0
 

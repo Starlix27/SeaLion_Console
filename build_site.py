@@ -205,6 +205,7 @@ def _page_home_static() -> str:
       <li><a href="{BASE}pet">Pet</a><span class="cnt">sealion virtuale</span></li>
       <li><a href="{BASE}burp">BURP</a><span class="cnt">password profiler</span></li>
       <li><a href="{BASE}report">Report</a><span class="cnt">report di pentest</span></li>
+      <li><a href="{BASE}tools/ivre/" id="ivre-link">IVRE</a><span class="cnt" id="ivre-cnt">shodan self-hosted</span></li>
     </ul>
   </div>
   <div class="info-box home-pet" id="pet-widget" style="display:none">
@@ -243,6 +244,7 @@ def _page_home_static() -> str:
     {{name:'minigame',label:'Minigame',cnt:'quiz pentesting',href:B+'pet/minigame'}},
     {{name:'burp',label:'BURP',cnt:'password profiler',href:B+'burp'}},
     {{name:'report',label:'Report',cnt:'report di pentest',href:B+'report'}},
+    {{name:'ivre',label:'IVRE',cnt:'shodan self-hosted',href:B+'tools/ivre/'}},
   ];
   const input=document.getElementById('term-input');
   const box=document.getElementById('suggestions');
@@ -265,7 +267,8 @@ def _page_home_static() -> str:
     '  <span class="t-accent">minigame</span>    <span class="t-line">Quiz fullscreen con 500 domande di pentesting</span>\\n'+
     '  <span class="t-accent">burp</span>        <span class="t-line">BURP — Profiler password avanzato (sostituisce CUPP)</span>\\n'+
     '              <span class="t-line">Genera wordlist personalizzate basate sul profilo della vittima</span>\\n'+
-    '  <span class="t-accent">report</span>      <span class="t-line">Report di penetration test — template, anteprima e PDF</span>\\n\\n'+
+    '  <span class="t-accent">report</span>      <span class="t-line">Report di penetration test — template, anteprima e PDF</span>\\n'+
+    '  <span class="t-accent">ivre</span>        <span class="t-line">IVRE — Shodan self-hosted: ricerca a filtri, screenshot, scan import</span>\\n\\n'+
     '  <span class="t-section">— Terminale</span>\\n'+
     '  <span class="t-accent">help</span>        <span class="t-line">Mostra questo messaggio</span>\\n'+
     '  <span class="t-accent">help</span> <span class="t-line">&lt;cmd&gt;</span>  <span class="t-line">Dettagli su un comando (es. <span class="t-accent">help vuln</span>)</span>\\n'+
@@ -309,6 +312,16 @@ def _page_home_static() -> str:
       '<span class="t-accent">  report edit &lt;nome&gt;</span>  <span class="t-line">Lo apre in VS Code</span>\\n'+
       '<span class="t-accent">  report build &lt;nome&gt;</span> <span class="t-line">Genera il PDF</span>\\n\\n'+
       '<span class="t-line">Digitando <span class="t-accent">report</span> vedi template e anteprima.</span>',
+    ivre:
+      '<span class="t-head">ivre — IVRE · Shodan self-hosted</span>\\n\\n'+
+      '<span class="t-line">Alternativa open source self-hosted a Shodan, ZoomEye e Censys.</span>\\n'+
+      '<span class="t-line">Web UI con ricerca a filtri, screenshot dei servizi web,</span>\\n'+
+      '<span class="t-line">import di scansioni Nmap/Masscan/ZGrab2 e passive recon.</span>\\n\\n'+
+      '<span class="t-line">Gestione da SLConsole (richiede Docker):</span>\\n'+
+      '<span class="t-accent">  ivre init</span>    <span class="t-line">Prima configurazione (GeoIP + database)</span>\\n'+
+      '<span class="t-accent">  ivre up</span>      <span class="t-line">Avvia lo stack — web UI su porta 2728</span>\\n'+
+      '<span class="t-accent">  ivre scan</span>    <span class="t-line">Scansiona un target autorizzato e importa</span>\\n\\n'+
+      '<span class="t-line">Digitando <span class="t-accent">ivre</span> si apre la guida completa del tool.</span>',
     help:
       '<span class="t-head">help — Aiuto Comandi</span>\\n\\n'+
       '<span class="t-line">Mostra la lista dei comandi disponibili.</span>',
@@ -465,6 +478,16 @@ def _page_home_static() -> str:
   art.addEventListener('mouseleave',function(){{if(tid){{clearInterval(tid);tid=null;}}art.textContent=orig;}});
   art.addEventListener('touchstart',start,{{passive:false}});
   art.addEventListener('touchend',stop);
+}})();
+(function(){{
+  var el=document.getElementById('ivre-link');
+  if(!el)return;
+  var cnt=document.getElementById('ivre-cnt');
+  var url='http://'+location.hostname+':2728/';
+  fetch(url,{{mode:'no-cors',cache:'no-store'}}).then(function(){{
+    el.href=url;el.target='_blank';el.rel='noopener';
+    if(cnt)cnt.textContent='online · porta 2728';
+  }}).catch(function(){{}});
 }})();
 </script>"""
     return _base_html_static("Home", body, active="home")

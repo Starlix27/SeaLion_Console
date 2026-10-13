@@ -34,7 +34,7 @@
 
 ### Funzionalità principali
 
-- **42 tool integrati** con installazione guidata e documentazione locale.
+- **47 tool integrati** con installazione guidata e documentazione locale.
 - **Recon automatica** con profili Fast, Medium e Full, enumerazione mirata dei servizi e report.
 - **Quick Delivery, Loot, Tunnel e Pivot** per supportare le attività su ambienti autorizzati.
 - **Catch OOB** con listener TCP, DNS, FTP e SMB eseguibili in parallelo.
@@ -599,7 +599,7 @@ SeaLion/
 │   ├── import_pentest_questions.py
 │   └── rebalance_pentest_questions.py
 │
-├── tool/                   # 42 tool — ogni sottocartella contiene:
+├── tool/                   # 47 tool — ogni sottocartella contiene:
 │   ├── nmap/
 │   │   ├── help.md     #   documentazione
 │   │   └── install.py  #   script di installazione
