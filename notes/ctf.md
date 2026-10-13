@@ -81,7 +81,7 @@ Dalla console SeaLion:
 install ctf-web-toolkit
 ```
 
-Installa in una botta sola: **dalfox, SSTImap, XSStrike, dirsearch, OWASP ZAP**.
+Installa in una botta sola: **arjun, dalfox, SSTImap, XSStrike, dirsearch, OWASP ZAP**.
 (sqlmap, ffuf, nuclei, commix, nikto, Burp… risultano già presenti sul sistema.)
 
 ---
@@ -104,13 +104,21 @@ Fasi eseguite in sequenza:
 5. **sqlmap** — SQLi su ogni URL con parametri
 6. **sstimap** — SSTI su ogni URL con parametri
 
-Ogni fase scrive i risultati in una cartella di output e alla fine trovi un `report.md` riassuntivo. I tool mancanti vengono saltati con un avviso (installali con `ctf-web-toolkit`).
+Ogni fase scrive i risultati in una cartella di output e alla fine trovi un `report.md` riassuntivo.
+
+Puoi eseguire **solo le fasi che ti interessano** scrivendole dopo l'URL, e le dipendenze mancanti vengono segnalate **prima** di partire (con installazione su richiesta):
 
 ```bash
+ctf-wr -u http://target                    # tutte le fasi
+ctf-wr -u http://target ssti               # SOLO ssti
+ctf-wr -u http://target xss sqli           # solo xss e sqli
+ctf-wr -u "http://target/p?name=x" ssti    # SSTI su parametro noto
+ctf-wr -u http://target --skip dirs,params # salta fasi
 ctf-wr -u http://target -o outdir          # output personalizzato
 ctf-wr -u http://target -c "session=XXX"   # dietro login
-ctf-wr -u http://target --skip xss,sqli    # salta fasi
 ctf-wr -u http://target --fast             # timeout ridotti
+ctf-wr deps                                # cosa c'è e cosa manca
+ctf-wr deps --install                      # installa le dipendenze mancanti
 ```
 
 ---

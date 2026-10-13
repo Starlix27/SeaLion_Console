@@ -350,7 +350,7 @@ def print_help_text() -> None:
     print("  pivot <azione>     IP tunneling via ligolo-ng (pivot help)")
     print("  catch <azione>     OOB listeners: tcp, dns, ftp, smb (catch help)")
     print("  recon <target>     Reconnaissance automatica (recon help)")
-    print("  ctf-wr -u <url> [fasi]  Pipeline web CTF (dirs, params, scan, xss, sqli, ssti)")
+    print("  ctf-wr -u <url> [fasi]  Pipeline web CTF (ctf-wr -h per la guida)")
     print("  linseal -i         Comandi spiegati per replicare l'enum Linux a mano")
     print("  reconfind <query>  Trova il tool giusto per porta/servizio/task")
     print()

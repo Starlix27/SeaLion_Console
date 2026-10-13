@@ -105,11 +105,20 @@ def _install_zap(dest: Path) -> None:
     subprocess.run(["sudo", "apt-get", "install", "-y", "zaproxy"], check=False)
 
 
+def _install_arjun(dest: Path) -> None:
+    if shutil.which("arjun"):
+        print("[=] arjun gia' presente, skip.")
+        return
+    print("[*] arjun (pip)…")
+    _pip(["arjun"])
+
+
 def install(dest: Path) -> int:
     if not shutil.which("git"):
         subprocess.run(["sudo", "apt-get", "install", "-y", "git"], check=False)
 
     for step in (
+        _install_arjun,
         _install_dalfox,
         _install_sstimap,
         _install_xsstrike,

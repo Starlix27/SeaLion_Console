@@ -1,16 +1,29 @@
 """ctf-wr — pipeline ricognizione→attacco per web challenge CTF.
 
-Comandi console:
-    ctf-wr -u URL                 Scan completo (dirs → params → scan → xss → sqli → ssti)
-    ctf-wr -u URL ssti            Solo la fase SSTI (anche più fasi: xss sqli)
-    ctf-wr -u URL -p name         Parametro noto, senza discovery
-    ctf-wr -u URL -c "session=X"  Dietro autenticazione
-    ctf-wr -u URL --skip xss      Salta fasi
-    ctf-wr -h                     Aiuto dello script
+Uso nella console:
+    ctf-wr                          Guida completa (fasi, opzioni, esempi)
+    ctf-wr -u URL                   Scan completo: dirs → params → scan → xss → sqli → ssti
+    ctf-wr -u URL ssti              Esegue SOLO la fase SSTI
+    ctf-wr -u URL xss sqli          Esegue SOLO XSS e SQLi
+    ctf-wr -u URL -p name           Parametro noto, senza discovery
+    ctf-wr -u URL --skip dirs,scan  Tutte le fasi TRANNE quelle indicate
+    ctf-wr -u URL -c "session=X"    Dietro autenticazione
+    ctf-wr -u URL --fast            Timeout ridotti
+    ctf-wr deps                     Tabella dipendenze (cosa c'è, cosa manca)
+    ctf-wr deps --install           Installa le dipendenze mancanti
+
+Le fasi di attacco testano: i parametri passati con -p, la query nell'URL,
+i form HTML della pagina, i parametri trovati da arjun — e in fallback una
+lista di nomi comuni. arjun e sstimap sono opzionali: senza arjun params
+usa form HTML + nomi comuni; senza sstimap ssti usa il probe built-in.
+
+Prima di partire, ctf-wr controlla i tool delle fasi richieste: se ne manca
+uno spiega perché la fase non partirebbe (o in cosa sarebbe limitata) e
+propone di installarlo subito (-y per non chiedere, --no-install per
+proseguire con quello che c'è).
 
 Lo script vive in tool/ctf-web-recon; se non installato, viene installato
-al primo utilizzo. Le dipendenze mancanti (dalfox, sstimap, …) vengono
-segnalate all'avvio: installale con `install ctf-web-toolkit`.
+al primo utilizzo (script + alias ~/.local/bin/ctf-wr).
 """
 
 from __future__ import annotations
@@ -36,15 +49,8 @@ def cmd_ctf_wr(args: argparse.Namespace, state=None) -> int:
         if rc != 0:
             return rc
 
-    if not extra:
-        print("Uso: ctf-wr -u URL [fasi...] [-p param] [-c cookie] [-o dir] [--fast] [--skip x,y]")
-        print("     Fasi: dirs params scan xss sqli ssti (default: tutte)")
-        print("     Esempio: ctf-wr -u http://target ssti")
-        print("     Dipendenze: install ctf-web-toolkit")
-        print("     ctf-wr -h per l'aiuto completo dello script")
-        return 0
-
     try:
+        # Senza argomenti (o con -h) lo script stampa la guida completa.
         return subprocess.run(["bash", str(SCRIPT), *extra]).returncode
     except KeyboardInterrupt:
         print("\nInterrotto.")
