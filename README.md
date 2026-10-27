@@ -93,7 +93,9 @@ slconsole> use nmap               # Seleziona un tool
 slconsole(nmap)> install          # Installa il tool selezionato
 slconsole> vuln ftp               # Cheatsheet FTP
 slconsole> vuln list              # Elenca protocolli per categoria
-slconsole> notes <argomento>      # Guide e appunti
+slconsole> notes <argomento>      # Guide e appunti (es. notes privilege-escalation)
+slconsole> gtfobins find suid     # Payload privesc/SUID/sudo offline (install gtfobins)
+slconsole> linseal -i             # Enum Linux guidata, ogni comando spiegato
 slconsole> find <parola>          # Cerca in vuln, tool e notes
 slconsole> serve on               # Avvia il server HTTP di delivery
 slconsole> serve list             # Mostra file serviti con curl
@@ -517,7 +519,7 @@ Nel portale SLWeb il PET dispone inoltre di un terminale dedicato, animazioni AS
 
 ---
 
-## Tool inclusi (44)
+## Tool inclusi (46)
 
 | Categoria | Tool |
 |-----------|------|
@@ -525,6 +527,7 @@ Nel portale SLWeb il PET dispone inoltre di un terminale dedicato, animazioni AS
 | **DNS, Web Fuzzing & Crawling** | dnsenum, gobuster, ffuf, feroxbuster, dirsearch, wfuzz, nikto, scrapy, httrack, nuclei |
 | **Enumerazione Servizi** | enum4linux-ng, smbmap, crackmapexec/netexec, onesixtyone, braa, ssh-audit, rdp-sec-check |
 | **Accesso Remoto & Post-Exploitation** | evil-winrm, impacket, odat, xfreerdp |
+| **Privilege Escalation** | linpeas, gtfobins (database offline di gtfobins.org, comando `gtfobins`) |
 | **Password Cracking & Wordlist** | john, hashcat, hashid, hydra, ncrack, medusa, cewl, seclists, htb-wordlists |
 | **Web Application** | wafw00f, arjun |
 | **Framework** | msfconsole |

