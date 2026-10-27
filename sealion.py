@@ -83,8 +83,13 @@ def auto_update() -> None:
     if not (PROJECT_ROOT / ".git").is_dir():
         return
     try:
+        # Segue lo stesso remote configurato nel clone (fallback: repo ufficiale).
+        remote_url = subprocess.run(
+            ["git", "-C", str(PROJECT_ROOT), "config", "--get", "remote.origin.url"],
+            capture_output=True, text=True,
+        ).stdout.strip() or REPO_URL
         r = subprocess.run(
-            ["git", "-C", str(PROJECT_ROOT), "fetch", "--force", REPO_URL, "main"],
+            ["git", "-C", str(PROJECT_ROOT), "fetch", "--force", remote_url, "main"],
             capture_output=True, text=True, timeout=15,
         )
         if r.returncode != 0:
@@ -99,17 +104,18 @@ def auto_update() -> None:
         ).stdout.strip()
         if not remote or local == remote:
             return
-        subprocess.run(
-            ["git", "-C", str(PROJECT_ROOT), "checkout", "."],
-            capture_output=True, text=True, timeout=10,
-        )
+        # Non toccare nulla se c'è lavoro locale (modifiche o file non tracciati).
+        dirty = subprocess.run(
+            ["git", "-C", str(PROJECT_ROOT), "status", "--porcelain"],
+            capture_output=True, text=True,
+        ).stdout.strip()
+        if dirty:
+            print("\033[93m[update]\033[0m Aggiornamento disponibile, ma ci sono modifiche "
+                  "locali: commit/stash oppure 'git reset --hard origin/main'.")
+            return
         subprocess.run(
             ["git", "-C", str(PROJECT_ROOT), "reset", "--hard", "FETCH_HEAD"],
             capture_output=True, text=True, timeout=15,
-        )
-        subprocess.run(
-            ["git", "-C", str(PROJECT_ROOT), "clean", "-fd"],
-            capture_output=True, text=True, timeout=10,
         )
         print(f"\033[92m[update]\033[0m Aggiornato a {remote[:7]}")
     except Exception:
@@ -352,6 +358,7 @@ def print_help_text() -> None:
     print("  recon <target>     Reconnaissance automatica (recon help)")
     print("  ctf-wr -u <url> [fasi]  Pipeline web CTF (ctf-wr -h per la guida)")
     print("  linseal -i         Comandi spiegati per replicare l'enum Linux a mano")
+    print("  gtfobins <bin> [fn]  Payload privesc/SUID/sudo offline (install gtfobins)")
     print("  reconfind <query>  Trova il tool giusto per porta/servizio/task")
     print()
     print("  \033[92;1m— Wordlists\033[0m")
@@ -554,6 +561,8 @@ def build_parser() -> argparse.ArgumentParser:
     recon_p.add_argument("--no-ping", action="store_true", default=False)
     ctfwr_p = subparsers.add_parser("ctf-wr", add_help=False)
     ctfwr_p.add_argument("args", nargs=argparse.REMAINDER)
+    gtfobins_p = subparsers.add_parser("gtfobins", add_help=False)
+    gtfobins_p.add_argument("args", nargs=argparse.REMAINDER)
     pet_p = subparsers.add_parser("pet", add_help=False)
     pet_p.add_argument("action", nargs="?", default=None)
     pet_p.add_argument("message", nargs="*", default=[])
@@ -579,7 +588,7 @@ def setup_readline() -> None:
 
 
 _COMPLETABLE = sorted(["sealsay", "list", "install", "use", "search", "vuln",
-                        "notes", "find", "back", "help", "serve", "loot", "wordfind", "passfind", "wordgen", "tunnel", "pivot", "reconfind", "recon", "linseal", "pet", "burp", "catch", "report", "exit"])
+                        "notes", "find", "back", "help", "serve", "loot", "wordfind", "passfind", "wordgen", "tunnel", "pivot", "reconfind", "recon", "linseal", "pet", "burp", "catch", "report", "gtfobins", "exit"])
 _input_history: list[str] = []
 
 
@@ -821,6 +830,10 @@ def run_command(argv: list[str], state: ConsoleState | None = None) -> int:
         from lib.ctfwr import cmd_ctf_wr
         ns = argparse.Namespace(command="ctf-wr", args=argv[1:])
         return cmd_ctf_wr(ns, state)
+    if argv and argv[0] == "gtfobins":
+        from lib.gtfobins import cmd_gtfobins
+        ns = argparse.Namespace(command="gtfobins", args=argv[1:])
+        return cmd_gtfobins(ns, state)
     parser = build_parser()
     if argv and argv[0] == "recon":
         _reordered = [argv[0]]
@@ -876,6 +889,7 @@ def run_command(argv: list[str], state: ConsoleState | None = None) -> int:
     from lib.burp import cmd_burp
     from lib.report import cmd_report
     from lib.ctfwr import cmd_ctf_wr
+    from lib.gtfobins import cmd_gtfobins
 
     handlers = {
         "sealsay": cmd_sealsay,
@@ -902,6 +916,7 @@ def run_command(argv: list[str], state: ConsoleState | None = None) -> int:
         "catch": cmd_catch,
         "report": cmd_report,
         "ctf-wr": cmd_ctf_wr,
+        "gtfobins": cmd_gtfobins,
     }
     handler = handlers.get(args.command)
     if handler is None:
@@ -998,7 +1013,7 @@ def run_console() -> int:
                     state.last_vuln_tools = _extract_vuln_tools(text)
                 continue
 
-        known_commands = {"sealsay", "list", "install", "use", "search", "vuln", "notes", "find", "back", "help", "?", "--version", "-h", "--help", "serve", "loot", "wordfind", "passfind", "wordgen", "tunnel", "pivot", "reconfind", "recon", "linseal", "pet", "burp", "catch", "report", "ctf-wr"}
+        known_commands = {"sealsay", "list", "install", "use", "search", "vuln", "notes", "find", "back", "help", "?", "--version", "-h", "--help", "serve", "loot", "wordfind", "passfind", "wordgen", "tunnel", "pivot", "reconfind", "recon", "linseal", "pet", "burp", "catch", "report", "ctf-wr", "gtfobins"}
         if argv[0] not in known_commands:
             print("Comando non riconosciuto. Digita 'help' per i comandi.")
             continue
@@ -1230,6 +1245,7 @@ VULN_NAMES: dict[str, str] = {
 NOTES_CATEGORIES: dict[str, list[str]] = {
     "Metodologia": ["footprinting", "info-gathering"],
     "Offensive": ["shells", "password-cracking", "network-services"],
+    "Post-Exploitation": ["privilege-escalation"],
     "Protocolli": ["ssh-notes", "impacket-notes"],
     "Sistemi Operativi": ["windows-powershell"],
 }
@@ -1240,6 +1256,7 @@ NOTES_NAMES: dict[str, str] = {
     "shells": "Shell & Post-Exploitation — Reverse, Bind, Web Shell, PrivEsc",
     "password-cracking": "Password Cracking — JtR & Hashcat",
     "network-services": "Network Services — WinRM, SSH, RDP, SMB",
+    "privilege-escalation": "Privilege Escalation — SUID, Cronjob, sudo, GTFOBins",
     "ssh-notes": "SSH — Note Operative",
     "impacket-notes": "Impacket — Toolkit Python per reti Windows",
     "windows-powershell": "Windows PowerShell — Comandi Facili con Equivalenti Linux",
