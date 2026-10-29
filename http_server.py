@@ -2406,60 +2406,6 @@ def _report_sev_css() -> str:
 """
 
 
-# Pre-processing Markdown per le anteprime SLWeb: riproduce pandoc
-# (rimuove fenced divs :::, converte le caption ": Tabella N:", nasconde
-# le sezioni rimaste vuote, riscrive i path delle immagini verso le rotte SLWeb).
-_JS_REPORT_PREPROCESS = r"""
-function preprocessReportMd(md){
-  md = md.replace(/^---[\s\S]*?---\n/, '');
-  md = md.replace(/\{\{[A-Z_]+\}\}/g, '');
-  // card finding ::: {.finding} -> tabella compatta HTML
-  md = md.replace(/^[ \t]*:::[ \t]*\{\.finding\}[ \t]*\n([\s\S]*?)^[ \t]*:::[ \t]*$/gm,
-    function(m, inner){
-      var rows = [];
-      inner.split('\n').forEach(function(l){
-        var mm = /^\|\s*\*\*([^*]+)\*\*\s*\|\s*([\s\S]*?)\s*\|\s*$/.exec(l);
-        if (mm){
-          var v = (typeof marked !== 'undefined') ? marked.parseInline(mm[2]) : mm[2];
-          rows.push('<div class="frow"><span class="fk">'+mm[1]+'</span><span class="fv">'+v+'</span></div>');
-        }
-      });
-      return '\n\n<div class="fcard">'+rows.join('')+'</div>\n\n';
-    });
-  md = md.replace(/^\s*:::.*$/gm, '');
-  md = md.replace(/^:[ \t]+((?:Tabella|Figura)\b[^\n]*)$/gm, '\n*$1*\n');
-  md = md.replace(/\]\(reports\/([^)\/]+)\/evidence\/([^)\s]+)\)/g, '](/report/img/$1/$2)');
-  md = md.replace(/src="reports\/([^\/"]+)\/evidence\//g, 'src="/report/img/$1/');
-  md = md.replace(/src="report\/assets\//g, 'src="/report-assets/');
-  var fm = /<!--\s*@@AUTO:firma@@\s*-->([\s\S]*?)<!--\s*@@\/AUTO:firma@@\s*-->/.exec(md);
-  var firma = '';
-  if (fm && fm[1].replace(/<!--[\s\S]*?-->/g, '').trim()){ firma = '\n\n' + fm[0]; md = md.replace(fm[0], ''); }
-  md = md.replace(/<!--\s*@@(SEZ|AUTO):[a-z_]+@@\s*-->([\s\S]*?)<!--\s*@@\/\1:[a-z_]+@@\s*-->/g,
-    function(m, kind, inner){
-      var t = inner.replace(/<!--[\s\S]*?-->/g, '').replace(/\*—\*/g, '').trim();
-      return t ? m : '';
-    });
-  for (var pass = 0; pass < 20; pass++){
-    var lines = md.split('\n'), heads = [], inCode = false, m2;
-    for (var i = 0; i < lines.length; i++){
-      if (/^\s*(```|~~~)/.test(lines[i])) inCode = !inCode;
-      else if (!inCode && (m2 = /^(#{1,6})\s/.exec(lines[i]))) heads.push([i, m2[1].length]);
-    }
-    var removed = false;
-    for (var h = heads.length - 1; h >= 0; h--){
-      var li = heads[h][0], lvl = heads[h][1], end = lines.length;
-      for (var j = h + 1; j < heads.length; j++){ if (heads[j][1] <= lvl){ end = heads[j][0]; break; } }
-      var body = lines.slice(li + 1, end).join('\n').replace(/<!--[\s\S]*?-->/g, '').replace(/\*—\*/g, '').trim();
-      if (!body){ lines.splice(li, end - li); md = lines.join('\n'); removed = true; break; }
-    }
-    if (!removed) break;
-  }
-  md = md.replace(/\n{3,}/g, '\n\n');
-  return md + firma;
-}
-"""
-
-
 # Editor Markdown "vero" (textarea con syntax highlight sovrapposto, scorciatoie
 # da tastiera, status bar) — nessuna dipendenza esterna, funziona offline.
 _JS_MD_EDITOR = r"""
@@ -2551,65 +2497,6 @@ function mdKeydown(e){
 """
 
 
-# Stile live per le anteprime: applica i colori scelti (sezione Stile) e
-# genera la copertina sopra l'anteprima.
-_JS_REPORT_STYLE = r"""
-function _rpEsc(s){ var d = document.createElement('div'); d.textContent = s || ''; return d.innerHTML; }
-function _rpShade(hex, d){
-  hex = (hex || '#0F4068').replace('#', '');
-  if (hex.length === 3) hex = hex.replace(/./g, '$&$&');
-  var r = parseInt(hex.substr(0,2),16)/255, g = parseInt(hex.substr(2,2),16)/255, b = parseInt(hex.substr(4,2),16)/255;
-  var mx = Math.max(r,g,b), mn = Math.min(r,g,b), l = (mx+mn)/2, h = 0, s = 0;
-  if (mx !== mn){
-    var dd = mx-mn;
-    s = l > 0.5 ? dd/(2-mx-mn) : dd/(mx+mn);
-    if (mx === r) h = (g-b)/dd + (g < b ? 6 : 0);
-    else if (mx === g) h = (b-r)/dd + 2;
-    else h = (r-g)/dd + 4;
-    h /= 6;
-  }
-  l = Math.min(1, Math.max(0, l + d));
-  function hue(p, q, t){ if(t<0)t+=1; if(t>1)t-=1; if(t<1/6)return p+(q-p)*6*t; if(t<1/2)return q; if(t<2/3)return p+(q-p)*(2/3-t)*6; return p; }
-  var q = l < 0.5 ? l*(1+s) : l+s-l*s, p = 2*l-q;
-  r = hue(p,q,h+1/3); g = hue(p,q,h); b = hue(p,q,h-1/3);
-  function tc(x){ return ('0'+Math.round(x*255).toString(16)).slice(-2); }
-  return '#'+tc(r)+tc(g)+tc(b);
-}
-var _RP_PRESETS = {navy:'#0F4068', red:'#8B1A1A', black:'#1F2429', green:'#1E5B38', yellow:'#8A6200'};
-function reportColors(meta){
-  var st = (meta && meta.style) || {};
-  var c1 = (st.preset === 'custom' && st.color) ? st.color : (_RP_PRESETS[st.preset] || _RP_PRESETS.navy);
-  var c2 = st.color2 || _rpShade(c1, 0.12);
-  return {c1: c1, c2: c2};
-}
-function applyReportStyleTo(el, meta){
-  var c = reportColors(meta);
-  el.style.setProperty('--rpc', c.c1);
-  el.style.setProperty('--rpc2', c.c2);
-  el.style.setProperty('--rpdark', _rpShade(c.c1, -0.12));
-  el.style.setProperty('--rpborder', _rpShade(c.c1, 0.66));
-  el.style.setProperty('--rpbg', _rpShade(c.c1, 0.84));
-  el.style.setProperty('--rpzebra', _rpShade(c.c1, 0.9));
-}
-function reportCoverHtml(meta){
-  var m = meta || {}, st = m.style || {};
-  var logo = (st.logo || '').replace(/^reports\/([^\/]+)\/evidence\//, '/report/img/$1/');
-  var company = st.company || 'SLCtrl';
-  var date = m.date_end || m.date_start || '';
-  return '<div class="rp-cover">'+
-    (logo ? '<img src="'+logo+'" style="max-width:150px;max-height:70px;margin-bottom:14px">' : '')+
-    '<div class="rp-cover-client">'+_rpEsc(m.client || 'Cliente')+'</div>'+
-    '<div class="rp-cover-title">'+_rpEsc(m.rtype || 'Penetration Test')+'<br>'+
-    '<span style="font-size:13px;font-weight:400">Report Finale</span></div>'+
-    '<div class="rp-cover-meta"><strong>'+_rpEsc(m.client || '')+'</strong><br>'+
-    (st.author ? 'Redatto da: '+_rpEsc(st.author)+'<br>' : '')+
-    (date ? _rpEsc(date)+'<br>' : '')+'<em>Versione 1.0</em></div>'+
-    '<div class="rp-cover-foot"><strong>'+_rpEsc(company)+' — Riservato</strong> · '+
-    'Nessuna parte di questo documento può essere divulgata a soggetti esterni</div></div>';
-}
-"""
-
-
 def _page_report() -> str:
     from lib.report import list_reports, TEMPLATE_MD
     reports = list_reports()
@@ -2634,13 +2521,6 @@ def _page_report() -> str:
 </div>"""
     if not rows:
         rows = '<p style="color:var(--text2);padding:8px 0">Nessun report ancora. Creane uno dal form qui sopra &mdash; oppure da console con <code>report new "Cliente"</code>.</p>'
-
-    try:
-        template_md = TEMPLATE_MD.read_text(encoding="utf-8", errors="replace")
-    except OSError:
-        template_md = "# Template non trovato"
-    safe_md = (template_md.replace("\\", "\\\\").replace("`", "\\`")
-               .replace("$", "\\$").replace("</", "<\\/"))
 
     body = f"""<div class="container">
 <div class="breadcrumb"><a href="/">Home</a> <span>/</span> Report</div>
@@ -2691,19 +2571,12 @@ def _page_report() -> str:
 
 <div class="report-section">
   <div class="report-section-title">Anteprima del template</div>
-  <p style="font-size:12px;color:var(--text2);margin-bottom:10px">Questo &egrave; il documento da cui parte ogni nuovo report (stile semplificato; il PDF finale usa il tema SLCtrl completo).</p>
-  <div class="report-preview" id="r-preview"></div>
+  <p style="font-size:12px;color:var(--text2);margin-bottom:10px">Questo &egrave; il documento da cui parte ogni nuovo report — <strong style="color:var(--text)">anteprima WYSIWYG identica al PDF finale</strong> (pandoc + tema SLCtrl).</p>
+  <iframe id="r-preview" src="/report/template-html" title="Anteprima template"
+   style="width:100%;min-height:600px;border:1px solid var(--border);border-radius:8px;background:#fff"></iframe>
 </div>
 </div>
 <script>
-{_JS_REPORT_PREPROCESS}
-{_JS_REPORT_STYLE}
-var TEMPLATE_MD = `{safe_md}`;
-var _rpEl = document.getElementById('r-preview');
-_rpEl.innerHTML = reportCoverHtml({{client:'Nome Cliente', rtype:'Penetration Test Interno', date_end:'', style:{{}}}}) +
-  marked.parse(preprocessReportMd(TEMPLATE_MD));
-applyReportStyleTo(_rpEl, null);
-
 function msg(t, ok) {{
   var el = document.getElementById('r-msg');
   el.textContent = t; el.className = 'report-msg ' + (ok ? 'ok' : 'err');
@@ -2751,9 +2624,6 @@ def _page_report_view(slug: str) -> str:
     rep = find_report(slug)
     if rep is None:
         return _base_html("Report non trovato", '<div class="container"><div class="page-title">Report non trovato</div><p style="margin-top:12px"><a href="/report">Torna ai report</a></p></div>', active="report")
-    md_text = Path(rep["md"]).read_text(encoding="utf-8", errors="replace")
-    safe_md = (md_text.replace("\\", "\\\\").replace("`", "\\`")
-               .replace("$", "\\$").replace("</", "<\\/"))
     title = html.escape(rep["client"] or rep["slug"])
     slug_e = html.escape(rep["slug"])
     pdf = rep["pdf"]
@@ -2769,21 +2639,11 @@ def _page_report_view(slug: str) -> str:
 {pdf_btn}
 <button class="btn btn-primary" onclick="buildReport('{slug_e}',this)">Build PDF</button>
 </div>
-<div class="report-preview" id="r-preview" style="max-height:none"></div>
+<div style="font-size:12px;color:var(--text2);margin:6px 0 10px">Anteprima WYSIWYG — stesso rendering del PDF finale (pandoc + template SLCtrl)</div>
+<iframe id="r-preview" src="/report/html/{slug_e}" title="Anteprima report"
+ style="width:100%;min-height:85vh;border:1px solid var(--border);border-radius:8px;background:#fff"></iframe>
 </div>
 <script>
-{_JS_REPORT_PREPROCESS}
-{_JS_REPORT_STYLE}
-var MD = `{safe_md}`;
-var _rpEl = document.getElementById('r-preview');
-function renderView(meta) {{
-  _rpEl.innerHTML = reportCoverHtml(meta) + marked.parse(preprocessReportMd(MD));
-  applyReportStyleTo(_rpEl, meta);
-}}
-renderView({{client: '{title}', rtype: '', date_end: '', style: {{}}}});
-fetch('/api/report/data?slug={slug_e}').then(r => r.json()).then(d => {{
-  if (d.ok) renderView(d.meta);
-}}).catch(() => {{}});
 function buildReport(slug, btn) {{
   btn.disabled = true; btn.textContent = 'Build…';
   fetch('/api/report/build', {{
@@ -2872,14 +2732,13 @@ def _page_report_wizard(slug: str) -> str:
 <div class="wiz-nav" id="wiz-nav"></div>
 <div class="wiz-panel" id="wiz-panel"></div>
 <div class="wiz-side">
-  <div class="wiz-side-title">Anteprima live</div>
-  <div class="report-preview" id="wiz-preview"></div>
+  <div class="wiz-side-title">Anteprima live <span style="text-transform:none;font-weight:400">(identica al PDF)</span></div>
+  <iframe id="wiz-preview" title="Anteprima report"
+   style="width:100%;height:82vh;border:1px solid var(--border);border-radius:8px;background:#fff"></iframe>
 </div>
 </div>
 </div>
 <script>
-{_JS_REPORT_PREPROCESS}
-{_JS_REPORT_STYLE}
 {_JS_MD_EDITOR}
 var SLUG = '{slug_e}';
 var DATA = null;
@@ -2898,7 +2757,7 @@ var STEPS = [
   {{id:'markdown', label:'Markdown'}},
   {{id:'finale',   label:'Considerazioni & PDF'}},
 ];
-var STYLE_PRESETS = {{navy:'Blu navy (default)',red:'Rosso',black:'Nero',green:'Verde',yellow:'Giallo / ambra'}};
+var STYLE_PRESETS = {{default:'Default SLCtrl (logo + firma)',navy:'Blu navy',red:'Rosso',black:'Nero',green:'Verde',yellow:'Giallo / ambra'}};
 var F_IMAGES = [];
 
 function esc(s){{var d=document.createElement('div');d.textContent=s||'';return d.innerHTML;}}
@@ -2982,17 +2841,17 @@ function renderStep(){{
   }} else if(s==='stile'){{
     var st=m.style||{{}};
     h='<h3>Stile del report</h3><div class="wiz-hint">Colori, logo, autore e firma: applicati al PDF e all’anteprima in tempo reale.</div>'+
-      '<div class="wiz-field"><label>Colore principale</label>'+stylePresetSelect(st.preset||'navy')+'</div>'+
+      '<div class="wiz-field"><label>Colore principale</label>'+stylePresetSelect(st.preset||'default')+'</div>'+
       '<div class="wiz-grid2">'+
       field('w-author','Autore del report',st.author,'es. Santarella Martina')+
       field('w-company','Azienda che esegue il test',st.company,'es. SLCtrl')+'</div>'+
       field('w-role','Ruolo (per la firma)',st.role,'Penetration Tester')+
       '<div class="wiz-grid2">'+
       '<div class="wiz-field"><label>Logo del report (cover)</label><input type="file" id="w-logo-file" accept="image/*" onchange="uploadAsset(this,\\'logo\\')">'+
-      '<div id="w-logo-cur" style="font-size:12px;color:var(--text2);margin-top:4px">'+(st.logo?'Attuale: '+esc(st.logo):'Nessun logo caricato')+'</div></div>'+
+      '<div id="w-logo-cur" style="font-size:12px;color:var(--text2);margin-top:4px">'+(st.logo?'Attuale: '+esc(st.logo):'Logo di default (report/assets/slctrl-logo.png)')+'</div></div>'+
       '<div class="wiz-field"><label>Firma (immagine)</label><input type="file" id="w-sig-file" accept="image/*" onchange="uploadAsset(this,\\'signature\\')">'+
       '<div id="w-sig-cur" style="font-size:12px;color:var(--text2);margin-top:4px">'+(st.signature?'Attuale: '+esc(st.signature):'Firma di default (report/assets/firma.png)')+'</div></div></div>'+
-      '<div class="wiz-hint">Se autore e azienda sono vuoti, il blocco firma non compare nel PDF.</div>';
+      '<div class="wiz-hint">Col preset <strong>Default</strong> la cover usa il logo SLCtrl e la firma con autore/azienda di default. Con gli altri preset, se autore e azienda sono vuoti il blocco firma non compare nel PDF.</div>';
   }} else if(s==='markdown'){{
     h='<h3>Markdown (modifica diretta)</h3>'+
       '<div class="wiz-hint">Modifica il file .md direttamente: l’anteprima a destra <strong>segue il cursore</strong> e si aggiorna mentre scrivi. '+
@@ -3090,13 +2949,15 @@ var LAST_PV_ANCHOR;
 function scrollPreviewTo(anchor){{
   var el=document.getElementById('wiz-preview');
   if(!el)return;
-  if(!anchor){{el.scrollTop=0;return;}}
-  var hs=el.querySelectorAll('h1,h2,h3');
+  var doc=el.contentDocument;
+  if(!doc||!doc.body)return;
+  if(!anchor){{el.contentWindow.scrollTo(0,0);return;}}
+  var hs=doc.querySelectorAll('h1,h2,h3');
   var a=anchor.toLowerCase().substring(0,20);
   for(var i=0;i<hs.length;i++){{
     if(hs[i].textContent.toLowerCase().indexOf(a)>=0){{
-      var r=hs[i].getBoundingClientRect(),er=el.getBoundingClientRect();
-      el.scrollTop+=r.top-er.top-10;
+      hs[i].scrollIntoView({{block:'start'}});
+      el.contentWindow.scrollBy(0,-10);
       return;
     }}
   }}
@@ -3139,8 +3000,12 @@ function collectDraft(){{
 function renderPreviewMd(md,meta){{
   var el=document.getElementById('wiz-preview');
   if(!el)return;
-  el.innerHTML=reportCoverHtml(meta)+marked.parse(preprocessReportMd(md));
-  applyReportStyleTo(el,meta);
+  fetch('/api/report/preview_html',{{method:'POST',headers:{{'Content-Type':'application/json'}},
+    body:JSON.stringify({{slug:SLUG,meta:meta,content:md}})
+  }}).then(r=>r.json()).then(function(res){{
+    if(res.ok){{el.srcdoc=res.html;maybeScrollPreview();}}
+    else{{el.srcdoc='<pre style="padding:14px;color:#b03a48;font-family:monospace;white-space:pre-wrap">Anteprima non disponibile:\\n'+esc(res.error||'errore')+'</pre>';}}
+  }}).catch(function(){{el.srcdoc='<pre style="padding:14px;color:#b03a48;font-family:monospace">Errore di rete durante il rendering dell\\'anteprima</pre>';}});
 }}
 function refreshPreview(){{
   var s=STEPS[CUR].id;
@@ -3148,13 +3013,15 @@ function refreshPreview(){{
   if(s==='markdown'){{
     var t=document.getElementById('w-md').value;
     renderPreviewMd(t,d.meta);
-    maybeScrollPreview();
     return;
   }}
-  fetch('/api/report/preview',{{method:'POST',headers:{{'Content-Type':'application/json'}},
+  fetch('/api/report/preview_html',{{method:'POST',headers:{{'Content-Type':'application/json'}},
     body:JSON.stringify({{slug:SLUG,meta:d.meta,sections:d.sections}})
   }}).then(r=>r.json()).then(function(res){{
-    if(res.ok){{renderPreviewMd(res.md,d.meta);maybeScrollPreview();}}
+    var el=document.getElementById('wiz-preview');
+    if(!el)return;
+    if(res.ok){{el.srcdoc=res.html;maybeScrollPreview();}}
+    else{{el.srcdoc='<pre style="padding:14px;color:#b03a48;font-family:monospace;white-space:pre-wrap">Anteprima non disponibile:\\n'+esc(res.error||'errore')+'</pre>';}}
   }}).catch(()=>{{}});
 }}
 
@@ -4918,6 +4785,10 @@ class SlRequestHandler(http.server.BaseHTTPRequestHandler):
                 self._send_html(_page_report_wizard(slug))
         elif path == "/api/report/data":
             self._api_report_data(qs.get("slug", [""])[0])
+        elif path.startswith("/report/html/"):
+            self._serve_report_html(path[13:])
+        elif path == "/report/template-html":
+            self._serve_report_template_html()
         elif path == "/api/report/msf-search":
             self._api_report_msf_search(qs.get("q", [""])[0])
         elif path.startswith("/report/img/"):
@@ -4929,6 +4800,10 @@ class SlRequestHandler(http.server.BaseHTTPRequestHandler):
                 self._serve_report_image(parts[0], parts[1])
         elif path.startswith("/report-assets/"):
             self._serve_report_asset_file(path[15:])
+        elif path.startswith("/report/assets/"):
+            self._serve_report_asset_file(path[15:])
+        elif path.startswith("/reports/"):
+            self._serve_reports_file(path)
         elif path.startswith("/report/view/"):
             slug = path[13:]
             if ".." in slug or "/" in slug:
@@ -5096,6 +4971,8 @@ class SlRequestHandler(http.server.BaseHTTPRequestHandler):
             self._api_report_asset()
         elif path == "/api/report/preview":
             self._api_report_preview()
+        elif path == "/api/report/preview_html":
+            self._api_report_preview_html()
         elif path == "/api/report/raw":
             self._api_report_raw()
         else:
@@ -5526,6 +5403,40 @@ class SlRequestHandler(http.server.BaseHTTPRequestHandler):
             return
         self._send_json({"ok": True, "md": md})
 
+    def _api_report_preview_html(self) -> None:
+        """Anteprima WYSIWYG: HTML renderizzato con la STESSA pipeline del PDF
+        (pandoc + template slctrl + CSS inline). Accetta meta+sections oppure
+        content (markdown grezzo dallo step Markdown del wizard)."""
+        try:
+            body = json.loads(self._read_body())
+            slug = str(body.get("slug", "")).strip()
+            meta = body.get("meta")
+            sections = body.get("sections")
+            content = body.get("content")
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            self._send_json({"ok": False, "error": "JSON non valido"}, status=400)
+            return
+        from lib.report import find_report, preview_md, render_report_html
+        rep = find_report(slug)
+        if rep is None:
+            self._send_json({"ok": False, "error": "Report non trovato"}, status=404)
+            return
+        meta_d = meta if isinstance(meta, dict) else None
+        if isinstance(content, str) and content.strip():
+            md = content
+        else:
+            md = preview_md(rep["slug"], meta_d,
+                            sections if isinstance(sections, dict) else None)
+        if md is None:
+            self._send_json({"ok": False, "error": "File .md non trovato"}, status=404)
+            return
+        ok, res = render_report_html(md, meta_d)
+        if not ok:
+            self._send_json({"ok": False, "error": res}, status=500)
+            return
+        res = res.replace("<head>", '<head><base href="/">', 1)
+        self._send_json({"ok": True, "html": res})
+
     def _api_report_raw(self) -> None:
         """Salvataggio del markdown grezzo (editor Markdown nel wizard)."""
         try:
@@ -5608,6 +5519,68 @@ class SlRequestHandler(http.server.BaseHTTPRequestHandler):
         self.send_header("Content-Disposition", f'attachment; filename="{fname}"')
         self.end_headers()
         self.wfile.write(data)
+
+    def _serve_report_html(self, slug: str) -> None:
+        """Anteprima WYSIWYG del report salvato: stesso HTML che finisce in weasyprint."""
+        if ".." in slug or "/" in slug:
+            self.send_error(403)
+            return
+        from lib.report import find_report, load_meta, render_report_html
+        rep = find_report(slug)
+        if rep is None:
+            self.send_error(404, "Report non trovato")
+            return
+        try:
+            md_text = Path(rep["md"]).read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            self.send_error(500)
+            return
+        ok, res = render_report_html(md_text, load_meta(rep["slug"]) or {})
+        if not ok:
+            self.send_error(500, res)
+            return
+        res = res.replace("<head>", '<head><base href="/">', 1)
+        data = res.encode("utf-8")
+        self.send_response(200)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
+
+    def _serve_report_template_html(self) -> None:
+        """Anteprima WYSIWYG del template con dati di esempio."""
+        from lib.report import render_template_html
+        ok, res = render_template_html()
+        if not ok:
+            self.send_error(500, res)
+            return
+        res = res.replace("<head>", '<head><base href="/">', 1)
+        data = res.encode("utf-8")
+        self.send_response(200)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
+
+    def _serve_reports_file(self, path: str) -> None:
+        """Serve i file sotto reports/ (evidenze, loghi) per l'anteprima HTML."""
+        name = path.lstrip("/")
+        if ".." in name or name.startswith("/"):
+            self.send_error(403)
+            return
+        from lib.report import REPORTS_DIR
+        target = REPORTS_DIR / name[len("reports/"):]
+        try:
+            if not target.resolve().is_relative_to(REPORTS_DIR.resolve()):
+                self.send_error(403)
+                return
+        except OSError:
+            self.send_error(403)
+            return
+        if not target.is_file():
+            self.send_error(404, "File non trovato")
+            return
+        self._send_file_bytes(target)
 
     def _serve_report_pdf(self, slug: str) -> None:
         if ".." in slug or "/" in slug:

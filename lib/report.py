@@ -74,7 +74,8 @@ BOX_LABEL = {"black": "Black box", "grey": "Grey box", "white": "White box"}
 # ---------------------------------------------------------------------------
 
 STYLE_PRESETS = {
-    "navy":   {"label": "Blu navy (default)", "color": "#0F4068"},
+    "default": {"label": "Default SLCtrl (logo + firma)", "color": "#0F4068"},
+    "navy":   {"label": "Blu navy",            "color": "#0F4068"},
     "red":    {"label": "Rosso",              "color": "#8B1A1A"},
     "black":  {"label": "Nero",               "color": "#1F2429"},
     "green":  {"label": "Verde",              "color": "#1E5B38"},
@@ -84,11 +85,12 @@ DEFAULT_AUTHOR = "Santarella Martina"
 DEFAULT_COMPANY = "SLCtrl"
 DEFAULT_ROLE = "Penetration Tester"
 DEFAULT_SIGNATURE_IMG = "report/assets/firma.png"
+DEFAULT_LOGO_IMG = "report/assets/slctrl-logo.png"
 
 
 def default_style() -> dict:
     return {
-        "preset": "navy",
+        "preset": "default",
         "color": "",          # hex custom (vuoto = usa preset)
         "color2": "",         # hex accento secondario (vuoto = derivato)
         "author": "",
@@ -99,10 +101,21 @@ def default_style() -> dict:
     }
 
 
+def effective_logo(style: dict) -> str:
+    """Logo della cover: quello caricato, oppure il logo SLCtrl se preset default."""
+    style = style or {}
+    logo = (style.get("logo") or "").strip()
+    if logo:
+        return logo
+    if style.get("preset", "default") == "default":
+        return DEFAULT_LOGO_IMG
+    return ""
+
+
 def style_colors(style: dict) -> tuple[str, str]:
     """Ritorna (colore primario, colore accento) effettivi."""
     style = style or {}
-    preset = STYLE_PRESETS.get(style.get("preset", "navy"), STYLE_PRESETS["navy"])
+    preset = STYLE_PRESETS.get(style.get("preset", "default"), STYLE_PRESETS["default"])
     c1 = _norm_hex(style.get("color")) or preset["color"]
     c2 = _norm_hex(style.get("color2")) or _shift_lightness(c1, +0.12)
     return c1, c2
@@ -130,10 +143,10 @@ def _shift_lightness(hex_color: str, delta: float) -> str:
 def style_overrides_css(meta: dict) -> str:
     """CSS aggiuntivo per applicare lo stile scelto (colori + logo)."""
     style = (meta or {}).get("style") or {}
-    preset = style.get("preset", "navy")
+    preset = style.get("preset", "default")
     has_custom = bool(_norm_hex(style.get("color")) or _norm_hex(style.get("color2")))
-    logo = (style.get("logo") or "").strip()
-    if preset == "navy" and not has_custom and not logo:
+    logo = effective_logo(style)
+    if preset in ("navy", "default") and not has_custom and not logo:
         return ""
     c1, c2 = style_colors(style)
     dark = _shift_lightness(c1, -0.12)
@@ -980,8 +993,11 @@ def render_firma(meta: dict) -> str:
     company = (style.get("company") or "").strip()
     role = (style.get("role") or "").strip() or DEFAULT_ROLE
     sig_img = (style.get("signature") or "").strip()
-    if not author and not company:
+    is_default = style.get("preset", "default") == "default"
+    if not author and not company and not is_default:
         return ""  # niente blocco firma finché la sezione Stile è vuota
+    if is_default:
+        company = company or DEFAULT_COMPANY
     if not sig_img:
         sig_img = DEFAULT_SIGNATURE_IMG
     name = author or DEFAULT_AUTHOR
@@ -1562,6 +1578,105 @@ def edit_report(name: str | None, mode: str | None = None) -> tuple[bool, str]:
     return True, f"Aperto in {Path(editor).name}: {folder}{suffix}"
 
 
+def render_report_html(md_text: str, meta: dict | None = None) -> tuple[bool, str]:
+    """Renderizza il markdown in HTML standalone con la STESSA pipeline del PDF
+    (pandoc + template slctrl + override di stile), ma con il CSS inline
+    invece che come <link>: usata per l'anteprima WYSIWYG nel browser,
+    così l'anteprima è identica al documento finale.
+    Ritorna (ok, html | messaggio di errore)."""
+    meta = meta or {}
+    pandoc = shutil.which("pandoc")
+    if not pandoc:
+        local = Path.home() / ".local" / "bin" / "pandoc"
+        pandoc = str(local) if local.is_file() else None
+    if not pandoc:
+        return False, "pandoc non trovato. Installalo: sudo apt install pandoc"
+
+    md_text = filter_empty_sections(md_text)
+    tmp_md = tempfile.NamedTemporaryFile(
+        mode="w", suffix=".md", dir=PROJECT_ROOT, delete=False, encoding="utf-8",
+        prefix=".report-preview-")
+    tmp_md.write(md_text)
+    tmp_md.close()
+    tmp_md_path = Path(tmp_md.name)
+
+    # Stessa logica del build: stile custom + logo/azienda nella cover
+    style = meta.get("style") or {}
+    extra_css = style_overrides_css(meta)
+    company = (style.get("company") or "").strip()
+    logo = effective_logo(style)
+    html_text = TEMPLATE_HTML.read_text(encoding="utf-8")
+    if logo:
+        html_text = html_text.replace(
+            '<div class="cover-client">',
+            f'<img class="cover-logo" src="{html_escape_attr(logo)}" alt="Logo"><br>\n'
+            '    <div class="cover-client">', 1)
+    if company and company != DEFAULT_COMPANY:
+        html_text = html_text.replace(DEFAULT_COMPANY, company)
+    tmp_tpl = tempfile.NamedTemporaryFile(
+        mode="w", suffix=".html", dir=PROJECT_ROOT, delete=False, encoding="utf-8",
+        prefix=".report-preview-tpl-")
+    tmp_tpl.write(html_text)
+    tmp_tpl.close()
+    tmp_tpl_path = Path(tmp_tpl.name)
+
+    tmp_out = tempfile.NamedTemporaryFile(
+        mode="w", suffix=".html", dir=PROJECT_ROOT, delete=False, encoding="utf-8")
+    tmp_out.close()
+    tmp_out_path = Path(tmp_out.name)
+    try:
+        r = subprocess.run(
+            [pandoc, str(tmp_md_path), "--standalone",
+             "--template", str(tmp_tpl_path),
+             "--toc", "--toc-depth=2",
+             "--no-highlight",
+             "-o", str(tmp_out_path)],
+            cwd=PROJECT_ROOT, capture_output=True, text=True, timeout=120,
+        )
+        if r.returncode != 0:
+            return False, f"pandoc fallito:\n{r.stderr.strip()}"
+        out = tmp_out_path.read_text(encoding="utf-8")
+    except subprocess.TimeoutExpired:
+        return False, "Timeout durante il rendering dell'anteprima."
+    except Exception as e:  # noqa: BLE001
+        return False, f"Errore durante il rendering: {e}"
+    finally:
+        tmp_md_path.unlink(missing_ok=True)
+        tmp_tpl_path.unlink(missing_ok=True)
+        tmp_out_path.unlink(missing_ok=True)
+
+    # CSS inline (stesso file del build + override di stile)
+    css_text = TEMPLATE_CSS.read_text(encoding="utf-8")
+    if extra_css:
+        css_text += "\n" + extra_css
+    out = out.replace("</head>", "<style>\n" + css_text + "\n</style>\n</head>", 1)
+    return True, out
+
+
+def render_template_html() -> tuple[bool, str]:
+    """Anteprima WYSIWYG del template vuoto, con dati di esempio:
+    stessa pipeline pandoc + slctrl del PDF finale."""
+    client, rtype, domain = "Nome Cliente", "Penetration Test Interno", "CLIENTE.LOCAL"
+    months = ("gennaio", "febbraio", "marzo", "aprile", "maggio", "giugno",
+              "luglio", "agosto", "settembre", "ottobre", "novembre", "dicembre")
+    now = datetime.datetime.now()
+    today = f"{now.day} {months[now.month - 1]} {now.year}"
+    meta = default_meta(client, rtype, "black", domain, "", "")
+    text = TEMPLATE_MD.read_text(encoding="utf-8")
+    text = text.replace("{{CLIENT}}", client)
+    text = text.replace("{{RTYPE}}", rtype)
+    text = text.replace("{{DATE}}", today)
+    text = text.replace("{{DOMAIN}}", domain)
+    text = text.replace("{{SLUG}}", "nome-cliente")
+    text = text.replace("{{APPROCCIO}}", render_approccio(meta))
+    text = text.replace("{{PERIMETRO}}", render_perimetro(meta))
+    text = text.replace("{{PANORAMICA}}", render_panoramica(meta))
+    text = text.replace("{{RIEPILOGO}}", render_riepilogo(meta))
+    text = text.replace("{{FINDINGS}}", render_findings(meta))
+    text = text.replace("{{FIRMA}}", render_firma(meta))
+    return render_report_html(text, meta)
+
+
 def build_report(name: str | None) -> tuple[bool, str]:
     rep = find_report(name)
     if rep is None:
@@ -1602,7 +1717,7 @@ def build_report(name: str | None) -> tuple[bool, str]:
     style = meta.get("style") or {}
     extra_css = style_overrides_css(meta)
     company = (style.get("company") or "").strip()
-    logo = (style.get("logo") or "").strip()
+    logo = effective_logo(style)
     css_path = TEMPLATE_CSS
     html_path = TEMPLATE_HTML
     tmp_css_path = tmp_html_path = None
