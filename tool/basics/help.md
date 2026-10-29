@@ -6,7 +6,8 @@
 
 - rustscan -a 192.168.1.0/24 -t 2000 -b 5000 -- -sV -Pn
 
-- 
+# Verifica spazio disponibile su disco
+- df -h
 
 ## Discovery Porte con Netstat
 - netstat -tulpn | grep LISTEN
