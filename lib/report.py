@@ -251,7 +251,8 @@ def _msf_entry(name: str, fullname: str, mtype: str, rank, description: str,
     sug = _finding_suggest(
         {"title": name, "description": description, "severity": entry["severity"],
          "cves": cves, "msf": fullname},
-        None, {"references": refs or [], "description": description})
+        None, {"references": refs or [], "description": description},
+        with_intel=False)
     entry.update({"cwe": sug["cwe"], "cvss": sug["cvss"],
                   "impact": sug["impact"], "remediation": sug["remediation"],
                   "refs_fmt": sug["refs"]})
@@ -374,6 +375,366 @@ def msf_search(query: str, limit: int = 30) -> dict:
                       "~/.msf4/store/modules_metadata.json né il comando "
                       "msfconsole. Avvia msfconsole almeno una volta per "
                       "generare la cache dei moduli.")}
+
+# ---------------------------------------------------------------------------
+# Fonti OFFLINE aggiuntive per i findings:
+#   - Exploit-DB locale (files_exploits.csv, quello di searchsploit)
+#   - template nuclei locali (~/nuclei-templates)
+#   - CISA KEV + EPSS (file cachati in ~/.sealionconsole/intel/)
+#   - note/vuln interne di SeaLion
+# ---------------------------------------------------------------------------
+
+INTEL_DIR = Path.home() / ".sealionconsole" / "intel"
+KEV_JSON = INTEL_DIR / "kev.json"
+EPSS_CSV = INTEL_DIR / "epss.csv.gz"
+KEV_URL = ("https://www.cisa.gov/sites/default/files/feeds/"
+           "known_exploited_vulnerabilities.json")
+EPSS_URL = "https://epss.empiricalsecurity.com/epss_scores-current.csv.gz"
+_INTEL_MAX_AGE = 7 * 86400  # riscarica KEV/EPSS se più vecchi di 7 giorni
+
+_EDB_CSV_CANDIDATES = (
+    Path("/usr/share/exploitdb/files_exploits.csv"),
+    Path("/opt/exploitdb/files_exploits.csv"),
+    Path.home() / ".exploitdb" / "files_exploits.csv",
+)
+
+_NUCLEI_CANDIDATES = (
+    Path(os.environ.get("NUCLEI_TEMPLATES", "")) if os.environ.get("NUCLEI_TEMPLATES") else None,
+    Path.home() / "nuclei-templates",
+    Path.home() / ".local" / "nuclei-templates",
+    Path("/opt/nuclei-templates"),
+)
+
+# --- Exploit-DB (CSV locale di searchsploit) --------------------------------
+
+_EDB_MEMO: dict = {}
+
+
+def _edb_csv() -> Path | None:
+    for cand in _EDB_CSV_CANDIDATES:
+        if cand.is_file():
+            return cand
+    return None
+
+
+def _edb_entries() -> list[dict]:
+    """Righe del CSV Exploit-DB (parse memoizzato, ~46k exploit offline)."""
+    csv_file = _edb_csv()
+    if csv_file is None:
+        return []
+    try:
+        mtime = csv_file.stat().st_mtime
+    except OSError:
+        return []
+    if _EDB_MEMO.get("mtime") == mtime and _EDB_MEMO.get("path") == str(csv_file):
+        return _EDB_MEMO["entries"]
+    entries: list[dict] = []
+    try:
+        import csv as _csv
+        with open(csv_file, newline="", encoding="utf-8",
+                  errors="replace") as fh:
+            for row in _csv.DictReader(fh):
+                codes = str(row.get("codes") or "")
+                cves = [m.group(0).upper() for m in _CVE_RE.finditer(codes)]
+                entries.append({
+                    "id": str(row.get("id") or "").strip(),
+                    "title": str(row.get("description") or "").strip(),
+                    "type": str(row.get("type") or "").strip(),
+                    "platform": str(row.get("platform") or "").strip(),
+                    "date": str(row.get("date_published") or "").strip(),
+                    "verified": str(row.get("verified") or "").strip() == "1",
+                    "cves": cves,
+                    "path": str(row.get("file") or "").strip(),
+                    "url": str(row.get("source_url") or "").strip(),
+                })
+    except OSError:
+        return []
+    _EDB_MEMO.update(path=str(csv_file), mtime=mtime, entries=entries)
+    return entries
+
+
+def _edb_search(query: str, limit: int = 10,
+                cves: list[str] | None = None) -> list[dict]:
+    """Cerca exploit per CVE e/o parole chiave (tutto offline)."""
+    cves = [str(c).upper() for c in (cves or [])]
+    terms = [t.lower() for t in query.split() if len(t.strip()) >= 3]
+    out: list[dict] = []
+    for e in _edb_entries():
+        hit = bool(cves) and any(c in e["cves"] for c in cves)
+        if not hit and terms:
+            hay = f"{e['title']} {e['platform']} {e['type']}".lower()
+            hit = all(t in hay for t in terms)
+        if hit:
+            out.append(e)
+        if len(out) >= limit:
+            break
+    # prima i verificati, poi i più recenti
+    out.sort(key=lambda e: (e["verified"], e["date"]), reverse=True)
+    return out[:limit]
+
+# --- template nuclei locali --------------------------------------------------
+
+_NUCLEI_MEMO: dict = {}
+
+
+def _nuclei_root() -> Path | None:
+    for cand in _NUCLEI_CANDIDATES:
+        if cand is not None and cand.is_dir():
+            return cand
+    return None
+
+
+def _nuclei_cve_index() -> dict[str, Path]:
+    """Indice CVE -> file template (i template CVE hanno il CVE nel nome)."""
+    root = _nuclei_root()
+    if root is None:
+        return {}
+    if _NUCLEI_MEMO.get("root") == str(root):
+        return _NUCLEI_MEMO["index"]
+    index: dict[str, Path] = {}
+    try:
+        for p in root.rglob("CVE-*.yaml"):
+            m = _CVE_RE.search(p.stem)
+            if m:
+                index.setdefault(m.group(0).upper(), p)
+    except OSError:
+        pass
+    _NUCLEI_MEMO.update(root=str(root), index=index)
+    return index
+
+
+def _nuclei_parse(path: Path) -> dict:
+    """Estrae i campi utili dal YAML del template (regex, niente PyYAML)."""
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return {}
+
+    def _field(name: str) -> str:
+        m = re.search(rf"^\s*{name}:\s*[\"']?([^\"'\n]+)[\"']?\s*$",
+                      text, re.M)
+        return m.group(1).strip() if m else ""
+
+    sev = _field("severity").lower()
+    return {
+        "id": _field("id"),
+        "name": _field("name"),
+        "severity": sev if sev in SEV_ORDER else "",
+        "description": _field("description"),
+        "cvss": _field("cvss-score"),
+        "cwe": (re.search(r"cwe-id:\s*\[?[\"']?(CWE-\d+)", text, re.I)
+                or [None, ""])[1] if re.search(r"cwe-id", text, re.I) else "",
+        "path": str(path),
+    }
+
+
+def _nuclei_for_cves(cves: list[str], limit: int = 5) -> list[dict]:
+    index = _nuclei_cve_index()
+    out: list[dict] = []
+    for c in [str(x).upper() for x in cves or []]:
+        p = index.get(c)
+        if p is not None:
+            info = _nuclei_parse(p)
+            if info:
+                info["cve"] = c
+                out.append(info)
+        if len(out) >= limit:
+            break
+    return out
+
+# --- CISA KEV (JSON cachato) -------------------------------------------------
+
+_KEV_MEMO: dict = {}
+
+
+def _kev_cves() -> set[str]:
+    """CVE note come attivamente sfruttate (catalogo CISA KEV cachato)."""
+    if not KEV_JSON.is_file():
+        return set()
+    try:
+        mtime = KEV_JSON.stat().st_mtime
+    except OSError:
+        return set()
+    if _KEV_MEMO.get("mtime") == mtime:
+        return _KEV_MEMO["cves"]
+    cves: set[str] = set()
+    try:
+        data = json.loads(KEV_JSON.read_text(encoding="utf-8",
+                                             errors="replace"))
+        for v in data.get("vulnerabilities") or []:
+            cid = str(v.get("cveID") or "").upper()
+            if cid:
+                cves.add(cid)
+    except (json.JSONDecodeError, OSError):
+        pass
+    _KEV_MEMO.update(mtime=mtime, cves=cves)
+    return cves
+
+# --- EPSS (CSV gzippato cachato) ---------------------------------------------
+
+_EPSS_MEMO: dict[str, float | None] = {}
+
+
+def _epss_score(cve: str) -> float | None:
+    """Probabilità di sfruttamento 0-1 (FIRST.org EPSS, cache locale)."""
+    cve = cve.upper()
+    if cve in _EPSS_MEMO:
+        return _EPSS_MEMO[cve]
+    score: float | None = None
+    if EPSS_CSV.is_file():
+        try:
+            import gzip
+            with gzip.open(EPSS_CSV, "rt", encoding="utf-8",
+                           errors="replace") as fh:
+                for line in fh:
+                    if line.startswith(cve + ","):
+                        score = float(line.split(",")[1])
+                        break
+        except (OSError, ValueError, IndexError):
+            score = None
+    _EPSS_MEMO[cve] = score
+    return score
+
+# --- note/vuln interne di SeaLion --------------------------------------------
+
+_NOTES_MEMO: dict = {}
+
+
+def _notes_corpus() -> list[tuple[str, str, str]]:
+    """(relpath, nome, contenuto) delle note .md, lettura memoizzata."""
+    roots = [PROJECT_ROOT / "notes", PROJECT_ROOT / "vuln"]
+    try:
+        sig = max((p.stat().st_mtime for root in roots if root.is_dir()
+                   for p in root.rglob("*.md")), default=0.0)
+    except OSError:
+        sig = 0.0
+    if _NOTES_MEMO.get("sig") == sig:
+        return _NOTES_MEMO["corpus"]
+    corpus: list[tuple[str, str, str]] = []
+    for root in roots:
+        if not root.is_dir():
+            continue
+        try:
+            files = sorted(root.rglob("*.md"))
+        except OSError:
+            continue
+        for p in files:
+            try:
+                body = p.read_text(encoding="utf-8", errors="replace").lower()
+            except OSError:
+                continue
+            corpus.append((str(p.relative_to(PROJECT_ROOT)),
+                           p.stem.lower(), body))
+    _NOTES_MEMO.update(sig=sig, corpus=corpus)
+    return corpus
+
+
+def _notes_matches(cves: list[str], title: str, limit: int = 5) -> list[str]:
+    """Note interne (notes/, vuln/) che citano le CVE o le parole del titolo."""
+    cves = [str(c).lower() for c in (cves or [])]
+    terms = [t.lower() for t in re.split(r"\W+", title or "")
+             if len(t) >= 5][:4]
+    if not cves and not terms:
+        return []
+    out: list[str] = []
+    for rel, name, body in _notes_corpus():
+        if any(c in name or c in body for c in cves) or \
+           any(t in name for t in terms) or \
+           (terms and all(t in body for t in terms)):
+            out.append(rel)
+        if len(out) >= limit:
+            break
+    return out
+
+# --- aggregatore + download cache --------------------------------------------
+
+def finding_intel(f: dict) -> dict:
+    """Tutte le fonti offline che corrispondono al finding."""
+    cves = [str(c).upper() for c in (f.get("cves") or []) if str(c).strip()]
+    title = str(f.get("title") or "")
+    desc = str(f.get("description") or "")
+    query = f"{title} {desc}"
+    kev_all = _kev_cves()
+    return {
+        "msf": _msf_module_for(f),
+        "edb": _edb_search(query, limit=5, cves=cves),
+        "nuclei": _nuclei_for_cves(cves),
+        "kev": [c for c in cves if c in kev_all],
+        "epss": {c: _epss_score(c) for c in cves
+                 if _epss_score(c) is not None},
+        "notes": _notes_matches(cves, title),
+    }
+
+
+def format_sources(intel: dict) -> str:
+    """Riepilogo leggibile delle fonti (riga 'Fonti' del finding)."""
+    parts: list[str] = []
+    mod = intel.get("msf")
+    if mod:
+        path = str(mod.get("path") or mod.get("fullname")
+                   or mod.get("ref_name") or "")
+        path = re.sub(r"^/?modules/", "", path)
+        parts.append(f"Metasploit `{path}`")
+    for e in (intel.get("edb") or [])[:3]:
+        ver = " ✓verified" if e.get("verified") else ""
+        parts.append(f"Exploit-DB [EDB-{e['id']}](https://www.exploit-db.com/"
+                     f"exploits/{e['id']}){ver}")
+    for n in (intel.get("nuclei") or [])[:3]:
+        sev = f" ({n['severity']})" if n.get("severity") else ""
+        parts.append(f"nuclei `{n.get('id') or n.get('cve', '')}`{sev}")
+    if intel.get("kev"):
+        parts.append("[CISA KEV](https://www.cisa.gov/known-exploited-"
+                     "vulnerabilities-catalog) ⚠️ sfruttata in the wild")
+    for c, s in (intel.get("epss") or {}).items():
+        parts.append(f"EPSS {s:.0%} ({c})")
+    for note in (intel.get("notes") or [])[:3]:
+        parts.append(f"nota interna `{note}`")
+    return " · ".join(parts)
+
+
+def _intel_refs(intel: dict) -> str:
+    """URL extra per la riga 'Riferimenti' (Exploit-DB, template nuclei)."""
+    out: list[str] = []
+    for e in (intel.get("edb") or [])[:3]:
+        out.append(f"https://www.exploit-db.com/exploits/{e['id']}")
+    for n in (intel.get("nuclei") or [])[:3]:
+        p = str(n.get("path") or "")
+        root = _nuclei_root()
+        if p and root and p.startswith(str(root)):
+            rel = p[len(str(root)):].lstrip("/")
+            out.append("https://github.com/projectdiscovery/"
+                       f"nuclei-templates/blob/main/{rel}")
+    dedup: list[str] = []
+    for u in out:
+        if u not in dedup:
+            dedup.append(u)
+    return " ".join(dedup)
+
+
+def update_intel_cache(timeout: int = 15) -> None:
+    """Scarica KEV + EPSS in ~/.sealionconsole/intel/ (se più vecchi di 7gg).
+
+    Chiamata dall'auto-update all'avvio; in assenza di rete fallisce in
+    silenzio e i provider usano l'ultima cache disponibile.
+    """
+    import urllib.request
+    targets = ((KEV_JSON, KEV_URL), (EPSS_CSV, EPSS_URL))
+    try:
+        INTEL_DIR.mkdir(parents=True, exist_ok=True)
+        for dest, url in targets:
+            try:
+                if dest.is_file() and \
+                        time.time() - dest.stat().st_mtime < _INTEL_MAX_AGE:
+                    continue
+                tmp = dest.with_suffix(dest.suffix + ".tmp")
+                with urllib.request.urlopen(url, timeout=timeout) as r, \
+                        open(tmp, "wb") as out:
+                    shutil.copyfileobj(r, out)
+                tmp.replace(dest)
+            except Exception:  # noqa: BLE001
+                pass
+    except OSError:
+        pass
 
 # ---------------------------------------------------------------------------
 # Compilazione automatica dei campi del finding (SOLO dati locali, mai online)
@@ -575,8 +936,12 @@ def _fmt_msf_refs(refs: list, cves: list) -> str:
 
 
 def _finding_suggest(f: dict, meta: dict | None,
-                     mod: dict | None) -> dict:
-    """Valori suggeriti per i campi del finding (100% offline, dati MSF)."""
+                     mod: dict | None, with_intel: bool = True) -> dict:
+    """Valori suggeriti per i campi del finding (100% offline, fonti locali).
+
+    with_intel=False salta la scansione delle fonti extra (usato da
+    _msf_entry, che costruisce suggerimenti per OGNI risultato di ricerca).
+    """
     cves = [str(c).upper() for c in (f.get("cves") or []) if str(c).strip()]
     sev = f.get("severity", "info")
     if mod is None:
@@ -612,10 +977,30 @@ def _finding_suggest(f: dict, meta: dict | None,
         hosts = [str(r.get("host", "")).strip()
                  for r in (meta.get("scope") or []) if str(r.get("host", "")).strip()]
         assets = ", ".join(hosts) or str(meta.get("domain") or "")
-    return {"cwe": cwe, "cvss": _CVSS_BY_SEV.get(sev, "6.5"),
+    # fonti offline aggiuntive: Exploit-DB, nuclei, KEV/EPSS, note interne
+    intel = finding_intel(f) if with_intel else \
+        {"msf": mod, "edb": [], "nuclei": [], "kev": [], "epss": {},
+         "notes": []}
+    if not cwe:
+        for n in intel.get("nuclei") or []:
+            m = re.search(r"(\d+)", str(n.get("cwe") or ""))
+            if m:
+                cwe = m.group(1)
+                break
+    cvss = _CVSS_BY_SEV.get(sev, "6.5")
+    cvss_est = True
+    for n in intel.get("nuclei") or []:
+        if str(n.get("cvss") or "").strip():
+            cvss = str(n["cvss"]).strip()
+            cvss_est = False
+            break
+    refs = " ".join(x for x in (_fmt_msf_refs(refs_list, cves),
+                                _intel_refs(intel)) if x)
+    return {"cwe": cwe, "cvss": cvss, "cvss_est": cvss_est,
             "impact": impact, "remediation": remediation,
-            "refs": _fmt_msf_refs(refs_list, cves), "assets": assets,
-            "description": mod_desc}
+            "refs": refs, "assets": assets,
+            "description": mod_desc,
+            "sources": format_sources(intel)}
 
 
 def autofill_finding(f: dict, meta: dict | None = None) -> dict:
@@ -631,7 +1016,8 @@ def autofill_finding(f: dict, meta: dict | None = None) -> dict:
     if not (f.get("cwe") or "").strip() and sug["cwe"]:
         f["cwe"] = sug["cwe"]
     if not (f.get("cvss") or "").strip():
-        f["cvss"] = f"{sug['cvss']} (stima — verificare su NVD)"
+        f["cvss"] = (f"{sug['cvss']} (stima — verificare su NVD)"
+                     if sug.get("cvss_est", True) else str(sug["cvss"]))
     if not (f.get("impact") or "").strip():
         f["impact"] = sug["impact"]
     if not (f.get("remediation") or "").strip():
@@ -640,6 +1026,8 @@ def autofill_finding(f: dict, meta: dict | None = None) -> dict:
         f["assets"] = sug["assets"]
     if not (f.get("refs") or "").strip():
         f["refs"] = sug["refs"]
+    if not (f.get("sources") or "").strip():
+        f["sources"] = sug["sources"]
     return f
 
 # ---------------------------------------------------------------------------
@@ -965,6 +1353,8 @@ def render_finding(idx: int, f: dict) -> str:
         ("Remediation", f.get("remediation", "")),
         ("Riferimenti", f.get("refs", "") or "*—*"),
     ]
+    if (f.get("sources") or "").strip():
+        rows.append(("Fonti", f["sources"]))
     body = "\n".join(f"| **{k}** | {v} |" for k, v in rows)
     card = ("\n\n::: {.finding}\n"
             "|                     | |\n"

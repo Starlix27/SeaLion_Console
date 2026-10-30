@@ -82,6 +82,13 @@ def auto_update() -> None:
         return
     if not (PROJECT_ROOT / ".git").is_dir():
         return
+    # cache intel dei report (CISA KEV + EPSS) in background, mai bloccante
+    try:
+        import threading
+        from lib.report import update_intel_cache
+        threading.Thread(target=update_intel_cache, daemon=True).start()
+    except Exception:
+        pass
     try:
         # All'avvio fa sempre il pull dal repo SeaLion_Console.
         r = subprocess.run(
