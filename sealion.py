@@ -83,13 +83,9 @@ def auto_update() -> None:
     if not (PROJECT_ROOT / ".git").is_dir():
         return
     try:
-        # Segue lo stesso remote configurato nel clone (fallback: repo ufficiale).
-        remote_url = subprocess.run(
-            ["git", "-C", str(PROJECT_ROOT), "config", "--get", "remote.origin.url"],
-            capture_output=True, text=True,
-        ).stdout.strip() or REPO_URL
+        # All'avvio fa sempre il pull dal repo SeaLion_Console.
         r = subprocess.run(
-            ["git", "-C", str(PROJECT_ROOT), "fetch", "--force", remote_url, "main"],
+            ["git", "-C", str(PROJECT_ROOT), "fetch", "--force", REPO_URL, "main"],
             capture_output=True, text=True, timeout=15,
         )
         if r.returncode != 0:
