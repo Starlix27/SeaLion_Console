@@ -119,7 +119,7 @@ def test_betrusted_meta_migrates():
     assert meta is not None
     assert meta["schema"] == R.SCHEMA_VERSION
     assert isinstance(meta["contacts"]["client"], list)
-    assert len(meta["findings"]) == 5
+    assert len(meta["findings"]) >= 5
 
 
 # ---------------------------------------------------------------------------

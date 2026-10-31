@@ -3235,6 +3235,8 @@ function libUse(i){{
   document.getElementById('f-impact').value=r.impact||'';
   document.getElementById('f-remediation').value=r.remediation||'';
   if(r.refs)document.getElementById('f-refs').value=r.refs;
+  if(r.verification && !document.getElementById('f-evidence').value.trim())
+    document.getElementById('f-evidence').value=r.verification;
   if(!gv('f-assets')){{
     var hosts=(DATA.meta.scope||[]).map(function(x){{return (x.host||'').trim();}}).filter(function(x){{return x;}});
     document.getElementById('f-assets').value=hosts.join(', ')||DATA.meta.domain||'';
@@ -5506,6 +5508,7 @@ class SlRequestHandler(http.server.BaseHTTPRequestHandler):
                         "description": e.get("description", ""),
                         "impact": e.get("impact", ""),
                         "remediation": e.get("remediation", ""),
+                        "verification": e.get("verification", ""),
                         "refs": " ".join(e.get("refs") or [])}
                 results.append(item)
             self._send_json({"ok": True, "source": "library", "results": results})

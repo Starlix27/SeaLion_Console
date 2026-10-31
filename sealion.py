@@ -43,7 +43,7 @@ def _version_hash() -> str:
         sha = "unknown"
     return f"{VERSION}-{sha}"
 
-REPO_RAW = "https://raw.githubusercontent.com/Starlix27/SeaLion/main/VERSION"
+REPO_RAW = "https://raw.githubusercontent.com/Starlix27/SeaLion_Console/main/VERSION"
 ASCII_FILE = PROJECT_ROOT / "assets" / "ascii-art.txt"
 SEALSAY_FILE = PROJECT_ROOT / "assets" / "sealion_say.txt"
 PROJECT_ROOT = Path(__file__).resolve().parent
@@ -96,6 +96,7 @@ def auto_update() -> None:
             capture_output=True, text=True, timeout=15,
         )
         if r.returncode != 0:
+            print("\033[90m[update] Nessuna connessione al repo: continuo offline.\033[0m")
             return
         local = subprocess.run(
             ["git", "-C", str(PROJECT_ROOT), "rev-parse", "HEAD"],
@@ -105,7 +106,10 @@ def auto_update() -> None:
             ["git", "-C", str(PROJECT_ROOT), "rev-parse", "FETCH_HEAD"],
             capture_output=True, text=True,
         ).stdout.strip()
-        if not remote or local == remote:
+        if not remote:
+            return
+        if local == remote:
+            print("\033[90m[update] SeaLion Console è già aggiornato.\033[0m")
             return
         # Non toccare nulla se c'è lavoro locale (modifiche o file non tracciati).
         dirty = subprocess.run(
@@ -113,8 +117,11 @@ def auto_update() -> None:
             capture_output=True, text=True,
         ).stdout.strip()
         if dirty:
-            print("\033[93m[update]\033[0m Aggiornamento disponibile, ma ci sono modifiche "
-                  "locali: commit/stash oppure 'git reset --hard origin/main'.")
+            print("\033[93;1m[update] NUOVA VERSIONE DISPONIBILE\033[0m "
+                  f"({local[:7]} → {remote[:7]}), ma ci sono modifiche locali non "
+                  "committate: il pull automatico è sospeso per non perdere il lavoro.")
+            print("\033[93m[update]\033[0m Per aggiornare: "
+                  "git add -A && git commit -m wip  (oppure git stash), poi riavvia.")
             return
         subprocess.run(
             ["git", "-C", str(PROJECT_ROOT), "reset", "--hard", "FETCH_HEAD"],

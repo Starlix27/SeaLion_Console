@@ -32,7 +32,7 @@ from lib.cvss import score as cvss_score, severity_from_score, validate as cvss_
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 LIBRARY_DIR = PROJECT_ROOT / "vuln" / "library"
 
-SECTIONS = ("descrizione", "impatto", "remediation")
+SECTIONS = ("descrizione", "impatto", "remediation", "verifica")
 
 _MEMO: dict = {}
 
@@ -85,6 +85,7 @@ def _parse_file(path: Path) -> dict | None:
         "description": secs.get("descrizione", ""),
         "impact": secs.get("impatto", ""),
         "remediation": secs.get("remediation", ""),
+        "verification": secs.get("verifica", ""),
         "path": str(path),
     }
     # severità derivata dal vettore se possibile (coerenza garantita)
@@ -183,5 +184,6 @@ def finding_from_library(entry: dict) -> dict:
         "impact": entry["impact"],
         "remediation": entry["remediation"],
         "refs": " ".join(entry.get("refs") or []),
+        "evidence": entry.get("verification", ""),
         "library_id": entry["id"],
     }

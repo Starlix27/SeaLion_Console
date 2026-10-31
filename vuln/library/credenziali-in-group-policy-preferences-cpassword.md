@@ -23,6 +23,18 @@ Nei file XML delle Group Policy Preferences su SYSVOL sono presenti campi cpassw
 
 Le password decifrate sono tipicamente credenziali di amministratori locali distribuite via GPP: il loro recupero fornisce accesso amministrativo immediato a tutti i sistemi che ricevono la policy.
 
+## Verifica
+
+```
+# Verifica: cerca i campi cpassword nei file XML di SYSVOL
+find /mnt/sysvol -name '*.xml' -exec grep -l cpassword {} +
+
+# decifra (la chiave AES è pubblica):
+python3 -c "from Cryptodome.Cipher import AES; ..."  # oppure gpp-decrypt
+gpp-decrypt <cpassword>
+```
+Atteso: password in chiaro degli account distribuiti via GPP.
+
 ## Remediation
 
 Rimuovere i file XML con cpassword da SYSVOL, cambiare tutte le password distribuite storicamente via GPP, usare LAPS per la gestione delle password amministrative locali e applicare la patch MS14-025 sui sistemi legacy.
