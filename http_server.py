@@ -2765,12 +2765,13 @@ var EDIT_IDX = -1;
 
 var STEPS = [
   {{id:'info',     label:'Cliente & Test'}},
+  {{id:'contatti', label:'Contatti & Versioni'}},
   {{id:'approccio',label:'Approccio'}},
   {{id:'perimetro',label:'Perimetro'}},
-  {{id:'findings', label:'Finding (CVE/MSF)'}},
+  {{id:'findings', label:'Finding (Libreria/MSF/NVD)'}},
   {{id:'walkthrough', label:'Walkthrough'}},
   {{id:'remediation', label:'Remediation'}},
-  {{id:'appendici', label:'Appendici'}},
+  {{id:'compromessi', label:'Host/Credenziali'}},
   {{id:'stile',    label:'Stile'}},
   {{id:'markdown', label:'Markdown'}},
   {{id:'finale',   label:'Considerazioni & PDF'}},
@@ -2800,9 +2801,16 @@ function textarea(id,label,val,h){{
 function gv(id){{var e=document.getElementById(id);return e?e.value.trim():'';}}
 
 function sevSelect(id,val){{
-  var opts=[['critical','Critica'],['high','Alta'],['medium','Media'],['low','Bassa'],['info','Info']];
+  var opts=[['','— automatica (dal vettore CVSS) —'],['critical','Critica'],['high','Alta'],['medium','Media'],['low','Bassa'],['info','Info']];
   return '<select id="'+id+'">'+opts.map(function(o){{
-    return '<option value="'+o[0]+'"'+(o[0]===val?' selected':'')+'>'+o[1]+'</option>';
+    return '<option value="'+o[0]+'"'+(o[0]===(val||'')?' selected':'')+'>'+o[1]+'</option>';
+  }}).join('')+'</select>';
+}}
+
+function statusSelect(id,val){{
+  var opts=[['','— (non mostrato) —'],['open','Aperto'],['fixed','Risolto'],['partial','Parzialmente risolto'],['retest','In retest'],['accepted','Rischio accettato']];
+  return '<select id="'+id+'">'+opts.map(function(o){{
+    return '<option value="'+o[0]+'"'+(o[0]===(val||'')?' selected':'')+'>'+o[1]+'</option>';
   }}).join('')+'</select>';
 }}
 
@@ -2821,6 +2829,12 @@ function renderStep(){{
       field('w-client','Nome del cliente *',m.client,'es. Acme Corp')+
       field('w-rtype','Tipo di test',m.rtype,'Penetration Test Interno')+
       field('w-domain','Dominio target',m.domain,'es. ACME.LOCAL');
+  }} else if(s==='contatti'){{
+    repEnsure();
+    h='<h3>Contatti &amp; Storico Versioni</h3><div class="wiz-hint">Compaiono nelle tabelle "Contatti" e "Storico delle Versioni" all’inizio del PDF. Lasciate vuote, le sezioni non compaiono.</div>'+
+      repBlock('rep-contatti-cliente','Contatti del Cliente','Referenti del cliente per quesiti tecnici e consegna del report.')+
+      repBlock('rep-contatti-team','Team SLCtrl (esecutori del test)','Chi ha eseguito il test.')+
+      repBlock('rep-versioni','Storico delle versioni','es. 0.1 bozza → 1.0 finale.');
   }} else if(s==='approccio'){{
     h='<h3>Approccio</h3><div class="wiz-hint">Il testo della sezione Approccio viene generato in automatico in base al tipo di box e alle date.</div>'+
       '<div class="wiz-field"><label>Tipo di box</label>'+sevSelectBox(m.box)+'</div>'+
@@ -2830,6 +2844,12 @@ function renderStep(){{
       '<div class="wiz-grid2">'+
       field('w-dend','Data fine test',m.date_end,'es. 23 gennaio 2026')+
       field('w-tend','Ora fine (opzionale)',m.time_end,'es. 18:00')+'</div>'+
+      '<div class="wiz-field"><label>Metodologie seguite</label><div id="w-meth"></div></div>'+
+      '<div class="wiz-field"><label>Rischio complessivo (override)</label><select id="w-risk">'+
+      '<option value="">Automatico (dai finding)</option>'+
+      [['critical','Critico'],['high','Alto'],['medium','Medio'],['low','Basso'],['info','Informativo']].map(function(o){{
+        return '<option value="'+o[0]+'"'+((m.risk_override||'')===o[0]?' selected':'')+'>'+o[1]+'</option>';
+      }}).join('')+'</select></div>'+
       '<div class="wiz-hint" id="w-approach-preview"></div>';
   }} else if(s==='perimetro'){{
     h='<h3>Perimetro</h3><div class="wiz-hint">Gli asset in scope: finiscono nella tabella "Dettagli del Perimetro".</div>'+
@@ -2850,12 +2870,14 @@ function renderStep(){{
       textarea('w-rem-breve','Breve termine',sec.remediation_breve,90)+
       textarea('w-rem-medio','Medio termine',sec.remediation_medio,90)+
       textarea('w-rem-lungo','Lungo termine',sec.remediation_lungo,90);
-  }} else if(s==='appendici'){{
-    h='<h3>Appendici</h3><div class="wiz-hint">Tabelle libere in Markdown. Le appendici lasciate vuote non compaiono nel PDF (né il titolo né spazi vuoti).</div>'+
-      textarea('w-app-host','Appendice B — Host compromessi',sec.appendice_host,90)+
-      textarea('w-app-utenti','Appendice C — Utenti compromessi',sec.appendice_utenti,90)+
-      textarea('w-app-bonifica','Appendice D — Modifiche e bonifica degli host',sec.appendice_bonifica,90)+
-      textarea('w-app-password','Appendice E — Analisi delle password del dominio',sec.appendice_password,90);
+  }} else if(s==='compromessi'){{
+    repEnsure();
+    h='<h3>Host, Utenti &amp; Credenziali</h3><div class="wiz-hint">Generano le appendici B–E del PDF (tabelle automatiche). Lasciate vuote, le appendici non compaiono.</div>'+
+      repBlock('rep-hosts','Appendice B — Host compromessi','Host, livello di accesso ottenuto e tecnica usata.')+
+      repBlock('rep-users','Appendice C — Utenti compromessi','Account compromessi e metodo di compromissione.')+
+      repBlock('rep-cleanup','Appendice D — Modifiche e bonifica','Modifiche effettuate durante il test e stato della bonifica.')+
+      repBlock('rep-creds','Appendice E — Credenziali e password recuperate','Credenziali trovate durante il test (loot).')+
+      textarea('w-app-note','Note aggiuntive alle appendici (testo libero)',sec.appendice_note,70);
   }} else if(s==='stile'){{
     var st=m.style||{{}};
     h='<h3>Stile del report</h3><div class="wiz-hint">Colori, logo, autore e firma: applicati al PDF e all’anteprima in tempo reale.</div>'+
@@ -2898,6 +2920,9 @@ function renderStep(){{
      '</div></div>';
   p.innerHTML=h;
   if(s==='perimetro')renderScope();
+  if(s==='contatti'){{repRender('rep-contatti-cliente');repRender('rep-contatti-team');repRender('rep-versioni');}}
+  if(s==='compromessi'){{repRender('rep-hosts');repRender('rep-users');repRender('rep-creds');repRender('rep-cleanup');}}
+  if(s==='approccio')renderMeth();
   if(s==='findings'){{renderFindings();renderFindingForm();}}
   if(s==='finale')renderSummary();
   if(s==='approccio')updateApproachPreview();
@@ -2960,8 +2985,8 @@ function mdImage(id){{
 }}
 
 // ---- Ri-posizionamento anteprima sulla sezione in editing ----
-var STEP_ANCHORS={{info:'',approccio:'Approccio',perimetro:'Perimetro',findings:'Dettagli Tecnici',
-  walkthrough:'Compromissione',remediation:'Piano di Remediation',appendici:'Appendici',
+var STEP_ANCHORS={{info:'',contatti:'Contatti',approccio:'Approccio',perimetro:'Perimetro',findings:'Dettagli Tecnici',
+  walkthrough:'Compromissione',remediation:'Piano di Remediation',compromessi:'Appendici',
   stile:'',markdown:'',finale:'Considerazioni Finali'}};
 var LAST_PV_ANCHOR;
 function scrollPreviewTo(anchor){{
@@ -3001,11 +3026,11 @@ function collectDraft(){{
   var sections={{}};
   var s=STEPS[CUR].id;
   if(s==='info'){{meta.client=gv('w-client');meta.rtype=gv('w-rtype');meta.domain=gv('w-domain');}}
-  else if(s==='approccio'){{meta.box=gv('w-box');meta.date_start=gv('w-dstart');meta.date_end=gv('w-dend');meta.time_start=gv('w-tstart');meta.time_end=gv('w-tend');}}
+  else if(s==='approccio'){{meta.box=gv('w-box');meta.date_start=gv('w-dstart');meta.date_end=gv('w-dend');meta.time_start=gv('w-tstart');meta.time_end=gv('w-tend');meta.methodology=DATA.meta.methodology||[];meta.risk_override=gv('w-risk');}}
   else if(s==='perimetro'){{meta.scope=(meta.scope||[]).filter(function(r){{return (r.host||'').trim()||(r.desc||'').trim();}});}}
   else if(s==='walkthrough'){{sections.compromissione=document.getElementById('w-compromissione').value;sections.walkthrough=document.getElementById('w-walkthrough').value;}}
   else if(s==='remediation'){{sections.remediation_breve=document.getElementById('w-rem-breve').value;sections.remediation_medio=document.getElementById('w-rem-medio').value;sections.remediation_lungo=document.getElementById('w-rem-lungo').value;}}
-  else if(s==='appendici'){{sections.appendice_host=document.getElementById('w-app-host').value;sections.appendice_utenti=document.getElementById('w-app-utenti').value;sections.appendice_bonifica=document.getElementById('w-app-bonifica').value;sections.appendice_password=document.getElementById('w-app-password').value;}}
+  else if(s==='compromessi'){{sections.appendice_note=document.getElementById('w-app-note').value;}}
   else if(s==='stile'){{
     meta.style=meta.style||{{}};
     meta.style.preset=gv('w-preset');
@@ -3066,6 +3091,58 @@ function renderScope(){{
 }}
 function addScopeRow(){{DATA.meta.scope.push({{host:'',desc:''}});renderScope();schedulePreview();}}
 
+// ---- Editor a righe generici (contatti, versioni, host, utenti, credenziali, bonifica) ----
+var REP_DEFS = {{
+  'rep-contatti-cliente': {{get:function(){{return DATA.meta.contacts.client;}},cols:[['name','Nome',1],['role','Ruolo',1],['email','Email',1.3]]}},
+  'rep-contatti-team': {{get:function(){{return DATA.meta.contacts.team;}},cols:[['name','Nome',1],['role','Ruolo',1],['email','Email',1.3]]}},
+  'rep-versioni': {{get:function(){{return DATA.meta.versions;}},cols:[['version','Versione',0.5],['date','Data',1],['author','Autore',1],['desc','Descrizione',1.6]]}},
+  'rep-hosts': {{get:function(){{return DATA.meta.compromised_hosts;}},cols:[['host','Host',0.8],['ip','IP',0.8],['os','Sistema operativo',1],['access','Livello accesso',1],['technique','Tecnica',1.4]]}},
+  'rep-users': {{get:function(){{return DATA.meta.compromised_users;}},cols:[['user','Utente',0.8],['domain','Dominio',0.8],['access','Accesso',0.8],['source','Metodo',1.2]]}},
+  'rep-creds': {{get:function(){{return DATA.meta.credentials;}},cols:[['title','Titolo',0.9],['username','Username',0.8],['url','URL',1],['notes','Note',0.9],['value','Password / Valore',1.1]]}},
+  'rep-cleanup': {{get:function(){{return DATA.meta.cleanup;}},cols:[['desc','Modifica / artefatto',1.8],['status','Stato bonifica',1]]}},
+}};
+function repEnsure(){{
+  DATA.meta.contacts=DATA.meta.contacts||{{}};
+  DATA.meta.contacts.client=DATA.meta.contacts.client||[];
+  DATA.meta.contacts.team=DATA.meta.contacts.team||[];
+  ['versions','compromised_hosts','compromised_users','credentials','cleanup'].forEach(function(k){{DATA.meta[k]=DATA.meta[k]||[];}});
+}}
+function repBlock(id,title,hint){{
+  return '<div class="wiz-field" style="border-top:1px solid var(--border);padding-top:12px"><label>'+title+'</label>'+
+    '<div style="font-size:12px;color:var(--text2);margin-bottom:6px">'+hint+'</div>'+
+    '<div id="'+id+'"></div><button class="btn" onclick="repAdd(\\''+id+'\\')">+ Aggiungi</button></div>';
+}}
+function repRender(id){{
+  var def=REP_DEFS[id]; var el=document.getElementById(id); if(!el)return;
+  var rows=def.get();
+  el.innerHTML=rows.map(function(r,i){{
+    return '<div class="scope-row">'+def.cols.map(function(c){{
+      return '<input type="text" value="'+esc(r[c[0]]||'')+'" placeholder="'+esc(c[1])+'" style="flex:'+(c[2]||1)+'" onchange="repSet(\\''+id+'\\','+i+',\\''+c[0]+'\\',this.value)">';
+    }}).join('')+'<button class="btn btn-danger" onclick="repDel(\\''+id+'\\','+i+')">×</button></div>';
+  }}).join('')||'<p style="color:var(--text2);font-size:12px;margin-bottom:8px">Nessuna voce.</p>';
+}}
+function repSet(id,i,k,v){{REP_DEFS[id].get()[i][k]=v;schedulePreview();}}
+function repDel(id,i){{REP_DEFS[id].get().splice(i,1);repRender(id);schedulePreview();}}
+function repAdd(id){{var o={{}};REP_DEFS[id].cols.forEach(function(c){{o[c[0]]='';}});REP_DEFS[id].get().push(o);repRender(id);schedulePreview();}}
+
+// ---- Metodologie ----
+var METH_ALL=['OSSTMM','PTES','OWASP','NIST SP 800-115','MITRE ATT&CK'];
+function renderMeth(){{
+  var el=document.getElementById('w-meth'); if(!el)return;
+  var cur=DATA.meta.methodology||[];
+  el.innerHTML=METH_ALL.map(function(mname){{
+    return '<label style="display:inline-flex;align-items:center;gap:5px;margin-right:14px;font-size:12.5px;color:var(--text)">'+
+      '<input type="checkbox" '+(cur.indexOf(mname)>=0?'checked ':'')+'onchange="methToggle(this)" value="'+esc(mname)+'">'+esc(mname)+'</label>';
+  }}).join('');
+}}
+function methToggle(cb){{
+  DATA.meta.methodology=DATA.meta.methodology||[];
+  var i=DATA.meta.methodology.indexOf(cb.value);
+  if(cb.checked&&i<0)DATA.meta.methodology.push(cb.value);
+  if(!cb.checked&&i>=0)DATA.meta.methodology.splice(i,1);
+  schedulePreview();
+}}
+
 // ---- Findings ----
 function renderFindings(){{
   var w=document.getElementById('w-findings');
@@ -3087,16 +3164,24 @@ function renderFindingForm(){{
   document.getElementById('w-finding-form').innerHTML =
     '<div style="border:1px solid var(--border);border-radius:8px;padding:16px;margin-top:10px;background:var(--surface2)">'+
     '<div style="font-weight:700;margin-bottom:10px;color:var(--accent)">'+t+'</div>'+
+    '<div class="wiz-field"><label>Cerca nella libreria finding (offline — XSS, Potato, SMBv1, Kerberoasting…)</label>'+
+    '<div style="display:flex;gap:8px"><input type="text" id="f-lib-q" placeholder="es. juicy potato, xss, keepass" style="flex:1;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:8px 10px;font-family:inherit;font-size:13px">'+
+    '<button class="btn" onclick="libSearch()">Cerca in libreria</button></div></div>'+
+    '<div id="f-lib-results"></div>'+
     '<div class="wiz-field"><label>Cerca CVE / modulo in Metasploit (offline — “Usa” compila <strong>tutti</strong> i campi)</label>'+
     '<div style="display:flex;gap:8px"><input type="text" id="f-msf-q" placeholder="es. CVE-2017-0143 oppure eternalblue" style="flex:1;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:8px 10px;font-family:inherit;font-size:13px">'+
     '<button class="btn" onclick="msfSearch()">Cerca in MSF</button></div></div>'+
     '<div id="f-msf-results"></div>'+
     field('f-title','Titolo *',f.title,'es. LLMNR/NBT-NS Response Spoofing')+
     '<div class="wiz-grid2">'+
-    '<div class="wiz-field"><label>Severità</label>'+sevSelect('f-sev',f.severity||'high')+'</div>'+
-    field('f-cvss','CVSS 3.1',f.cvss,'es. 9.5')+'</div>'+
+    '<div class="wiz-field"><label>Severità</label>'+sevSelect('f-sev',f.severity||'')+'</div>'+
+    field('f-cvss','CVSS 3.1 (vuoto = calcolato dal vettore)',f.cvss,'es. 9.5')+'</div>'+
+    field('f-cvss-vector','Vettore CVSS 3.1 (calcola punteggio e severità da solo)',f.cvss_vector,'CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H')+
     '<div class="wiz-grid2">'+
     field('f-cwe','CWE (solo numero)',f.cwe,'es. 522')+
+    field('f-mitre','MITRE ATT&CK (separati da virgola)',(f.mitre||[]).join(', '),'es. T1190, T1059')+'</div>'+
+    '<div class="wiz-grid2">'+
+    '<div class="wiz-field"><label>Stato</label>'+statusSelect('f-status',f.status||'open')+'</div>'+
     field('f-assets','Asset interessati',f.assets,DATA.meta.domain)+'</div>'+
     '<div class="wiz-field"><label>CVE associate</label><div id="f-cves" style="font-size:12px;color:var(--accent);font-family:monospace;min-height:16px">'+esc(F_MSFCVES.join(', '))+'</div></div>'+
     textarea('f-desc','Descrizione (incl. causa)',f.description,70)+
@@ -3114,6 +3199,47 @@ function renderFindingForm(){{
     (EDIT_IDX>=0?'<button class="btn" onclick="EDIT_IDX=-1;renderFindingForm()">Annulla</button>':'')+
     '</div>';
   renderFImages();
+}}
+
+// ---- Ricerca libreria finding (offline) ----
+var LIB_RESULTS = [];
+function libSearch(){{
+  var q=gv('f-lib-q');
+  if(!q){{alert('Scrivi qualcosa da cercare (es. xss, potato, smbv1).');return;}}
+  var box=document.getElementById('f-lib-results');
+  box.innerHTML='<p style="font-size:12px;color:var(--text2)">Ricerca nella libreria…</p>';
+  fetch('/api/report/lib-search?q='+encodeURIComponent(q))
+  .then(r=>r.json()).then(d=>{{
+    if(!d.ok){{box.innerHTML='<p style="font-size:12px;color:var(--red)">'+esc(d.error||'Ricerca non disponibile')+'</p>';return;}}
+    LIB_RESULTS=d.results||[];
+    if(!LIB_RESULTS.length){{box.innerHTML='<p style="font-size:12px;color:var(--text2)">Nessuna voce trovata in libreria.</p>';return;}}
+    box.innerHTML='<div style="font-size:11px;color:var(--text2);margin-bottom:6px">'+LIB_RESULTS.length+' voci in libreria — clicca “Usa” per compilare il finding:</div>'+
+      LIB_RESULTS.map(function(r,i){{
+        return '<div class="msf-result"><span class="msf-name">'+esc(r.title)+'</span> '+(r.severity?sevBadge(r.severity):'')+
+          (r.category?' <span class="msf-cve">'+esc(r.category)+'</span>':'')+
+          (r.cvss?' <span class="msf-cve">CVSS '+esc(r.cvss)+'</span>':'')+
+          ' <button class="btn" style="float:right;padding:2px 10px;font-size:11px" onclick="libUse('+i+')">Usa</button>'+
+          '<div class="msf-desc">'+esc((r.description||'').slice(0,180))+'</div></div>';
+      }}).join('');
+  }}).catch(()=>{{box.innerHTML='<p style="font-size:12px;color:var(--red)">Errore di rete</p>';}});
+}}
+function libUse(i){{
+  var r=LIB_RESULTS[i]; if(!r)return;
+  document.getElementById('f-title').value=r.title;
+  if(r.severity)document.getElementById('f-sev').value=r.severity;
+  if(r.cwe)document.getElementById('f-cwe').value=r.cwe;
+  if(r.cvss)document.getElementById('f-cvss').value=r.cvss;
+  if(r.cvss_vector)document.getElementById('f-cvss-vector').value=r.cvss_vector;
+  if(r.mitre&&r.mitre.length)document.getElementById('f-mitre').value=r.mitre.join(', ');
+  document.getElementById('f-desc').value=r.description||'';
+  document.getElementById('f-impact').value=r.impact||'';
+  document.getElementById('f-remediation').value=r.remediation||'';
+  if(r.refs)document.getElementById('f-refs').value=r.refs;
+  if(!gv('f-assets')){{
+    var hosts=(DATA.meta.scope||[]).map(function(x){{return (x.host||'').trim();}}).filter(function(x){{return x;}});
+    document.getElementById('f-assets').value=hosts.join(', ')||DATA.meta.domain||'';
+  }}
+  document.getElementById('f-lib-results').innerHTML='<p style="font-size:12px;color:var(--green)">✔ Campi compilati da libreria ('+esc(r.id)+') — adattali al caso specifico.</p>';
 }}
 
 // ---- Ricerca Metasploit (offline) ----
@@ -3214,7 +3340,10 @@ function editFinding(i){{EDIT_IDX=i;renderFindingForm();window.scrollTo({{top:do
 function saveFinding(){{
   var title=gv('f-title');
   if(!title){{alert('Inserisci il titolo del finding.');return;}}
-  var f={{title:title,severity:gv('f-sev'),cvss:gv('f-cvss'),cwe:gv('f-cwe'),
+  var mitreRaw=gv('f-mitre');
+  var f={{title:title,severity:gv('f-sev'),cvss:gv('f-cvss'),cvss_vector:gv('f-cvss-vector'),
+         cwe:gv('f-cwe'),status:gv('f-status'),
+         mitre:mitreRaw?mitreRaw.split(',').map(function(t){{return t.trim().toUpperCase();}}).filter(function(t){{return t;}}):[],
          cves:F_MSFCVES.slice(),msf:F_MSFMOD,
          assets:gv('f-assets'),description:document.getElementById('f-desc').value,
          impact:document.getElementById('f-impact').value,
@@ -3281,9 +3410,12 @@ function saveStep(advance,cb){{
     if(!client){{alert('Il nome del cliente è obbligatorio.');return;}}
     DATA.meta.client=client;DATA.meta.rtype=gv('w-rtype');DATA.meta.domain=gv('w-domain');
     postMeta(done);
+  }} else if(s==='contatti'){{
+    postMeta(done); // i repeaters aggiornano già DATA.meta
   }} else if(s==='approccio'){{
     DATA.meta.box=gv('w-box');DATA.meta.date_start=gv('w-dstart');DATA.meta.date_end=gv('w-dend');
     DATA.meta.time_start=gv('w-tstart');DATA.meta.time_end=gv('w-tend');
+    DATA.meta.risk_override=gv('w-risk');
     postMeta(done);
   }} else if(s==='perimetro'){{
     DATA.meta.scope=DATA.meta.scope.filter(function(r){{return r.host.trim()||r.desc.trim();}});
@@ -3300,13 +3432,9 @@ function saveStep(advance,cb){{
         saveSection('remediation_lungo',document.getElementById('w-rem-lungo').value,function(){{done(true);}});
       }});
     }});
-  }} else if(s==='appendici'){{
-    saveSection('appendice_host',document.getElementById('w-app-host').value,function(){{
-      saveSection('appendice_utenti',document.getElementById('w-app-utenti').value,function(){{
-        saveSection('appendice_bonifica',document.getElementById('w-app-bonifica').value,function(){{
-          saveSection('appendice_password',document.getElementById('w-app-password').value,function(){{done(true);}});
-        }});
-      }});
+  }} else if(s==='compromessi'){{
+    saveSection('appendice_note',document.getElementById('w-app-note').value,function(){{
+      postMeta(done); // host/utenti/credenziali/bonifica sono in DATA.meta
     }});
   }} else if(s==='stile'){{
     DATA.meta.style=DATA.meta.style||{{}};
@@ -4812,6 +4940,8 @@ class SlRequestHandler(http.server.BaseHTTPRequestHandler):
             self._serve_report_template_html()
         elif path == "/api/report/msf-search":
             self._api_report_msf_search(qs.get("q", [""])[0])
+        elif path == "/api/report/lib-search":
+            self._api_report_lib_search(qs.get("q", [""])[0])
         elif path.startswith("/report/img/"):
             rest = path[12:]
             parts = rest.split("/", 1)
@@ -5281,7 +5411,10 @@ class SlRequestHandler(http.server.BaseHTTPRequestHandler):
             return
         old = load_meta(rep["slug"]) or {}
         for key in ("client", "rtype", "box", "domain", "date_start", "date_end",
-                    "time_start", "time_end", "scope", "style"):
+                    "time_start", "time_end", "scope", "style",
+                    "contacts", "versions", "methodology", "risk_override",
+                    "compromised_hosts", "compromised_users", "credentials",
+                    "cleanup"):
             if key in meta:
                 old[key] = meta[key]
         if not str(old.get("client", "")).strip():
@@ -5356,6 +5489,28 @@ class SlRequestHandler(http.server.BaseHTTPRequestHandler):
             self._send_json({"ok": False, "error": str(e)}, status=500)
             return
         self._send_json(res, status=200 if res.get("ok") else 400)
+
+    def _api_report_lib_search(self, q: str) -> None:
+        """Ricerca nella libreria di finding generici (offline)."""
+        try:
+            from lib.findinglib import library_search
+            results = []
+            for e in library_search(q, limit=10):
+                item = {"id": e["id"], "title": e["title"],
+                        "category": e.get("category", ""),
+                        "severity": e.get("severity", ""),
+                        "cwe": e.get("cwe", ""),
+                        "cvss_vector": e.get("cvss_vector", ""),
+                        "cvss": f"{e['cvss']:.1f}" if "cvss" in e else "",
+                        "mitre": e.get("mitre") or [],
+                        "description": e.get("description", ""),
+                        "impact": e.get("impact", ""),
+                        "remediation": e.get("remediation", ""),
+                        "refs": " ".join(e.get("refs") or [])}
+                results.append(item)
+            self._send_json({"ok": True, "source": "library", "results": results})
+        except Exception as e:  # noqa: BLE001
+            self._send_json({"ok": False, "error": str(e)}, status=500)
 
     def _api_report_asset(self) -> None:
         """Upload di un'immagine (evidenza/logo/firma) in reports/<slug>/evidence/."""

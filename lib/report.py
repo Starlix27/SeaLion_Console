@@ -4,7 +4,8 @@ Comandi console:
     report                          Stato / aiuto
     report new ["Cliente"] [tipo]   Wizard: cliente, black/white/grey box, date
     report list                     Elenca i report esistenti
-    report add <nome|num>           Wizard: aggiungi un finding (severity auto)
+    report add <nome|num>           Wizard: aggiungi un finding (libreria + MSF + NVD)
+    report lib [ricerca]            Libreria finding generici offline (xss, potato...)
     report sync <nome|num>          Rigenera i blocchi automatici nel .md
     report edit <nome|num> [modo]   Modifica il report: vsc/vscode/md = VS Code,
                                     pdf = editor PDF; il PDF si riaggiorna da solo
@@ -65,6 +66,15 @@ SEV_LABEL = {"critical": "Critica", "high": "Alta", "medium": "Media",
              "low": "Bassa", "info": "Info"}
 SEV_RISK = {"critical": "critico", "high": "alto", "medium": "medio",
             "low": "basso", "info": "informativo"}
+
+
+def severity_label_from_score(sc: float) -> str:
+    """0.0-10.0 -> etichetta italiana della fascia CVSS."""
+    try:
+        from lib.cvss import severity_from_score
+        return SEV_LABEL.get(severity_from_score(float(sc)), "")
+    except Exception:  # noqa: BLE001
+        return ""
 
 BOX_TYPES = ("black", "grey", "white")
 BOX_LABEL = {"black": "Black box", "grey": "Grey box", "white": "White box"}
@@ -1003,13 +1013,104 @@ def _finding_suggest(f: dict, meta: dict | None,
             "sources": format_sources(intel)}
 
 
-def autofill_finding(f: dict, meta: dict | None = None) -> dict:
-    """Completa i campi VUOTI del finding con i dati offline di MSF.
+def _autofill_from_vector(f: dict) -> None:
+    """Se c'è un vettore CVSS valido: calcola punteggio e severità mancanti."""
+    vector = str(f.get("cvss_vector") or "").strip()
+    if not vector:
+        return
+    try:
+        from lib.cvss import score as cvss_score, severity_from_score, normalize
+    except ImportError:
+        return
+    try:
+        f["cvss_vector"] = normalize(vector)
+        sc = cvss_score(vector)
+    except ValueError:
+        return  # vettore invalido: non bloccare, segnalato dal wizard
+    if not str(f.get("cvss") or "").strip():
+        f["cvss"] = f"{sc:.1f}"
+    sev = str(f.get("severity") or "").strip().lower()
+    if sev not in SEV_ORDER:
+        f["severity"] = severity_from_score(sc)
 
-    Non sovrascrive mai il testo inserito dall'utente: riempie solo le
-    caselle lasciate vuote (CWE, CVSS stimato, impatto, remediation,
-    asset dal perimetro, riferimenti NVD/bollettini).
+
+def _autofill_from_nvd(f: dict) -> None:
+    """Arricchimento ONLINE opzionale da NVD (se la macchina è connessa).
+
+    Riempie solo i campi vuoti; offline fallisce in silenzio.
     """
+    cves = [str(c).strip().upper() for c in (f.get("cves") or []) if str(c).strip()]
+    if not cves:
+        return
+    needs = (not str(f.get("cvss") or "").strip()
+             or not str(f.get("cvss_vector") or "").strip()
+             or not str(f.get("cwe") or "").strip())
+    if not needs:
+        return
+    try:
+        from lib.nvd import nvd_lookup
+    except ImportError:
+        return
+    data = nvd_lookup(cves[0])
+    if not data:
+        return
+    if not str(f.get("cwe") or "").strip() and data.get("cwe"):
+        f["cwe"] = data["cwe"]
+    if not str(f.get("cvss_vector") or "").strip() and data.get("cvss_vector"):
+        f["cvss_vector"] = data["cvss_vector"]
+        _autofill_from_vector(f)
+    if not str(f.get("cvss") or "").strip() and data.get("cvss"):
+        f["cvss"] = str(data["cvss"])
+    refs = str(f.get("refs") or "").strip()
+    if not refs and data.get("refs"):
+        f["refs"] = " ".join(data["refs"])
+
+
+def _autofill_from_library(f: dict) -> None:
+    """Fallback sulla libreria finding generici (offline): match per titolo."""
+    if str(f.get("impact") or "").strip() and str(f.get("remediation") or "").strip():
+        return
+    title = str(f.get("title") or "").strip()
+    if not title:
+        return
+    try:
+        from lib.findinglib import library_search
+    except ImportError:
+        return
+    results = library_search(title, limit=1)
+    if not results:
+        return
+    entry = results[0]
+    # match di sicurezza: almeno una parola del titolo deve coincidere
+    twords = {w for w in re.split(r"\W+", title.lower()) if len(w) >= 4}
+    ewords = {w for w in re.split(r"\W+", entry["title"].lower()) if len(w) >= 4}
+    if not (twords & ewords):
+        return
+    if not str(f.get("description") or "").strip():
+        f["description"] = entry["description"]
+    if not str(f.get("impact") or "").strip():
+        f["impact"] = entry["impact"]
+    if not str(f.get("remediation") or "").strip():
+        f["remediation"] = entry["remediation"]
+    if not str(f.get("cwe") or "").strip() and entry.get("cwe"):
+        f["cwe"] = entry["cwe"]
+    if not str(f.get("refs") or "").strip() and entry.get("refs"):
+        f["refs"] = " ".join(entry["refs"])
+    if not str(f.get("cvss_vector") or "").strip() and entry.get("cvss_vector"):
+        f["cvss_vector"] = entry["cvss_vector"]
+        _autofill_from_vector(f)
+
+
+def autofill_finding(f: dict, meta: dict | None = None) -> dict:
+    """Completa i campi VUOTI del finding con i dati disponibili.
+
+    Ordine delle fonti: vettore CVSS (calcolo locale) -> NVD (solo se online,
+    riempie i vuoti) -> MSF/Exploit-DB/nuclei (offline) -> libreria finding
+    generici (offline). Non sovrascrive mai il testo inserito dall'utente.
+    """
+    _autofill_from_vector(f)
+    _autofill_from_nvd(f)
+    _autofill_from_library(f)  # testi curati per i casi noti (Potato, XSS, ...)
     sug = _finding_suggest(f, meta, None)
     if not (f.get("description") or "").strip() and sug["description"]:
         f["description"] = sug["description"]
@@ -1026,7 +1127,10 @@ def autofill_finding(f: dict, meta: dict | None = None) -> dict:
         f["assets"] = sug["assets"]
     if not (f.get("refs") or "").strip():
         f["refs"] = sug["refs"]
-    if not (f.get("sources") or "").strip():
+    src = (f.get("sources") or "").strip()
+    if src == "-":
+        f["sources"] = ""  # "-" = nessuna fonte esplicita, non riempire
+    elif not src:
         f["sources"] = sug["sources"]
     return f
 
@@ -1100,9 +1204,13 @@ def _read_client(md_file: Path) -> str:
 # Meta (dati strutturati del report)
 # ---------------------------------------------------------------------------
 
+SCHEMA_VERSION = 2
+
+
 def default_meta(client: str, rtype: str, box: str, domain: str,
                  date_start: str = "", date_end: str = "") -> dict:
     return {
+        "schema": SCHEMA_VERSION,
         "client": client,
         "rtype": rtype,
         "box": box,
@@ -1114,7 +1222,41 @@ def default_meta(client: str, rtype: str, box: str, domain: str,
         "scope": [{"host": "192.168.100.0/24", "desc": "Rete interna del Cliente"}],
         "findings": [],
         "style": default_style(),
+        # --- SLReport v2 ---
+        "contacts": {"client": [], "team": []},
+        "versions": [],
+        "methodology": [],
+        "compromised_hosts": [],
+        "compromised_users": [],
+        "credentials": [],
+        "cleanup": [],
+        "risk_override": "",
     }
+
+
+def _migrate_meta(meta: dict) -> dict:
+    """Porta un meta.json qualsiasi allo schema corrente (senza perdere dati)."""
+    meta.setdefault("findings", [])
+    meta.setdefault("scope", [])
+    meta.setdefault("box", "black")
+    meta.setdefault("domain", derive_domain(meta.get("client", "")))
+    style = default_style()
+    style.update(meta.get("style") or {})
+    meta["style"] = style
+    # --- SLReport v2 ---
+    contacts = meta.get("contacts")
+    if not isinstance(contacts, dict):
+        contacts = {}
+    contacts.setdefault("client", [])
+    contacts.setdefault("team", [])
+    meta["contacts"] = contacts
+    for key in ("versions", "methodology", "compromised_hosts",
+                "compromised_users", "credentials", "cleanup"):
+        if not isinstance(meta.get(key), list):
+            meta[key] = []
+    meta.setdefault("risk_override", "")
+    meta["schema"] = SCHEMA_VERSION
+    return meta
 
 
 def load_meta(slug: str) -> dict | None:
@@ -1125,14 +1267,7 @@ def load_meta(slug: str) -> dict | None:
         meta = json.loads(mp.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, OSError):
         return None
-    meta.setdefault("findings", [])
-    meta.setdefault("scope", [])
-    meta.setdefault("box", "black")
-    meta.setdefault("domain", derive_domain(meta.get("client", "")))
-    style = default_style()
-    style.update(meta.get("style") or {})
-    meta["style"] = style
-    return meta
+    return _migrate_meta(meta)
 
 
 def save_meta(slug: str, meta: dict) -> None:
@@ -1236,12 +1371,12 @@ def render_perimetro(meta: dict) -> str:
         table = ("\n\n| **Host/URL/Indirizzo IP** | **Descrizione** |\n"
                  "|---------------------------|-----------------|\n"
                  "| *da definire*             | *da definire*   |\n\n"
-                 ": Tabella 3: Dettagli del Perimetro")
+                 ": Tabella: Dettagli del Perimetro")
         return intro + table
     rows = "\n".join(f"| `{r['host']}` | {r['desc']} |" for r in scope)
     table = ("\n\n| **Host/URL/Indirizzo IP** | **Descrizione** |\n"
              "|---------------------------|-----------------|\n"
-             f"{rows}\n\n: Tabella 3: Dettagli del Perimetro")
+             f"{rows}\n\n: Tabella: Dettagli del Perimetro")
     return intro + table
 
 
@@ -1293,7 +1428,7 @@ def render_riepilogo(meta: dict) -> str:
         "|-------------|----------|-----------|-----------|----------|------------|\n"
         f"| {counts['critical']} | {counts['high']} | {counts['medium']} "
         f"| {counts['low']} | {counts['info']} | {n} |\n\n"
-        ": Tabella 4: Riepilogo per Severità")
+        ": Tabella: Riepilogo per Severità")
     list_rows = []
     for i, f in enumerate(findings, 1):
         sev = f.get("severity", "info")
@@ -1305,7 +1440,7 @@ def render_riepilogo(meta: dict) -> str:
         "*Dettagli Tecnici dei Finding* di questo report.\n\n"
         "| **#** | **Severità** | **Nome del Finding** |\n"
         "|-------|--------------|----------------------|\n"
-        + "\n".join(list_rows) + "\n\n: Tabella 5: Elenco dei Finding")
+        + "\n".join(list_rows) + "\n\n: Tabella: Elenco dei Finding")
     return intro + sev_table + list_table
 
 
@@ -1328,11 +1463,24 @@ def _render_images(images: list[dict]) -> str:
         caption = (im.get("caption") or "").strip()
         if not path:
             continue
-        alt = caption or Path(path).stem
+        alt = caption  # alt vuoto se non c'è didascalia: niente sottotitolo nel PDF
         blocks.append(f"![{alt}]({path})")
         if caption:
             blocks.append(f"*Figura: {caption}*")
     return "\n\n".join(blocks)
+
+
+def _fmt_cvss_cell(f: dict) -> str:
+    """'7.5 (Alta)' con eventuale marcatura di stima."""
+    cvss = str(f.get("cvss") or "").strip()
+    if not cvss:
+        return "*—*"
+    m = re.match(r"^(\d+(?:\.\d+)?)", cvss)
+    if not m:
+        return cvss
+    sev = severity_label_from_score(float(m.group(1)))
+    est = " (stima)" if "stima" in cvss else ""
+    return f"{m.group(1)} ({sev}){est}"
 
 
 def render_finding(idx: int, f: dict) -> str:
@@ -1342,10 +1490,20 @@ def render_finding(idx: int, f: dict) -> str:
     cves = [c for c in (f.get("cves") or []) if str(c).strip()]
     rows = [
         ("CWE", _fmt_cwe(f.get("cwe", ""))),
-        ("Punteggio CVSS 3.1", (f.get("cvss") or "*—*")),
+        ("Punteggio CVSS 3.1", _fmt_cvss_cell(f)),
     ]
+    vector = str(f.get("cvss_vector") or "").strip()
+    if vector:
+        rows.append(("Vettore CVSS", f"`{vector}`"))
     if cves:
         rows.append(("CVE", ", ".join(str(c).upper() for c in cves)))
+    mitre = [str(t).strip() for t in (f.get("mitre") or []) if str(t).strip()]
+    if mitre:
+        rows.append(("MITRE ATT&CK", ", ".join(mitre)))
+    status = str(f.get("status") or "").strip().lower()
+    if status in STATUS_LABEL:
+        rows.append(("Stato", f'<span class="status-badge {STATUS_CLASS[status]}">'
+                              f"{STATUS_LABEL[status]}</span>"))
     rows += [
         ("Descrizione (incl. causa)", f.get("description", "")),
         ("Impatto", f.get("impact", "")),
@@ -1399,12 +1557,212 @@ def render_firma(meta: dict) -> str:
             '</div>')
 
 
+# ---------------------------------------------------------------------------
+# SLReport v2 — contatti, versioni, metodologia, rischio, appendici strutturate
+# ---------------------------------------------------------------------------
+
+SEV_HEX = {"critical": "#B71C1C", "high": "#C62828", "medium": "#E65100",
+           "low": "#2E7D32", "info": "#1565C0"}
+
+STATUS_LABEL = {"open": "Aperto", "fixed": "Risolto",
+                "partial": "Parzialmente risolto", "retest": "In retest",
+                "accepted": "Rischio accettato"}
+STATUS_CLASS = {"open": "status-open", "fixed": "status-fixed",
+                "partial": "status-partial", "retest": "status-retest",
+                "accepted": "status-accepted"}
+
+METHODOLOGIES = {
+    "OSSTMM": ("OSSTMM (Open Source Security Testing Methodology Manual) — "
+               "metodologia aperta per la misurazione operativa della sicurezza, "
+               "con focus su visibilità, controlli e fiducia."),
+    "PTES": ("PTES (Penetration Testing Execution Standard) — standard che "
+             "definisce le fasi del penetration test: intelligence gathering, "
+             "threat modeling, analisi delle vulnerabilità, exploitation e "
+             "post-exploitation."),
+    "OWASP": ("OWASP Testing Guide / OWASP Top 10 — linee guida di riferimento "
+              "per il test delle applicazioni web e la classificazione dei "
+              "rischi applicativi più comuni."),
+    "NIST SP 800-115": ("NIST SP 800-115 (Technical Guide to Information "
+                        "Security Testing and Assessment) — guida tecnica del "
+                        "NIST per la pianificazione e l'esecuzione di test di "
+                        "sicurezza."),
+    "MITRE ATT&CK": ("MITRE ATT&CK — knowledge base delle tattiche e tecniche "
+                     "di attacco osservate in the wild, usata per classificare "
+                     "le attività offensive dell'assessment."),
+}
+
+
+def _contacts_table(title: str, rows: list[dict]) -> str:
+    body = "\n".join(
+        f"| {r.get('name', '')} | {r.get('role', '')} | {r.get('email', '')} |"
+        for r in rows)
+    return (f"| **{title}** | | |\n"
+            "|---|---|---|\n"
+            "| **Nome** | **Ruolo** | **Email** |\n"
+            f"{body}\n\n: Tabella: {title}")
+
+
+def render_contatti(meta: dict) -> str:
+    contacts = meta.get("contacts") or {}
+    client_rows = [r for r in (contacts.get("client") or [])
+                   if str(r.get("name", "")).strip()]
+    team_rows = [r for r in (contacts.get("team") or [])
+                 if str(r.get("name", "")).strip()]
+    parts = []
+    if client_rows:
+        parts.append(_contacts_table("Contatti del Cliente", client_rows))
+    if team_rows:
+        parts.append(_contacts_table(f"Contatto {_company(meta)}", team_rows))
+    return "\n\n".join(parts)
+
+
+def render_versioni(meta: dict) -> str:
+    rows = [v for v in (meta.get("versions") or [])
+            if str(v.get("version", "")).strip()]
+    if not rows:
+        return ""
+    body = "\n".join(
+        f"| {v.get('version', '')} | {v.get('date', '')} | "
+        f"{v.get('author', '')} | {v.get('desc', '')} |" for v in rows)
+    return ("| **Versione** | **Data** | **Autore** | **Descrizione** |\n"
+            "|---|---|---|---|\n"
+            f"{body}\n\n: Tabella: Storico delle versioni")
+
+
+def render_metodologia(meta: dict) -> str:
+    chosen = [m for m in (meta.get("methodology") or []) if m in METHODOLOGIES]
+    if not chosen:
+        return ""
+    intro = ("L'assessment è stato condotto in conformità alle metodologie e "
+             "agli standard di riferimento riconosciuti a livello "
+             "internazionale:")
+    items = "\n".join(f"- **{m}**: {METHODOLOGIES[m]}" for m in chosen)
+    return f"{intro}\n\n{items}"
+
+
+def overall_risk(meta: dict) -> str:
+    """Rischio complessivo: override manuale oppure derivato dai conteggi."""
+    override = (meta.get("risk_override") or "").strip().lower()
+    if override in SEV_ORDER:
+        return override
+    counts = _sev_counts(meta.get("findings", []))
+    if counts["critical"] > 0:
+        return "critical"
+    if counts["high"] > 0 or counts["medium"] >= 3:
+        return "high"
+    if counts["medium"] > 0:
+        return "medium"
+    if counts["low"] > 0:
+        return "low"
+    if counts["info"] > 0:
+        return "info"
+    return ""
+
+
+def _sev_chart_html(counts: dict[str, int]) -> str:
+    """Grafico a barre orizzontali delle severity (HTML+CSS, reso da weasyprint)."""
+    total = sum(counts.values())
+    if total == 0:
+        return ""
+    rows = []
+    for sev in SEV_ORDER:
+        n = counts[sev]
+        pct = max(2.0, n / total * 100.0) if n else 0.0
+        fill = (f'<div class="risk-fill" style="width:{pct:.1f}%;'
+                f'background:{SEV_HEX[sev]}"></div>' if n else "")
+        rows.append(
+            f'<div class="risk-row"><span class="risk-label">{SEV_LABEL[sev]}</span>'
+            f'<div class="risk-bar">{fill}</div>'
+            f'<span class="risk-num">{n}</span></div>')
+    return '<div class="risk-chart">' + "".join(rows) + "</div>"
+
+
+def render_rischio(meta: dict) -> str:
+    findings = meta.get("findings", [])
+    if not findings:
+        return ""
+    counts = _sev_counts(findings)
+    risk = overall_risk(meta)
+    chart = _sev_chart_html(counts)
+    if not risk:
+        return chart
+    label = SEV_LABEL[risk]
+    badge = f'<span class="sev sev-{risk}">{label}</span>'
+    return (f'{chart}\n\n<div class="risk-total">Il livello di rischio '
+            f"complessivo dell'infrastruttura analizzata è valutato come "
+            f"{badge}, considerando il numero, la severità e la concatenabilità "
+            "dei finding identificati.</div>")
+
+
+def render_appendice_host(meta: dict) -> str:
+    rows = [h for h in (meta.get("compromised_hosts") or [])
+            if str(h.get("host", "")).strip()]
+    if not rows:
+        return ""
+    body = "\n".join(
+        f"| {h.get('host', '')} | `{h.get('ip', '')}` | {h.get('os', '')} | "
+        f"{h.get('access', '')} | {h.get('technique', '')} |" for h in rows)
+    return ("| **Host** | **Indirizzo IP** | **Sistema operativo** | "
+            "**Livello di accesso ottenuto** | **Tecnica** |\n"
+            "|---|---|---|---|---|\n"
+            f"{body}\n\n: Tabella: Host compromessi durante l'assessment")
+
+
+def render_appendice_utenti(meta: dict) -> str:
+    rows = [u for u in (meta.get("compromised_users") or [])
+            if str(u.get("user", "")).strip()]
+    if not rows:
+        return ""
+    body = "\n".join(
+        f"| `{u.get('user', '')}` | {u.get('domain', '')} | "
+        f"{u.get('access', '')} | {u.get('source', '')} |" for u in rows)
+    return ("| **Utente** | **Dominio** | **Livello di accesso** | "
+            "**Metodo di compromissione** |\n"
+            "|---|---|---|---|\n"
+            f"{body}\n\n: Tabella: Account compromessi durante l'assessment")
+
+
+def render_appendice_bonifica(meta: dict) -> str:
+    rows = [c for c in (meta.get("cleanup") or [])
+            if str(c.get("desc", "")).strip()]
+    if not rows:
+        return ""
+    body = "\n".join(
+        f"| {c.get('desc', '')} | {c.get('status', '')} |" for c in rows)
+    return ("| **Modifica / Artefatto** | **Stato della bonifica** |\n"
+            "|---|---|\n"
+            f"{body}\n\n: Tabella: Modifiche effettuate e attività di bonifica")
+
+
+def render_appendice_password(meta: dict) -> str:
+    rows = [c for c in (meta.get("credentials") or [])
+            if str(c.get("value", "")).strip() or str(c.get("username", "")).strip()]
+    if not rows:
+        return ""
+    body = "\n".join(
+        f"| {c.get('title', '')} | {c.get('username', '')} | "
+        f"{c.get('url', '')} | {c.get('notes', '')} | `{c.get('value', '')}` |"
+        for c in rows)
+    return ("| **Titolo** | **Nome utente** | **URL** | **Note** | "
+            "**Valore / Password** |\n"
+            "|---|---|---|---|---|\n"
+            f"{body}\n\n: Tabella: Credenziali e password recuperate durante l'assessment")
+
+
 _RENDERERS = {
+    "contatti": render_contatti,
+    "versioni": render_versioni,
+    "metodologia": render_metodologia,
     "approccio": render_approccio,
     "perimetro": render_perimetro,
     "panoramica": render_panoramica,
     "riepilogo": render_riepilogo,
+    "rischio": render_rischio,
     "findings": render_findings,
+    "appendice_host": render_appendice_host,
+    "appendice_utenti": render_appendice_utenti,
+    "appendice_bonifica": render_appendice_bonifica,
+    "appendice_password": render_appendice_password,
     "firma": render_firma,
 }
 
@@ -1478,6 +1836,27 @@ def _block_empty(content: str) -> bool:
     return not t
 
 
+_CAPTION_RE = re.compile(r"^:\s*Tabella(?:\s+\d+)?:", re.M)
+
+
+def renumber_captions(md_text: str) -> str:
+    """Rinumera le didascalie ': Tabella N:' in sequenza (1..n) nell'intero
+    documento: corregge duplicati e numeri lasciati dal template."""
+    counter = 0
+    in_code = False
+    out_lines = []
+    for ln in md_text.split("\n"):
+        if re.match(r"^\s*(```|~~~)", ln):
+            in_code = not in_code
+            out_lines.append(ln)
+            continue
+        if not in_code and _CAPTION_RE.match(ln):
+            counter += 1
+            ln = re.sub(r"^(:\s*)Tabella(?:\s+\d+)?:", rf"\g<1>Tabella {counter}:", ln)
+        out_lines.append(ln)
+    return "\n".join(out_lines)
+
+
 def filter_empty_sections(md_text: str) -> str:
     """Rimuove dal markdown le sezioni rimaste vuote (wizard non compilato):
 
@@ -1533,7 +1912,7 @@ def filter_empty_sections(md_text: str) -> str:
             break
     # compatta le righe vuote multiple lasciate dalle rimozioni
     text = re.sub(r"\n{3,}", "\n\n", text)
-    return text + firma
+    return renumber_captions(text + firma)
 
 
 def import_evidence(slug: str, src: str) -> str:
@@ -1580,7 +1959,10 @@ def preview_md(slug: str, meta: dict | None = None,
     stored = load_meta(slug) or {}
     if meta:
         for key in ("client", "rtype", "box", "domain", "date_start",
-                    "date_end", "scope", "findings", "style"):
+                    "date_end", "time_start", "time_end", "scope", "findings",
+                    "style", "contacts", "versions", "methodology",
+                    "compromised_hosts", "compromised_users", "credentials",
+                    "cleanup", "risk_override"):
             if key in meta:
                 stored[key] = meta[key]
     if sections:
@@ -1648,11 +2030,19 @@ def create_report(client: str, rtype: str = "Penetration Test Interno",
     text = text.replace("{{DATE}}", today)
     text = text.replace("{{DOMAIN}}", domain)
     text = text.replace("{{SLUG}}", slug)
+    text = text.replace("{{CONTATTI}}", render_contatti(meta))
+    text = text.replace("{{VERSIONI}}", render_versioni(meta))
+    text = text.replace("{{METODOLOGIA}}", render_metodologia(meta))
     text = text.replace("{{APPROCCIO}}", render_approccio(meta))
     text = text.replace("{{PERIMETRO}}", render_perimetro(meta))
     text = text.replace("{{PANORAMICA}}", render_panoramica(meta))
     text = text.replace("{{RIEPILOGO}}", render_riepilogo(meta))
+    text = text.replace("{{RISCHIO}}", render_rischio(meta))
     text = text.replace("{{FINDINGS}}", render_findings(meta))
+    text = text.replace("{{APP_HOST}}", render_appendice_host(meta))
+    text = text.replace("{{APP_UTENTI}}", render_appendice_utenti(meta))
+    text = text.replace("{{APP_BONIFICA}}", render_appendice_bonifica(meta))
+    text = text.replace("{{APP_PASSWORD}}", render_appendice_password(meta))
     text = text.replace("{{FIRMA}}", render_firma(meta))
     out.write_text(text, encoding="utf-8")
     sync_report(slug)  # riempie tutti i blocchi @@AUTO@@ (firma inclusa)
@@ -1667,18 +2057,24 @@ def add_finding(slug: str, finding: dict, index: int | None = None) -> tuple[boo
     meta = load_meta(slug)
     if meta is None:
         return False, f"Report '{slug}' non trovato (o meta.json mancante)."
-    sev = (finding.get("severity") or "info").lower()
+    sev = (finding.get("severity") or "").strip().lower()
     if sev not in SEV_ORDER:
-        sev = "info"
-    finding["severity"] = sev
+        sev = ""  # vuota: derivata dal vettore CVSS in autofill, o 'info'
     finding["cves"] = [str(c).strip().upper() for c in (finding.get("cves") or [])
                        if str(c).strip()]
+    finding["mitre"] = [re.sub(r"^T", "T", str(t).strip().upper())
+                        for t in (finding.get("mitre") or []) if str(t).strip()]
+    status = (finding.get("status") or "").strip().lower()
+    finding["status"] = status if status in STATUS_LABEL else ""
+    finding["cvss_vector"] = str(finding.get("cvss_vector") or "").strip()
     finding["images"] = [{"path": str(im.get("path", "")).strip(),
                           "caption": str(im.get("caption", "")).strip()}
                          for im in (finding.get("images") or [])
                          if isinstance(im, dict) and str(im.get("path", "")).strip()]
-    # completa i campi lasciati vuoti con i dati offline di MSF
+    # completa i campi lasciati vuoti (CVSS dal vettore, NVD online, libreria, MSF)
     autofill_finding(finding, meta)
+    if not finding.get("severity"):
+        finding["severity"] = "info"
     if index is not None and 0 <= index < len(meta["findings"]):
         meta["findings"][index] = finding
         msg = f"Finding SLC-{index + 1:02d} aggiornato"
@@ -2017,6 +2413,7 @@ def render_report_html(md_text: str, meta: dict | None = None) -> tuple[bool, st
     try:
         r = subprocess.run(
             [pandoc, str(tmp_md_path), "--standalone",
+             "--from", "markdown-tex_math_dollars",
              "--template", str(tmp_tpl_path),
              "--toc", "--toc-depth=2",
              "--no-highlight",
@@ -2058,11 +2455,19 @@ def render_template_html() -> tuple[bool, str]:
     text = text.replace("{{DATE}}", today)
     text = text.replace("{{DOMAIN}}", domain)
     text = text.replace("{{SLUG}}", "nome-cliente")
+    text = text.replace("{{CONTATTI}}", render_contatti(meta))
+    text = text.replace("{{VERSIONI}}", render_versioni(meta))
+    text = text.replace("{{METODOLOGIA}}", render_metodologia(meta))
     text = text.replace("{{APPROCCIO}}", render_approccio(meta))
     text = text.replace("{{PERIMETRO}}", render_perimetro(meta))
     text = text.replace("{{PANORAMICA}}", render_panoramica(meta))
     text = text.replace("{{RIEPILOGO}}", render_riepilogo(meta))
+    text = text.replace("{{RISCHIO}}", render_rischio(meta))
     text = text.replace("{{FINDINGS}}", render_findings(meta))
+    text = text.replace("{{APP_HOST}}", render_appendice_host(meta))
+    text = text.replace("{{APP_UTENTI}}", render_appendice_utenti(meta))
+    text = text.replace("{{APP_BONIFICA}}", render_appendice_bonifica(meta))
+    text = text.replace("{{APP_PASSWORD}}", render_appendice_password(meta))
     text = text.replace("{{FIRMA}}", render_firma(meta))
     return render_report_html(text, meta)
 
@@ -2119,22 +2524,30 @@ def build_report(name: str | None) -> tuple[bool, str]:
         tmp_css.close()
         tmp_css_path = Path(tmp_css.name)
         css_path = tmp_css_path
-    if company or logo:
-        html_text = TEMPLATE_HTML.read_text(encoding="utf-8")
-        if logo:
-            html_text = html_text.replace(
-                '<div class="cover-client">',
-                f'<img class="cover-logo" src="{html_escape_attr(logo)}" alt="Logo"><br>\n'
-                '    <div class="cover-client">', 1)
-        if company and company != DEFAULT_COMPANY:
-            html_text = html_text.replace(DEFAULT_COMPANY, company)
-        tmp_html = tempfile.NamedTemporaryFile(
-            mode="w", suffix=".html", dir=PROJECT_ROOT, delete=False, encoding="utf-8",
-            prefix=".report-tpl-")
-        tmp_html.write(html_text)
-        tmp_html.close()
-        tmp_html_path = Path(tmp_html.name)
-        html_path = tmp_html_path
+    # html template: sempre rigenerato (metadati PDF + logo/azienda custom)
+    author = (style.get("author") or "").strip() or DEFAULT_AUTHOR
+    meta_tags = (
+        f'<meta name="author" content="{html_escape_attr(author)}">\n'
+        f'<meta name="description" content="{html_escape_attr((meta.get("rtype") or "Penetration Test") + " — " + (meta.get("client") or rep["slug"]))}">\n'
+        f'<meta name="keywords" content="penetration test, security assessment, {html_escape_attr(meta.get("client") or "")}">\n'
+        '<meta name="generator" content="SLCtrl SLReport">\n'
+    )
+    html_text = TEMPLATE_HTML.read_text(encoding="utf-8")
+    html_text = html_text.replace("</head>", meta_tags + "</head>", 1)
+    if logo:
+        html_text = html_text.replace(
+            '<div class="cover-client">',
+            f'<img class="cover-logo" src="{html_escape_attr(logo)}" alt="Logo"><br>\n'
+            '    <div class="cover-client">', 1)
+    if company and company != DEFAULT_COMPANY:
+        html_text = html_text.replace(DEFAULT_COMPANY, company)
+    tmp_html = tempfile.NamedTemporaryFile(
+        mode="w", suffix=".html", dir=PROJECT_ROOT, delete=False, encoding="utf-8",
+        prefix=".report-tpl-")
+    tmp_html.write(html_text)
+    tmp_html.close()
+    tmp_html_path = Path(tmp_html.name)
+    html_path = tmp_html_path
 
     tmp = tempfile.NamedTemporaryFile(
         mode="w", suffix=".html", dir=PROJECT_ROOT, delete=False, encoding="utf-8")
@@ -2143,6 +2556,7 @@ def build_report(name: str | None) -> tuple[bool, str]:
     try:
         r = subprocess.run(
             [pandoc, str(tmp_md_path), "--standalone",
+             "--from", "markdown-tex_math_dollars",
              "--template", str(html_path),
              "--css", str(css_path),
              "--toc", "--toc-depth=2",
@@ -2286,6 +2700,61 @@ def _ask_msf_prefill() -> dict:
     }
 
 
+def _ask_library_prefill() -> dict:
+    """Cerca nella libreria di finding generici (offline) e prepara i campi."""
+    try:
+        from lib.findinglib import library_search, finding_from_library
+    except ImportError:
+        return {}
+    try:
+        q = _ask("Cerca nella libreria finding (es. xss, potato, smbv1 — invio per saltare)")
+    except KeyboardInterrupt:
+        raise
+    if not q:
+        return {}
+    results = library_search(q, limit=8)
+    if not results:
+        print("  \033[93m[~]\033[0m Nessuna voce in libreria per questa ricerca.")
+        return {}
+    print(f"  \033[92m[+]\033[0m {len(results)} voci in libreria:\n")
+    for i, e in enumerate(results, 1):
+        cat = f"[{e['category']}] " if e.get("category") else ""
+        cvss = f" — CVSS {e['cvss']:.1f}" if "cvss" in e else ""
+        print(f"    [{i}] \033[1m{e['title']}\033[0m ({cat}"
+              f"{SEV_LABEL.get(e.get('severity',''), e.get('severity',''))}{cvss})")
+        if e.get("description"):
+            print(f"        {e['description'][:110]}")
+    try:
+        pick = _ask("Usa la voce n. (invio per nessuna)")
+    except KeyboardInterrupt:
+        raise
+    if not pick.isdigit() or not (1 <= int(pick) <= len(results)):
+        return {}
+    return finding_from_library(results[int(pick) - 1])
+
+
+def _ask_cvss_vector() -> str:
+    """Chiede un vettore CVSS 3.1 e mostra subito punteggio/severità calcolati."""
+    try:
+        from lib.cvss import CVSSError, describe
+    except ImportError:
+        return ""
+    try:
+        v = _ask("Vettore CVSS 3.1 (es. CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H — invio per omettere)")
+    except KeyboardInterrupt:
+        raise
+    if not v:
+        return ""
+    try:
+        d = describe(v)
+    except CVSSError as e:
+        print(f"  \033[91m[!]\033[0m Vettore non valido: {e}")
+        return ""
+    print(f"  \033[92m[+]\033[0m Punteggio calcolato: {d['score']:.1f} "
+          f"({SEV_LABEL.get(d['severity'], '')})")
+    return d["vector"]
+
+
 def interactive_add_finding(slug: str) -> int:
     rep = find_report(slug)
     if rep is None:
@@ -2295,27 +2764,37 @@ def interactive_add_finding(slug: str) -> int:
     print(f"\n\033[1mNuovo finding — {rep['client']}\033[0m\n")
     while True:
         try:
-            pre = _ask_msf_prefill()
+            pre = _ask_library_prefill()
             if pre:
-                print("  \033[92m[+]\033[0m Campi precompilati da Metasploit (modifica ciò che serve).")
+                print("  \033[92m[+]\033[0m Campi precompilati dalla libreria (modifica ciò che serve).")
+            if not pre:
+                pre = _ask_msf_prefill()
+                if pre:
+                    print("  \033[92m[+]\033[0m Campi precompilati da Metasploit (modifica ciò che serve).")
             title = _ask("Titolo del finding", pre.get("title", ""))
             if not title:
                 print("Annullato (titolo vuoto).")
                 return 1
-            print("  Severità: 1) Critica  2) Alta  3) Media  4) Bassa  5) Info")
+            print("  Severità: 1) Critica  2) Alta  3) Media  4) Bassa  5) Info  "
+                  "0) dal vettore CVSS")
             sev_default = {v: str(i) for i, v in enumerate(
                 ("critical", "high", "medium", "low", "info"), 1)}.get(pre.get("severity", "high"), "2")
             sev_n = _ask("Scelta", sev_default)
             severity = {"1": "critical", "2": "high", "3": "medium", "4": "low",
-                        "5": "info"}.get(sev_n, pre.get("severity", "high"))
+                        "5": "info"}.get(sev_n, pre.get("severity", ""))
+            cvss_vector = _ask_cvss_vector() or pre.get("cvss_vector", "")
             cves = pre.get("cves") or []
             cve_raw = _ask("CVE (separate da virgola, invio per omettere)",
                            ", ".join(cves))
             cves = [c.strip().upper() for c in cve_raw.split(",") if c.strip()]
             cwe = _ask("CWE (solo numero, es. 522 — invio per omettere)",
                        pre.get("cwe", ""))
-            cvss = _ask("Punteggio CVSS 3.1 (es. 9.5 — invio per omettere)",
+            cvss = _ask("Punteggio CVSS 3.1 (vuoto = dal vettore; invio per omettere)",
                         pre.get("cvss", ""))
+            mitre_raw = _ask("MITRE ATT&CK (es. T1190, T1059 — invio per omettere)",
+                             ", ".join(pre.get("mitre") or []))
+            mitre = [t.strip().upper() for t in mitre_raw.split(",") if t.strip()]
+            status_raw = _ask("Stato (open/fixed/partial/retest/accepted)", "open")
             desc = _ask("Descrizione (incl. causa)", pre.get("description", ""))
             impact = _ask("Impatto", pre.get("impact", ""))
             assets = _ask("Asset interessati", load_meta(slug).get("domain", ""))
@@ -2340,9 +2819,11 @@ def interactive_add_finding(slug: str) -> int:
             print("Annullato.")
             return 1
         finding = {"title": title, "severity": severity, "cwe": cwe, "cvss": cvss,
-                   "cves": cves, "description": desc, "impact": impact,
+                   "cvss_vector": cvss_vector, "cves": cves, "mitre": mitre,
+                   "status": status_raw, "description": desc, "impact": impact,
                    "assets": assets, "remediation": remediation, "refs": refs,
-                   "evidence": evidence, "images": images, "msf": pre.get("msf", "")}
+                   "evidence": evidence, "images": images, "msf": pre.get("msf", ""),
+                   "library_id": pre.get("library_id", "")}
         ok, msg = add_finding(slug, finding)
         print(("\n\033[92m[+]\033[0m " if ok else "\n\033[91m[!]\033[0m ") + msg)
         if not ok:
@@ -2371,7 +2852,8 @@ def _print_report_help() -> None:
     print("  \033[92;1mUso:\033[0m")
     print('  report new ["Cliente"] [tipo]   Wizard: cliente, black/white/grey box, date')
     print("  report list                     Elenca i report esistenti")
-    print("  report add <nome|num>           Wizard: aggiungi un finding (severity auto)")
+    print("  report add <nome|num>           Wizard: aggiungi un finding (libreria + MSF + NVD)")
+    print("  report lib [ricerca]            Libreria finding generici offline (xss, potato...)")
     print("  report sync <nome|num>          Rigenera i blocchi automatici nel .md")
     print("  report edit <nome|num> [modo]   Modifica il report:")
     print("  \033[90m                              vsc / vscode / md (default): VS Code sul .md")
@@ -2398,7 +2880,9 @@ def _print_report_help() -> None:
     print("  \033[92;1mNote:\033[0m")
     print("  - Report in \033[96mreports/<cliente>/\033[0m (+ meta.json con i dati strutturati)")
     print("  - Evidenze in \033[96mreports/<cliente>/evidence/\033[0m")
-    print("  - 'report add' cerca CVE/moduli nel db LOCALE di Metasploit (offline)")
+    print("  - 'report add' precompila da: libreria finding (offline, vuln/library/),")
+    print("    db LOCALE di Metasploit (offline), NVD (solo se la macchina è online)")
+    print("  - Il vettore CVSS 3.1 calcola da solo punteggio e severità")
     print("  - Le sezioni lasciate vuote non compaiono nel PDF (né titoli né spazi)")
     print("  - 'report edit' (testo) cerca nel PATH: " + ", ".join(_VSCODE_CANDIDATES))
     print("  - 'report edit <nome> pdf' cerca: " +
@@ -2409,6 +2893,39 @@ def _print_report_help() -> None:
     print("    (watcher in background, log in reports/<cliente>/.watch.log)")
     print("  - Su SLWeb: wizard guidato sezione per sezione in \033[96m/report\033[0m")
     print()
+
+
+def cmd_lib(query: str | None) -> int:
+    """Cerca/elenca la libreria di finding generici (offline)."""
+    try:
+        from lib.findinglib import library_search, library_entries
+    except ImportError:
+        print("\033[91m[!]\033[0m Libreria non disponibile.", file=sys.stderr)
+        return 1
+    if query:
+        results = library_search(query, limit=15)
+        if not results:
+            print(f"\nNessuna voce per '{query}'. Prova: xss, sqli, potato, smbv1, keepass...\n")
+            return 1
+    else:
+        results = library_entries()
+        if not results:
+            print("\nLibreria vuota: aggiungi file .md in vuln/library/\n")
+            return 1
+    print(f"\n\033[1mLibreria finding\033[0m — {len(results)} voci"
+          + (f" per '{query}'" if query else "") + ":\n")
+    last_cat = None
+    for e in results:
+        if not query and e.get("category") != last_cat:
+            last_cat = e.get("category")
+            print(f"  \033[94;1m{last_cat}\033[0m")
+        cvss = f"CVSS {e['cvss']:.1f}" if "cvss" in e else "—"
+        sev = SEV_LABEL.get(e.get("severity", ""), "?")
+        prefix = "    " if not query else "  "
+        print(f"{prefix}\033[1m{e['id']}\033[0m — {e['title']} "
+              f"(\033[96m{sev}\033[0m, {cvss})")
+    print("\nUsa la voce da wizard: '\033[96mreport add <report>\033[0m' → cerca in libreria.\n")
+    return 0
 
 
 def cmd_report(args: argparse.Namespace, state=None) -> int:
@@ -2424,6 +2941,9 @@ def cmd_report(args: argparse.Namespace, state=None) -> int:
             return 0
         _print_report_help()
         return 0
+
+    if action == "lib":
+        return cmd_lib(target)
 
     if action == "new":
         return interactive_new(target, extra)

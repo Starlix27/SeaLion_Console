@@ -14,14 +14,16 @@ classification: "Riservato"
      SLCtrl — Template Report di Penetration Test
      ------------------------------------------------------------
      USO:  report new          (wizard interattivo: cliente, box, date)
-           report add <nome>   (aggiungi un finding)
+           report add <nome>   (aggiungi un finding: libreria + MSF + NVD)
+           report lib [testo]  (cerca nella libreria finding offline)
            report edit <nome>  (apri in VS Code)
            report build <nome> (genera il PDF)
      ------------------------------------------------------------
      DATI DINAMICI — LEGGIMI!
      I blocchi racchiusi tra i marcatori  @@AUTO:nome@@ ... @@/AUTO:nome@@
-     sono GENERATI AUTOMATICAMENTE da `report` / SLWeb (cliente,
-     approccio, perimetro, conteggi severity, elenco e card finding).
+     sono GENERATI AUTOMATICAMENTE da `report` / SLWeb (contatti, versioni,
+     metodologia, approccio, perimetro, conteggi severity, grafico rischio,
+     elenco e card finding, appendici host/utenti/credenziali/bonifica).
      NON modificarli a mano: vengono sovrascritti a ogni sync.
      Per cambiarli usa `report add`, `report sync` o il wizard SLWeb.
      I blocchi racchiusi tra  @@SEZ:nome@@ ... @@/SEZ:nome@@
@@ -48,21 +50,15 @@ tali.
 
 # Contatti
 
-| **Contatti del Cliente** |                         |                             |
-|--------------------------|-------------------------|-----------------------------|
-| **Contatto Primario**    | **Ruolo**               | **Email Contatto Primario** |
-| Mario Rossi              | Chief Executive Officer | mrossi@cliente.local        |
-| **Contatto Secondario**  | **Ruolo**               | **Email Contatto Secondario** |
-| Laura Bianchi            | Chief Technical Officer | lbianchi@cliente.local      |
+<!-- @@AUTO:contatti@@ -->
+{{CONTATTI}}
+<!-- @@/AUTO:contatti@@ -->
 
-: Tabella 1: Contatti del Cliente
+# Storico delle Versioni
 
-| **Contatto SLCtrl** |                         |                             |
-|---------------------|-------------------------|-----------------------------|
-| **Nome**            | **Ruolo**               | **Email**                   |
-| Santarella Martina  | Penetration Tester      | msantarella@slctrl.local    |
-
-: Tabella 2: Contatto SLCtrl
+<!-- @@AUTO:versioni@@ -->
+{{VERSIONI}}
+<!-- @@/AUTO:versioni@@ -->
 
 # Executive Summary
 
@@ -95,6 +91,17 @@ raccomandazioni di remediation.
      alla sezione Piano di Remediation. -->
 <!-- @@/SEZ:panoramica_note@@ -->
 
+# Metodologia
+
+<!-- @@AUTO:metodologia@@ -->
+{{METODOLOGIA}}
+<!-- @@/AUTO:metodologia@@ -->
+
+<!-- @@SEZ:metodologia_note@@ -->
+<!-- Dettagli aggiuntivi sull'approccio seguito (fasi, strumenti, limitazioni).
+     Se lasci vuoto, questa nota non compare nel PDF. -->
+<!-- @@/SEZ:metodologia_note@@ -->
+
 # Riepilogo dell'Assessment
 
 SLCtrl ha iniziato tutte le attività di test dalla prospettiva di un utente non
@@ -106,6 +113,12 @@ senza informazioni aggiuntive su sistemi operativi o configurazioni.
 <!-- @@AUTO:riepilogo@@ -->
 {{RIEPILOGO}}
 <!-- @@/AUTO:riepilogo@@ -->
+
+## Valutazione del Rischio
+
+<!-- @@AUTO:rischio@@ -->
+{{RISCHIO}}
+<!-- @@/AUTO:rischio@@ -->
 
 # Compromissione della Rete Interna
 
@@ -174,48 +187,35 @@ riservatezza, integrità e disponibilità dei dati del Cliente.
 | <span class="sev sev-low">Bassa</span> | Lo sfruttamento causa un impatto minimo sulle operazioni. Esposizione alla minaccia medio-bassa e probabilità di occorrenza minima. |
 | <span class="sev sev-info">Info</span> | Osservazione che non rappresenta di per sé una vulnerabilità, ma la cui risoluzione rafforzerebbe la postura di sicurezza complessiva. |
 
-: Tabella 3: Definizioni dei Livelli di Severità
+: Tabella: Definizioni dei Livelli di Severità
 
 ## Appendice B – Host Compromessi
 
-<!-- @@SEZ:appendice_host@@ -->
-<!-- Tabella degli host compromessi, es:
-     | **Host**                | **Ambito** | **Metodo** | **Note**                  |
-     |-------------------------|------------|------------|---------------------------|
-     | `192.168.100.10 (DC01)` | Interno    | DCSync     | Compromissione del dominio |
-     Se lasci vuoto, questa appendice non comparirà nel PDF. -->
-<!-- @@/SEZ:appendice_host@@ -->
+<!-- @@AUTO:appendice_host@@ -->
+{{APP_HOST}}
+<!-- @@/AUTO:appendice_host@@ -->
 
 ## Appendice C – Utenti Compromessi
 
-<!-- @@SEZ:appendice_utenti@@ -->
-<!-- Tabella degli account compromessi, es:
-     | **Username** | **Tipo** | **Metodo**                     | **Note** |
-     |--------------|----------|--------------------------------|----------|
-     | `mrossi`     | Dominio  | NBT-NS/LLMNR Response Spoofing | Utente standard |
-     Se lasci vuoto, questa appendice non comparirà nel PDF. -->
-<!-- @@/SEZ:appendice_utenti@@ -->
+<!-- @@AUTO:appendice_utenti@@ -->
+{{APP_UTENTI}}
+<!-- @@/AUTO:appendice_utenti@@ -->
 
 ## Appendice D – Modifiche e Bonifica degli Host
 
-<!-- @@SEZ:appendice_bonifica@@ -->
-<!-- Tabella delle modifiche/artefatti da bonificare, es:
-     | **Host**                 | **Ambito** | **Modifica/Bonifica necessaria** |
-     |--------------------------|------------|----------------------------------|
-     | `192.168.100.20 (SQL01)` | Interno    | File caricato `cmd.aspx` — md5: `...` |
-     Se lasci vuoto, questa appendice non comparirà nel PDF. -->
-<!-- @@/SEZ:appendice_bonifica@@ -->
+<!-- @@AUTO:appendice_bonifica@@ -->
+{{APP_BONIFICA}}
+<!-- @@/AUTO:appendice_bonifica@@ -->
 
 ## Appendice E – Analisi delle Password del Dominio
 
-<!-- @@SEZ:appendice_password@@ -->
-<!-- Statistiche sul recupero delle password, es:
-     | **Metrica**                   | **#**   |
-     |-------------------------------|---------|
-     | Hash di password ottenuti     | 2.000   |
-     | Password recuperate in chiaro | 1.284   |
-     Se lasci vuoto, questa appendice non comparirà nel PDF. -->
-<!-- @@/SEZ:appendice_password@@ -->
+<!-- @@AUTO:appendice_password@@ -->
+{{APP_PASSWORD}}
+<!-- @@/AUTO:appendice_password@@ -->
+
+<!-- @@SEZ:appendice_note@@ -->
+<!-- Note aggiuntive alle appendici (testo libero). Se vuoto, non compare. -->
+<!-- @@/SEZ:appendice_note@@ -->
 
 # Considerazioni Finali
 
