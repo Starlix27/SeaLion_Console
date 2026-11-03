@@ -3244,7 +3244,7 @@ function renderFindingForm(){{
     textarea('f-impact','Impatto',f.impact,60)+
     textarea('f-remediation','Remediation',f.remediation,60)+
     field('f-refs','Riferimenti (URL)',f.refs,'https://nvd.nist.gov/vuln/detail/CVE-...')+
-    textarea('f-evidence','Evidenze testuali (output comandi — di default racchiuse in ```, toglile pure se non servono)',(EDIT_IDX>=0?(f.evidence||''):(f.evidence&&f.evidence.trim()?f.evidence:'```\n\n```')),70)+
+    textarea('f-evidence','Evidenze testuali (output comandi — di default racchiuse in ```, toglile pure se non servono)',(EDIT_IDX>=0?(f.evidence||''):(f.evidence&&f.evidence.trim()?f.evidence:'```\\n\\n```')),70)+
     '<div class="wiz-field"><label>Immagini evidenza (con didascalia sotto)</label>'+
     '<div id="f-images"></div>'+
     '<div style="display:flex;gap:8px;align-items:center;margin-top:6px">'+
@@ -3292,7 +3292,7 @@ function libUse(i){{
   document.getElementById('f-remediation').value=r.remediation||'';
   if(r.refs)document.getElementById('f-refs').value=r.refs;
   if(r.verification && !document.getElementById('f-evidence').value.replace(/`/g,'').trim())
-    document.getElementById('f-evidence').value='```\n'+String(r.verification).trim()+'\n```';
+    document.getElementById('f-evidence').value='```\\n'+String(r.verification).trim()+'\\n```';
   if(!gv('f-assets')){{
     var hosts=(DATA.meta.scope||[]).map(function(x){{return (x.host||'').trim();}}).filter(function(x){{return x;}});
     document.getElementById('f-assets').value=hosts.join(', ')||DATA.meta.domain||'';
