@@ -1,0 +1,19 @@
+# ============================================================
+# SeaLion Console (SLConsole) — strumenti esterni richiesti
+# ------------------------------------------------------------
+# Installa TUTTO in una botta sola (Debian/Ubuntu/Kali):
+#   grep -vE '^\s*(#|$)' requirements.txt | xargs sudo apt install -y
+# Serve anche la libreria Python YAML (già coperta da python3-yaml;
+# in alternativa:  pip install pyyaml )
+# ------------------------------------------------------------
+# I moduli con esigenze specifiche hanno il loro requirements:
+#   report/requirements.txt          (SLReport: PDF via pandoc+weasyprint)
+#   static/slrecon-requirements.txt  (SLRecon: tool di recon)
+# ============================================================
+git                  # auto-update all'avvio (git pull da SeaLion_Console)
+python3              # runtime della console (>= 3.10)
+python3-yaml         # frontmatter della libreria finding (lib/findinglib.py)
+curl                 # quick delivery, download payload, intel KEV/EPSS
+chafa                # rendering ASCII art / GIF nel terminale
+caca-utils           # img2txt: fallback rendering immagini
+xdg-utils            # xdg-open: apertura browser/PDF dalla console

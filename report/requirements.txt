@@ -1,0 +1,14 @@
+# ============================================================
+# SLReport — strumenti esterni per generare i report PDF
+# ------------------------------------------------------------
+# Installa TUTTO in una botta sola (Debian/Ubuntu/Kali):
+#   grep -vE '^\s*(#|$)' report/requirements.txt | xargs sudo apt install -y
+# ------------------------------------------------------------
+# Opzionali ma consigliati per l'autofill dei finding:
+#   metasploit-framework   (db moduli offline, CVE/rank/refs)
+#   nuclei                 (template CVE locali, ~/nuclei-templates)
+#   pip install epss ...   no: EPSS/CISA KEV si scaricano da soli online
+# ============================================================
+pandoc               # markdown -> HTML (stessa pipeline per anteprima e PDF)
+weasyprint           # HTML -> PDF (in alternativa: pip install weasyprint)
+fonts-liberation     # font consigliati per il rendering del PDF

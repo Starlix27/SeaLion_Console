@@ -65,7 +65,15 @@ source ~/.bashrc
 
 **Requisiti:** Python 3.10+, Linux (WSL supportato). `chafa` per animazione Ctrl+C (installato automaticamente). `rich` opzionale per rendering Markdown migliorato (`pip install rich`).
 
-**Auto-update:** all'avvio slconsole si sincronizza automaticamente con il repository remoto. Se ci sono aggiornamenti, vengono applicati subito senza intervento manuale.
+**Dipendenze esterne (stile requirements.txt):** ogni modulo che usa programmi esterni ha il suo file con il comando per installare tutto in una botta sola:
+
+| File | Copre | Installa tutto con |
+|------|-------|--------------------|
+| `requirements.txt` | SLConsole generale | `grep -vE '^\s*(#|$)' requirements.txt \| xargs sudo apt install -y` |
+| `report/requirements.txt` | SLReport (PDF) | `grep -vE '^\s*(#|$)' report/requirements.txt \| xargs sudo apt install -y` |
+| `static/slrecon-requirements.txt` | SLRecon | `grep -vE '^\s*(#|$)' static/slrecon-requirements.txt \| xargs sudo apt install -y` |
+
+**Auto-update:** all'avvio slconsole esegue sempre `git pull` dal repository SeaLion_Console. Eventuali modifiche locali non committate vengono messe da parte (stash automatico) e ripristinate dopo l'aggiornamento, senza perdere il lavoro.
 
 ---
 

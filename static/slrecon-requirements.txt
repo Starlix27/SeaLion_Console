@@ -1,0 +1,18 @@
+# ============================================================
+# SLRecon (slrecon.sh / comando recon) — strumenti di recon
+# ------------------------------------------------------------
+# Installa TUTTO in una botta sola (Debian/Ubuntu/Kali):
+#   grep -vE '^\s*(#|$)' slrecon-requirements.txt | xargs sudo apt install -y
+# oppure dal delivery server di SLConsole:
+#   curl http://LHOST:2727/slrecon-requirements.txt | grep -vE '^\s*(#|$)' | xargs sudo apt install -y
+# ============================================================
+nmap                 # scan 2-step, NSE mirati, UDP top-ports
+rustscan             # port scan TCP veloce (passa le porte a nmap)
+feroxbuster          # directory/content scan (preferito)
+gobuster             # directory scan (fallback di feroxbuster)
+ffuf                 # vhost fuzzing
+nikto                # web server scanner
+enum4linux-ng        # enumerazione SMB/NetBIOS completa
+smbclient            # listing share SMB veloce
+dnsutils             # dig: DNS enum / zone transfer
+curl                 # fetch dei payload e di questo file

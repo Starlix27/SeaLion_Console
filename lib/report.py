@@ -31,6 +31,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import textwrap
 import time
 import unicodedata
 from pathlib import Path
@@ -66,6 +67,38 @@ SEV_LABEL = {"critical": "Critica", "high": "Alta", "medium": "Media",
              "low": "Bassa", "info": "Info"}
 SEV_RISK = {"critical": "critico", "high": "alto", "medium": "medio",
             "low": "basso", "info": "informativo"}
+
+
+def sort_findings_by_severity(findings: list[dict]) -> bool:
+    """Ordina i finding per severità (critical → info), stabile a parità di
+    livello (mantiene l'ordine di inserimento). Ritorna True se l'ordine è
+    cambiato."""
+    rank = {s: i for i, s in enumerate(SEV_ORDER)}
+    keyed = sorted(enumerate(findings),
+                   key=lambda x: (rank.get(str(x[1].get("severity") or "info")
+                                           .strip().lower(), len(SEV_ORDER)),
+                                  x[0]))
+    ordered = [f for _, f in keyed]
+    changed = ordered != findings
+    if changed:
+        findings[:] = ordered
+    return changed
+
+
+def _md_cell(value) -> str:
+    """Contenuto sicuro per una cella di pipe-table pandoc.
+
+    Le pipe-table NON supportano righe multiple né il carattere `|` letterale:
+    un testo con a capo o pipe romperebbe la tabella (il resto finirebbe come
+    testo grezzo nel PDF). Qui i ritorni a capo diventano <br> e i pipe
+    vengono escapati."""
+    v = str(value or "").strip()
+    if not v:
+        return ""
+    v = v.replace("|", "\\|")
+    v = re.sub(r"\n{2,}", "<br><br>", v)
+    v = v.replace("\n", "<br>")
+    return v
 
 
 def severity_label_from_score(sc: float) -> str:
@@ -1373,7 +1406,8 @@ def render_perimetro(meta: dict) -> str:
                  "| *da definire*             | *da definire*   |\n\n"
                  ": Tabella: Dettagli del Perimetro")
         return intro + table
-    rows = "\n".join(f"| `{r['host']}` | {r['desc']} |" for r in scope)
+    rows = "\n".join(f"| `{_md_cell(r['host'])}` | {_md_cell(r['desc'])} |"
+                      for r in scope)
     table = ("\n\n| **Host/URL/Indirizzo IP** | **Descrizione** |\n"
              "|---------------------------|-----------------|\n"
              f"{rows}\n\n: Tabella: Dettagli del Perimetro")
@@ -1433,7 +1467,8 @@ def render_riepilogo(meta: dict) -> str:
     for i, f in enumerate(findings, 1):
         sev = f.get("severity", "info")
         badge = f'<span class="sev sev-{sev}">{SEV_LABEL.get(sev, sev)}</span>'
-        list_rows.append(f"| {i}. | {badge} | {f.get('title', 'Senza titolo')} |")
+        list_rows.append(
+            f"| {i}. | {badge} | {_md_cell(f.get('title', 'Senza titolo'))} |")
     list_table = (
         "\n\nDi seguito una panoramica di alto livello di ciascun finding "
         "identificato. I finding sono trattati in dettaglio nella sezione "
@@ -1486,12 +1521,16 @@ def _fmt_cvss_cell(f: dict) -> str:
 def render_finding(idx: int, f: dict) -> str:
     sev = f.get("severity", "info")
     label = SEV_LABEL.get(sev, sev)
-    head = f"## SLC-{idx:02d} – {f.get('title', 'Senza titolo')} – <span class=\"sev sev-{sev}\">{label}</span>"
+    title = re.sub(r"\s*\n\s*", " ", str(f.get("title") or "Senza titolo")).strip()
+    head = f"## SLC-{idx:02d} – {title} – <span class=\"sev sev-{sev}\">{label}</span>"
     cves = [c for c in (f.get("cves") or []) if str(c).strip()]
-    rows = [
-        ("CWE", _fmt_cwe(f.get("cwe", ""))),
-        ("Punteggio CVSS 3.1", _fmt_cvss_cell(f)),
-    ]
+    # solo i campi compilati entrano nella tabella: una riga vuota non viene
+    # proprio creata (e se non c'è nessun dato non si crea nemmeno la tabella)
+    rows: list[tuple[str, str]] = []
+    if str(f.get("cwe") or "").strip():
+        rows.append(("CWE", _fmt_cwe(f.get("cwe", ""))))
+    if str(f.get("cvss") or "").strip():
+        rows.append(("Punteggio CVSS 3.1", _fmt_cvss_cell(f)))
     vector = str(f.get("cvss_vector") or "").strip()
     if vector:
         rows.append(("Vettore CVSS", f"`{vector}`"))
@@ -1504,21 +1543,23 @@ def render_finding(idx: int, f: dict) -> str:
     if status in STATUS_LABEL:
         rows.append(("Stato", f'<span class="status-badge {STATUS_CLASS[status]}">'
                               f"{STATUS_LABEL[status]}</span>"))
-    rows += [
-        ("Descrizione (incl. causa)", f.get("description", "")),
-        ("Impatto", f.get("impact", "")),
-        ("Asset Interessati", f.get("assets", "")),
-        ("Remediation", f.get("remediation", "")),
-        ("Riferimenti", f.get("refs", "") or "*—*"),
-    ]
-    if (f.get("sources") or "").strip():
-        rows.append(("Fonti", f["sources"]))
-    body = "\n".join(f"| **{k}** | {v} |" for k, v in rows)
-    card = ("\n\n::: {.finding}\n"
-            "|                     | |\n"
-            "|---------------------|-------------------------------------------------------|\n"
-            f"{body}\n:::\n")
-    evidence = (f.get("evidence") or "").strip()
+    for key, row_label in (("description", "Descrizione (incl. causa)"),
+                           ("impact", "Impatto"),
+                           ("assets", "Asset Interessati"),
+                           ("remediation", "Remediation"),
+                           ("refs", "Riferimenti"),
+                           ("sources", "Fonti")):
+        val = str(f.get(key) or "").strip()
+        if val:
+            rows.append((row_label, val))
+    card = ""
+    if rows:
+        body = "\n".join(f"| **{k}** | {_md_cell(v)} |" for k, v in rows)
+        card = ("\n\n::: {.finding}\n"
+                "|                     | |\n"
+                "|---------------------|-------------------------------------------------------|\n"
+                f"{body}\n:::\n")
+    evidence = _normalize_evidence(f.get("evidence") or "")
     ev_block = ("\n\n**Evidenze:**\n\n" + evidence) if evidence else ""
     imgs = _render_images(f.get("images"))
     imgs_block = ("\n\n" + imgs) if imgs else ""
@@ -1594,8 +1635,8 @@ METHODOLOGIES = {
 
 def _contacts_table(title: str, rows: list[dict]) -> str:
     body = "\n".join(
-        f"| {r.get('name', '')} | {r.get('role', '')} | {r.get('email', '')} |"
-        for r in rows)
+        f"| {_md_cell(r.get('name', ''))} | {_md_cell(r.get('role', ''))} | "
+        f"{_md_cell(r.get('email', ''))} |" for r in rows)
     return (f"| **{title}** | | |\n"
             "|---|---|---|\n"
             "| **Nome** | **Ruolo** | **Email** |\n"
@@ -1622,8 +1663,9 @@ def render_versioni(meta: dict) -> str:
     if not rows:
         return ""
     body = "\n".join(
-        f"| {v.get('version', '')} | {v.get('date', '')} | "
-        f"{v.get('author', '')} | {v.get('desc', '')} |" for v in rows)
+        f"| {_md_cell(v.get('version', ''))} | {_md_cell(v.get('date', ''))} | "
+        f"{_md_cell(v.get('author', ''))} | {_md_cell(v.get('desc', ''))} |"
+        for v in rows)
     return ("| **Versione** | **Data** | **Autore** | **Descrizione** |\n"
             "|---|---|---|---|\n"
             f"{body}\n\n: Tabella: Storico delle versioni")
@@ -1700,8 +1742,9 @@ def render_appendice_host(meta: dict) -> str:
     if not rows:
         return ""
     body = "\n".join(
-        f"| {h.get('host', '')} | `{h.get('ip', '')}` | {h.get('os', '')} | "
-        f"{h.get('access', '')} | {h.get('technique', '')} |" for h in rows)
+        f"| {_md_cell(h.get('host', ''))} | `{_md_cell(h.get('ip', ''))}` | "
+        f"{_md_cell(h.get('os', ''))} | {_md_cell(h.get('access', ''))} | "
+        f"{_md_cell(h.get('technique', ''))} |" for h in rows)
     return ("| **Host** | **Indirizzo IP** | **Sistema operativo** | "
             "**Livello di accesso ottenuto** | **Tecnica** |\n"
             "|---|---|---|---|---|\n"
@@ -1714,8 +1757,9 @@ def render_appendice_utenti(meta: dict) -> str:
     if not rows:
         return ""
     body = "\n".join(
-        f"| `{u.get('user', '')}` | {u.get('domain', '')} | "
-        f"{u.get('access', '')} | {u.get('source', '')} |" for u in rows)
+        f"| `{_md_cell(u.get('user', ''))}` | {_md_cell(u.get('domain', ''))} | "
+        f"{_md_cell(u.get('access', ''))} | {_md_cell(u.get('source', ''))} |"
+        for u in rows)
     return ("| **Utente** | **Dominio** | **Livello di accesso** | "
             "**Metodo di compromissione** |\n"
             "|---|---|---|---|\n"
@@ -1728,7 +1772,8 @@ def render_appendice_bonifica(meta: dict) -> str:
     if not rows:
         return ""
     body = "\n".join(
-        f"| {c.get('desc', '')} | {c.get('status', '')} |" for c in rows)
+        f"| {_md_cell(c.get('desc', ''))} | {_md_cell(c.get('status', ''))} |"
+        for c in rows)
     return ("| **Modifica / Artefatto** | **Stato della bonifica** |\n"
             "|---|---|\n"
             f"{body}\n\n: Tabella: Modifiche effettuate e attività di bonifica")
@@ -1740,9 +1785,9 @@ def render_appendice_password(meta: dict) -> str:
     if not rows:
         return ""
     body = "\n".join(
-        f"| {c.get('title', '')} | {c.get('username', '')} | "
-        f"{c.get('url', '')} | {c.get('notes', '')} | `{c.get('value', '')}` |"
-        for c in rows)
+        f"| {_md_cell(c.get('title', ''))} | {_md_cell(c.get('username', ''))} | "
+        f"{_md_cell(c.get('url', ''))} | {_md_cell(c.get('notes', ''))} | "
+        f"`{_md_cell(c.get('value', ''))}` |" for c in rows)
     return ("| **Titolo** | **Nome utente** | **URL** | **Note** | "
             "**Valore / Password** |\n"
             "|---|---|---|---|---|\n"
@@ -1985,6 +2030,9 @@ def sync_report(slug: str) -> tuple[bool, str]:
     if "@@AUTO:" not in text:
         return False, ("Questo report non ha blocchi dinamici (vecchio formato). "
                        "Ricrealo con 'report new'.")
+    # anche i report toccati a mano tornano in ordine di severità a ogni sync
+    if sort_findings_by_severity(meta.get("findings", [])):
+        save_meta(slug, meta)
     text = apply_meta(text, meta, slug)
     md.write_text(text, encoding="utf-8")
     return True, "Blocchi dinamici aggiornati"
@@ -2053,14 +2101,33 @@ def create_report(client: str, rtype: str = "Penetration Test Interno",
 # Findings
 # ---------------------------------------------------------------------------
 
+_FAKE_FENCE_RE = re.compile(r"[´′‵ˊˋ`]{3,}")
+
+
+def _normalize_evidence(text: str) -> str:
+    """Normalizza le evidenze testuali prima di finire nel markdown:
+
+    - converte i fence 'finti' (´´´, ′′′, ``` tipici di tastiera italiana)
+      in backtick veri, altrimenti pandoc li stampa come testo letterale;
+    - rimuove l'indentazione comune: un fence indentato di 4+ spazi NON viene
+      riconosciuto come blocco di codice e i ``` resterebbero visibili;
+    - un fence lasciato vuoto (```\\n\\n``` di default del form) vale come
+      'nessuna evidenza'."""
+    t = _FAKE_FENCE_RE.sub("```", (text or "").replace("\r\n", "\n"))
+    t = textwrap.dedent(t).strip()
+    if re.fullmatch(r"```[\s\n]*```", t):
+        return ""
+    return t
+
+
 def _fence_evidence(text: str) -> str:
     """Le evidenze testuali stanno in un blocco ``` di default (output comandi).
     Se l'utente ha già messo i fence o vuole testo libero, non si tocca."""
-    t = (text or "").strip()
+    t = _normalize_evidence(text)
     if not t:
         return ""
     if "```" in t or t.startswith("|"):
-        return text.strip()
+        return t
     return f"```\n{t}\n```"
 
 
@@ -2089,10 +2156,14 @@ def add_finding(slug: str, finding: dict, index: int | None = None) -> tuple[boo
         finding["severity"] = "info"
     if index is not None and 0 <= index < len(meta["findings"]):
         meta["findings"][index] = finding
-        msg = f"Finding SLC-{index + 1:02d} aggiornato"
     else:
         meta["findings"].append(finding)
-        msg = f"Finding SLC-{len(meta['findings']):02d} aggiunto"
+    # i finding si ordinano da soli per severità (critical -> info):
+    # la numerazione SLC-XX nel PDF segue sempre questo ordine
+    sort_findings_by_severity(meta["findings"])
+    new_idx = next(i for i, x in enumerate(meta["findings"]) if x is finding)
+    msg = f"Finding SLC-{new_idx + 1:02d} " + ("aggiornato" if index is not None
+                                               else "aggiunto")
     save_meta(slug, meta)
     ok, smsg = sync_report(slug)
     counts = _sev_counts(meta["findings"])
@@ -2105,6 +2176,7 @@ def delete_finding(slug: str, index: int) -> tuple[bool, str]:
     if meta is None or not (0 <= index < len(meta["findings"])):
         return False, "Finding non trovato."
     removed = meta["findings"].pop(index)
+    sort_findings_by_severity(meta["findings"])
     save_meta(slug, meta)
     sync_report(slug)
     return True, f"Finding '{removed.get('title', '')}' eliminato."

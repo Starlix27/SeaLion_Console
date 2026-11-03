@@ -78,6 +78,12 @@ REPO_URL = "https://github.com/Starlix27/SeaLion_Console.git"
 
 
 def auto_update() -> None:
+    """All'apertura fa sempre il pull da SeaLion_Console.
+
+    Se c'è lavoro locale non committato viene messo da parte con uno stash
+    automatico, il repo viene allineato al remoto (git pull) e poi lo stash
+    viene ripristinato: niente più aggiornamenti saltati per working tree
+    sporco."""
     if os.environ.get("SEALION_NO_UPDATE"):
         return
     if not (PROJECT_ROOT / ".git").is_dir():
@@ -89,45 +95,50 @@ def auto_update() -> None:
         threading.Thread(target=update_intel_cache, daemon=True).start()
     except Exception:
         pass
-    try:
-        # All'avvio fa sempre il pull dal repo SeaLion_Console.
-        r = subprocess.run(
-            ["git", "-C", str(PROJECT_ROOT), "fetch", "--force", REPO_URL, "main"],
-            capture_output=True, text=True, timeout=15,
+
+    def _git(*args: str, timeout: int = 20) -> subprocess.CompletedProcess:
+        return subprocess.run(
+            ["git", "-C", str(PROJECT_ROOT), *args],
+            capture_output=True, text=True, timeout=timeout,
         )
+
+    try:
+        r = _git("fetch", "--force", REPO_URL, "main", timeout=30)
         if r.returncode != 0:
             print("\033[90m[update] Nessuna connessione al repo: continuo offline.\033[0m")
             return
-        local = subprocess.run(
-            ["git", "-C", str(PROJECT_ROOT), "rev-parse", "HEAD"],
-            capture_output=True, text=True,
-        ).stdout.strip()
-        remote = subprocess.run(
-            ["git", "-C", str(PROJECT_ROOT), "rev-parse", "FETCH_HEAD"],
-            capture_output=True, text=True,
-        ).stdout.strip()
-        if not remote:
-            return
-        if local == remote:
+        local = _git("rev-parse", "HEAD").stdout.strip()
+        remote = _git("rev-parse", "FETCH_HEAD").stdout.strip()
+        if not remote or local == remote:
             print("\033[90m[update] SeaLion Console è già aggiornato.\033[0m")
             return
-        # Non toccare nulla se c'è lavoro locale (modifiche o file non tracciati).
-        dirty = subprocess.run(
-            ["git", "-C", str(PROJECT_ROOT), "status", "--porcelain"],
-            capture_output=True, text=True,
-        ).stdout.strip()
+        dirty = bool(_git("status", "--porcelain").stdout.strip())
+        stashed = False
         if dirty:
-            print("\033[93;1m[update] NUOVA VERSIONE DISPONIBILE\033[0m "
-                  f"({local[:7]} → {remote[:7]}), ma ci sono modifiche locali non "
-                  "committate: il pull automatico è sospeso per non perdere il lavoro.")
-            print("\033[93m[update]\033[0m Per aggiornare: "
-                  "git add -A && git commit -m wip  (oppure git stash), poi riavvia.")
-            return
-        subprocess.run(
-            ["git", "-C", str(PROJECT_ROOT), "reset", "--hard", "FETCH_HEAD"],
-            capture_output=True, text=True, timeout=15,
-        )
-        print(f"\033[92m[update]\033[0m Aggiornato a {remote[:7]}")
+            # metti da parte le modifiche locali, le ripristino dopo il pull
+            s = _git("stash", "push", "-u", "-m", "sealion-autostash")
+            stashed = s.returncode == 0
+        r = _git("pull", "--no-edit", REPO_URL, "main", timeout=30)
+        if r.returncode != 0:
+            # fallback: allineamento forzato al remoto (fonte di verità)
+            r = _git("reset", "--hard", "FETCH_HEAD", timeout=30)
+        pop_ok = True
+        if stashed:
+            pop = _git("stash", "pop", timeout=30)
+            pop_ok = pop.returncode == 0
+            if not pop_ok:
+                print("\033[93;1m[update]\033[0m Conflitto nel ripristino delle "
+                      "modifiche locali: sono nello stash "
+                      "(\033[1mgit stash list\033[0m / \033[1mgit stash pop\033[0m).")
+        if r.returncode == 0:
+            note = ""
+            if stashed:
+                note = (" (modifiche locali ripristinate)" if pop_ok
+                        else " (modifiche locali nello stash)")
+            print(f"\033[92m[update]\033[0m Aggiornato a {remote[:7]}{note}")
+        else:
+            print("\033[93m[update]\033[0m Pull non riuscito, continuo con la "
+                  "versione locale.")
     except Exception:
         pass
 
