@@ -2844,7 +2844,7 @@ function renderNav(){{
   }}).join('');
 }}
 
-function go(i){{ CUR=i; EDIT_IDX=-1; LAST_PV_ANCHOR=undefined; renderNav(); renderStep(); window.scrollTo({{top:0,behavior:'smooth'}}); }}
+function go(i){{ CUR=i; EDIT_IDX=-1; LAST_PV_ANCHOR=undefined; renderNav(); renderStep(); }}
 
 function field(id,label,val,ph){{
   return '<div class="wiz-field"><label>'+label+'</label>'+
@@ -2974,6 +2974,15 @@ function renderStep(){{
      '<button class="btn btn-primary" onclick="saveStep(false)">Salva</button> '+
      (CUR<STEPS.length-1?'<button class="btn btn-primary" onclick="saveStep(true)">Salva e continua →</button>':'')+
      '</div></div>';
+  if(s!=='markdown'){{
+    h+='<div style="margin-top:16px;border-top:1px dashed var(--border);padding-top:10px">'+
+       '<button type="button" class="btn" onclick="toggleStepMd()">📄 Markdown di questa sezione</button>'+
+       '<div id="w-stepmd" style="display:none;margin-top:8px;position:relative">'+
+       '<pre id="w-stepmd-pre" style="background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:12px;font-family:monospace;font-size:12px;white-space:pre-wrap;word-wrap:break-word;max-height:320px;overflow:auto;margin:0"></pre>'+
+       '<button type="button" class="copy-btn" style="position:absolute;top:6px;right:8px" onclick="slCopy(document.getElementById(\\'w-stepmd-pre\\').textContent)">📋 copia</button>'+
+       '</div>'+
+       '<div class="wiz-hint" style="margin-top:6px;margin-bottom:0">È la porzione di markdown che questa sezione produce nel documento finale (calcolata sui dati che stai editando). Sola lettura: per modificarla usa lo step Markdown.</div></div>';
+  }}
   p.innerHTML=h;
   if(s==='perimetro')renderScope();
   if(s==='contatti'){{repRender('rep-contatti-cliente');repRender('rep-contatti-team');repRender('rep-versioni');}}
@@ -3001,6 +3010,22 @@ function renderStep(){{
 // ---- Anteprima live ----
 var PV_TIMER=null;
 function schedulePreview(){{clearTimeout(PV_TIMER);PV_TIMER=setTimeout(refreshPreview,500);}}
+
+// ---- Vista markdown della singola sezione ----
+function toggleStepMd(){{
+  var box=document.getElementById('w-stepmd');
+  if(!box)return;
+  if(box.style.display!=='none'){{box.style.display='none';return;}}
+  box.style.display='block';
+  var pre=document.getElementById('w-stepmd-pre');
+  pre.textContent='…';
+  var d=collectDraft();
+  fetch('/api/report/section_md',{{method:'POST',headers:{{'Content-Type':'application/json'}},
+    body:JSON.stringify({{slug:SLUG,step:STEPS[CUR].id,meta:d.meta,sections:d.sections}})
+  }}).then(r=>r.json()).then(function(res){{
+    pre.textContent=res.ok?(res.md||'(questa sezione è vuota nel documento)'):('Errore: '+(res.error||''));
+  }}).catch(function(){{pre.textContent='Errore di rete';}});
+}}
 
 // ---- Toolbar Markdown (immagini con didascalia, blocchi codice, ecc.) ----
 function mdToolbar(id){{
@@ -3071,6 +3096,7 @@ function mdCursorAnchor(){{
 }}
 function currentAnchor(){{
   if(STEPS[CUR].id==='markdown')return mdCursorAnchor();
+  if(STEPS[CUR].id==='findings'&&EDIT_IDX>=0)return 'SLC-'+String(EDIT_IDX+1).padStart(2,'0');
   return STEP_ANCHORS[STEPS[CUR].id]||'';
 }}
 function maybeScrollPreview(){{
@@ -3096,15 +3122,28 @@ function collectDraft(){{
   else if(s==='finale'){{sections.considerazioni=document.getElementById('w-considerazioni').value;}}
   return {{meta:meta,sections:sections}};
 }}
-function renderPreviewMd(md,meta){{
+function setPreview(html){{
+  // srcdoc si renderizza in modo asincrono: lo scroll all'anchor va fatto
+  // SOLO dopo il load, altrimenti l'indicizzazione non funziona. Se la
+  // sezione non è cambiata, ripristina la posizione di scroll precedente.
   var el=document.getElementById('wiz-preview');
   if(!el)return;
+  var y=0;
+  try{{y=(el.contentWindow&&el.contentWindow.scrollY)||0;}}catch(e){{}}
+  el.onload=function(){{
+    var a=currentAnchor();
+    if(a!==LAST_PV_ANCHOR){{LAST_PV_ANCHOR=a;scrollPreviewTo(a);}}
+    else{{try{{el.contentWindow.scrollTo(0,y);}}catch(e){{}}}}
+  }};
+  el.srcdoc=html;
+}}
+function renderPreviewMd(md,meta){{
   fetch('/api/report/preview_html',{{method:'POST',headers:{{'Content-Type':'application/json'}},
     body:JSON.stringify({{slug:SLUG,meta:meta,content:md}})
   }}).then(r=>r.json()).then(function(res){{
-    if(res.ok){{el.srcdoc=res.html;maybeScrollPreview();}}
-    else{{el.srcdoc='<pre style="padding:14px;color:#b03a48;font-family:monospace;white-space:pre-wrap">Anteprima non disponibile:\\n'+esc(res.error||'errore')+'</pre>';}}
-  }}).catch(function(){{el.srcdoc='<pre style="padding:14px;color:#b03a48;font-family:monospace">Errore di rete durante il rendering dell\\'anteprima</pre>';}});
+    if(res.ok){{setPreview(res.html);}}
+    else{{setPreview('<pre style="padding:14px;color:#b03a48;font-family:monospace;white-space:pre-wrap">Anteprima non disponibile:\\n'+esc(res.error||'errore')+'</pre>');}}
+  }}).catch(function(){{setPreview('<pre style="padding:14px;color:#b03a48;font-family:monospace">Errore di rete durante il rendering dell\\'anteprima</pre>');}});
 }}
 function refreshPreview(){{
   var s=STEPS[CUR].id;
@@ -3117,10 +3156,8 @@ function refreshPreview(){{
   fetch('/api/report/preview_html',{{method:'POST',headers:{{'Content-Type':'application/json'}},
     body:JSON.stringify({{slug:SLUG,meta:d.meta,sections:d.sections}})
   }}).then(r=>r.json()).then(function(res){{
-    var el=document.getElementById('wiz-preview');
-    if(!el)return;
-    if(res.ok){{el.srcdoc=res.html;maybeScrollPreview();}}
-    else{{el.srcdoc='<pre style="padding:14px;color:#b03a48;font-family:monospace;white-space:pre-wrap">Anteprima non disponibile:\\n'+esc(res.error||'errore')+'</pre>';}}
+    if(res.ok){{setPreview(res.html);}}
+    else{{setPreview('<pre style="padding:14px;color:#b03a48;font-family:monospace;white-space:pre-wrap">Anteprima non disponibile:\\n'+esc(res.error||'errore')+'</pre>');}}
   }}).catch(()=>{{}});
 }}
 
@@ -5188,6 +5225,8 @@ class SlRequestHandler(http.server.BaseHTTPRequestHandler):
             self._api_report_asset()
         elif path == "/api/report/preview":
             self._api_report_preview()
+        elif path == "/api/report/section_md":
+            self._api_report_section_md()
         elif path == "/api/report/preview_html":
             self._api_report_preview_html()
         elif path == "/api/report/raw":
@@ -5622,6 +5661,62 @@ class SlRequestHandler(http.server.BaseHTTPRequestHandler):
             self._send_json({"ok": False, "error": str(e)}, status=500)
             return
         self._send_json({"ok": True, "path": str(dst.relative_to(_PR))})
+
+    # blocchi @@AUTO:@@/@@SEZ:@@ del template coperti da ciascuno step del wizard
+    _STEP_MD_BLOCKS = {
+        "info": ("__yaml__",),
+        "contatti": ("AUTO:contatti", "AUTO:versioni"),
+        "approccio": ("AUTO:approccio", "AUTO:metodologia", "SEZ:metodologia_note"),
+        "perimetro": ("AUTO:perimetro",),
+        "findings": ("AUTO:panoramica", "SEZ:panoramica_note", "AUTO:riepilogo",
+                     "AUTO:rischio", "AUTO:findings"),
+        "walkthrough": ("SEZ:compromissione", "SEZ:walkthrough"),
+        "remediation": ("SEZ:remediation_breve", "SEZ:remediation_medio",
+                        "SEZ:remediation_lungo"),
+        "compromessi": ("AUTO:appendice_host", "AUTO:appendice_utenti",
+                        "AUTO:appendice_bonifica", "AUTO:appendice_password",
+                        "SEZ:appendice_note"),
+        "stile": ("AUTO:firma",),
+        "finale": ("SEZ:considerazioni", "AUTO:firma"),
+    }
+
+    def _api_report_section_md(self) -> None:
+        """Markdown della sola sezione del wizard richiesta, calcolato sul draft
+        corrente (meta+sections) con la stessa pipeline dell'anteprima."""
+        try:
+            body = json.loads(self._read_body())
+            slug = str(body.get("slug", "")).strip()
+            step = str(body.get("step", "")).strip()
+            meta = body.get("meta")
+            sections = body.get("sections")
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            self._send_json({"ok": False, "error": "JSON non valido"}, status=400)
+            return
+        from lib.report import find_report, preview_md
+        rep = find_report(slug)
+        if rep is None:
+            self._send_json({"ok": False, "error": "Report non trovato"}, status=404)
+            return
+        md = preview_md(rep["slug"],
+                        meta if isinstance(meta, dict) else None,
+                        sections if isinstance(sections, dict) else None)
+        if md is None:
+            self._send_json({"ok": False, "error": "File .md non trovato"}, status=404)
+            return
+        parts: list[str] = []
+        for tag in self._STEP_MD_BLOCKS.get(step, ()):
+            if tag == "__yaml__":
+                m = re.match(r"^---\s*\n(.*?)\n---", md, re.S)
+                if m:
+                    parts.append("---\n" + m.group(1).strip() + "\n---")
+                continue
+            kind, _, name = tag.partition(":")
+            pat = (r"<!--\s*@@" + kind + ":" + re.escape(name) + r"@@\s*-->"
+                   r"(.*?)<!--\s*@@/" + kind + ":" + re.escape(name) + r"@@\s*-->")
+            m = re.search(pat, md, re.S)
+            if m and m.group(1).strip():
+                parts.append(m.group(1).strip())
+        self._send_json({"ok": True, "md": "\n\n".join(parts)})
 
     def _api_report_preview(self) -> None:
         """Anteprima live: markdown finale calcolato in memoria (nessun file toccato)."""
